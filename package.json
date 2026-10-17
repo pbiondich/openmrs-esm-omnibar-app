@@ -1,0 +1,97 @@
+{
+  "name": "@openmrs/esm-omnibar-app",
+  "version": "0.1.0",
+  "license": "MPL-2.0",
+  "description": "O3 omnibar: extensible Ctrl K search for OpenMRS 3 (prototype)",
+  "browser": "dist/openmrs-esm-omnibar-app.js",
+  "main": "src/index.ts",
+  "source": true,
+  "scripts": {
+    "start": "openmrs develop",
+    "serve": "rspack serve --mode=development",
+    "build": "rspack --mode production",
+    "analyze": "rspack --mode=production --env analyze=true",
+    "lint": "eslint src --max-warnings 0",
+    "prettier": "prettier --write \"src/**/*.{ts,tsx}\" --list-different",
+    "typescript": "tsc",
+    "test": "cross-env TZ=UTC vitest run --passWithNoTests",
+    "test:watch": "cross-env TZ=UTC vitest watch",
+    "verify": "turbo lint typescript coverage",
+    "coverage": "cross-env TZ=UTC vitest run --coverage --passWithNoTests",
+    "prepare": "husky install",
+    "extract-translations": "i18next 'src/**/*.component.tsx' --config ./tools/i18next-parser.config.js",
+    "test-e2e": "playwright test"
+  },
+  "browserslist": [
+    "extends browserslist-config-openmrs"
+  ],
+  "keywords": [
+    "openmrs",
+    "microfrontends"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pbiondich/openmrs-esm-omnibar-app.git"
+  },
+  "homepage": "https://github.com/pbiondich/openmrs-esm-omnibar-app#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/pbiondich/openmrs-esm-omnibar-app/issues"
+  },
+  "dependencies": {
+    "@carbon/react": "^1.83.0",
+    "lodash-es": "^4.17.21"
+  },
+  "peerDependencies": {
+    "@openmrs/esm-framework": "11.x",
+    "dayjs": "1.x",
+    "react": "18.x",
+    "react-dom": "18.x",
+    "react-i18next": "16.x",
+    "react-router-dom": "6.x",
+    "rxjs": "6.x"
+  },
+  "devDependencies": {
+    "@openmrs/eslint-config": "^2.1.0",
+    "@openmrs/esm-framework": "next",
+    "@openmrs/esm-styleguide": "next",
+    "@playwright/test": "^1.52.0",
+    "@swc/cli": "^0.3.12",
+    "@swc/core": "^1.3.68",
+    "@testing-library/dom": "^10.1.0",
+    "@testing-library/jest-dom": "^6.4.5",
+    "@testing-library/react": "^15.0.6",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^18.3.21",
+    "@types/react-dom": "^18.3.0",
+    "@types/react-router": "^5.1.20",
+    "@types/react-router-dom": "^5.3.3",
+    "@vitest/coverage-v8": "^4.1.2",
+    "cross-env": "^10.1.0",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.0.3",
+    "eslint": "^9.39.0",
+    "happy-dom": "^20.0.0",
+    "husky": "^8.0.3",
+    "i18next": "^25.0.0",
+    "i18next-parser": "^9.3.0",
+    "lint-staged": "^15.2.2",
+    "openmrs": "next",
+    "prettier": "^3.3.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-i18next": "^16.0.0",
+    "react-router-dom": "^6.14.1",
+    "rxjs": "^6.6.7",
+    "turbo": "^2.5.2",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.2"
+  },
+  "lint-staged": {
+    "packages/**/src/**/*.{ts,tsx}": "eslint --cache --fix --max-warnings 0",
+    "*.{css,scss,ts,tsx}": "prettier --write --list-different"
+  },
+  "packageManager": "yarn@4.10.3"
+}
