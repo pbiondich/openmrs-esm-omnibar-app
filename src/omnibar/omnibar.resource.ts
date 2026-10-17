@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { launchWorkspace2, navigate } from '@openmrs/esm-framework';
+import { interpolateUrl, launchWorkspace2, navigate } from '@openmrs/esm-framework';
 import {
   OMNIBAR_SELECTED_EVENT,
   type OmnibarLane,
@@ -96,9 +96,16 @@ export function getProviderOrder(
 /** The only place a result turns into an action. */
 export async function executeTarget(target: OmnibarTarget): Promise<void> {
   switch (target.type) {
-    case 'navigate':
+    case 'navigate': {
+      // A javascript: or data: URL would run code rather than go somewhere, which is what a result
+      // must not do. navigate() hands any URL outside the SPA to location.assign, so check here.
+      const { protocol } = new URL(interpolateUrl(target.to), window.location.href);
+      if (protocol !== 'http:' && protocol !== 'https:') {
+        throw new Error(`Omnibar results can only link to web pages, not ${protocol} URLs`);
+      }
       navigate({ to: target.to });
       return;
+    }
     case 'workspace':
       await launchWorkspace2(
         target.workspaceName,

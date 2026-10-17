@@ -149,6 +149,14 @@ describe('executeTarget', () => {
     await executeTarget({ type: 'workspace', workspaceName: 'order-basket', workspaceProps: { a: 1 } });
     expect(launchWorkspace2).toHaveBeenCalledWith('order-basket', { a: 1 }, null, null);
   });
+
+  it.each(['javascript:alert(document.cookie)', ' JavaScript:alert(1)', 'data:text/html,<script>alert(1)</script>'])(
+    'refuses to follow %s',
+    async (to) => {
+      await expect(executeTarget({ type: 'navigate', to })).rejects.toThrow();
+      expect(navigate).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('DestinationsProvider', () => {
