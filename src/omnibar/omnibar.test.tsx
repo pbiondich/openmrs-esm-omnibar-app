@@ -757,10 +757,13 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     const jane = await screen.findByRole('option', { name: /jane doe/i });
     vi.useRealTimers();
-    // The photo is decoration: the mock renders "Patient Photo", and none of it reaches the name.
     expect(jane).toHaveAccessibleName('Jane Doe Female 36 yrs · 15-Mar-1990 · OpenMRS ID: 100GEJ');
-    // PatientPhoto loads the photo from this server, or draws an avatar locally, from the patient's uuid.
-    expect(vi.mocked(PatientPhoto)).toHaveBeenCalledWith({ patientUuid: 'jane-uuid', patientName: 'Jane Doe' }, {});
+    // The initials tile is drawn locally, out of the accessible name, and nothing loads a photo.
+    expect(within(jane).getByText('JD')).toBeInTheDocument();
+    expect(within(jane).queryByRole('img')).not.toBeInTheDocument();
+    expect(vi.mocked(PatientPhoto)).not.toHaveBeenCalled();
+    expect(mockOpenmrsFetch).not.toHaveBeenCalledWith(expect.stringContaining('/obs'), expect.anything());
+    expect(mockOpenmrsFetch).not.toHaveBeenCalledWith(expect.stringContaining('/obs'));
     expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining('/patient?q=jane'));
 
     await user.keyboard('{Enter}');

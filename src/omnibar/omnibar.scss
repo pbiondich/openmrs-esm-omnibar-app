@@ -235,8 +235,18 @@ $omnibar-max-width: 48rem;
   min-width: 0;
 }
 
-.patientPhoto {
+.patientTile {
+  @include type.type-style(heading-compact-01);
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: layout.$spacing-08;
+  height: layout.$spacing-08;
+  background-color: colors.$teal-60;
+  color: themes.$text-on-color;
+  text-transform: uppercase;
+  user-select: none;
 }
 
 .gender {

@@ -12,7 +12,6 @@ import {
   GenderOtherIcon,
   GenderUnknownIcon,
   isDesktop,
-  PatientPhoto,
   useAssignedExtensions,
   useConfig,
   useDebounce,
@@ -39,6 +38,13 @@ export const providersSlot = 'omnibar-providers-slot';
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
 const genderIcons = { M: GenderMaleIcon, F: GenderFemaleIcon, O: GenderOtherIcon, U: GenderUnknownIcon };
+
+function initials(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  const first = words[0] ?? '';
+  const last = words.length > 1 ? words[words.length - 1] : '';
+  return (Array.from(first)[0] ?? '') + (Array.from(last)[0] ?? '');
+}
 
 const Omnibar: React.FC = () => {
   const { t } = useTranslation();
@@ -430,9 +436,11 @@ const Omnibar: React.FC = () => {
                           onClick={() => choose({ ...result, providerId: group.providerId, key })}
                         >
                           {result.patient && (
-                            // The row's text already names the patient, so the photo or avatar is decoration.
-                            <span className={styles.patientPhoto} aria-hidden>
-                              <PatientPhoto patientUuid={result.patient.uuid} patientName={result.title} />
+                            // Drawn here rather than with the framework's PatientPhoto, which loads an image
+                            // from a path the server supplies and can be sent off-site. The row's text already
+                            // names the patient, so the tile is decoration.
+                            <span className={styles.patientTile} aria-hidden>
+                              {initials(result.title)}
                             </span>
                           )}
                           <span className={styles.optionText}>

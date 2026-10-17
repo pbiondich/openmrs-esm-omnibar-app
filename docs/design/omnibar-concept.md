@@ -94,7 +94,7 @@ interface OmnibarResult {
   id: string;
   title: string;
   subtitle?: string;
-  patient?: { uuid: string; gender?: string }; // shows the photo or avatar, and the gender, as patient search does
+  patient?: { uuid: string; gender?: string }; // shows an initials tile and the gender, as patient search does
   target: OmnibarTarget;
 }
 
