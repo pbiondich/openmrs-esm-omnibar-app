@@ -19,6 +19,10 @@
     ],
     "resolveJsonModule": true,
     "noEmit": true,
-    "target": "esnext"
+    "target": "esnext",
+    // examples/ is written as it would live in another module, importing this package by name.
+    "paths": {
+      "@openmrs/esm-omnibar-app": ["./src/index.ts"]
+    }
   }
 }
