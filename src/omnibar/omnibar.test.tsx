@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { SWRConfig } from 'swr';
-import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -357,6 +357,21 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     expect(screen.queryByText('Answer from this chart')).not.toBeInTheDocument();
     expect(screen.getByText(/nothing matches/i)).toBeInTheDocument();
+  });
+
+  it('keeps the chart scope when Backspace is held down to clear the field', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'hb{Backspace}{Backspace}');
+    // user-event doesn't set `repeat`, so send the auto-repeat that follows the last character directly.
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Backspace', repeat: true });
+    expect(screen.getByRole('combobox', { name: /search this chart/i })).toHaveValue('');
+
+    await user.keyboard('{Backspace}');
+    expect(screen.getByRole('combobox', { name: /search patients and pages/i })).toBeInTheDocument();
+    window.history.pushState({}, '', '/');
   });
 
   it('ignores Enter until the results match what was typed', async () => {

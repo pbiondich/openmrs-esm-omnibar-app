@@ -145,8 +145,9 @@ const Omnibar: React.FC = () => {
         inputRef.current?.blur();
         return;
       case 'Backspace':
-        // Backspace on an empty field drops the patient scope, like removing a filter chip.
-        if (!query && context.scope === 'patient') {
+        // Backspace on an empty field drops the patient scope, like removing a filter chip. Not on key
+        // repeat, so holding Backspace to clear the text doesn't also clear the scope.
+        if (!query && !event.repeat && context.scope === 'patient') {
           widenToGlobal();
         }
         return;
