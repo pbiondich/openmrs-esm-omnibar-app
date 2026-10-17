@@ -2,7 +2,7 @@
 
 A contextually-aware “omnibar” for OpenMRS 3: where users can simply ask the EMR for what they want. One always-visible field, summoned from anywhere with Ctrl K (⌘K on Mac) or `/`.
 
-**Status:** prototype. It type-checks, lints, builds and passes its unit tests, but has **not yet been run against a live O3 instance**.
+**Status:** prototype, running live on an O3 3.8.0-rc.2 sandbox at [o3.pgb.md](https://o3.pgb.md/openmrs/spa). It type-checks, lints, builds and passes its unit tests.
 
 <!-- Add a short screen recording here once you get around to it :) -->
 
@@ -110,7 +110,7 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 | Provider | Lane | Scopes | Data source |
 | --- | --- | --- | --- |
 | Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property |
-| Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation?code=…&_sort=-date` |
+| Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
 | ChartSearch (in `examples/`) | answer | patient | ChartSearch API; the endpoint in the example is a placeholder |
 
@@ -217,7 +217,7 @@ Before opening a pull request, check your change against the design rules above.
 
 The aim is to prove this outside core and then bring it to the OpenMRS community:
 
-1. Run the prototype in a dev distribution and fix what the live system shows.
+1. ~~Run the prototype in a dev distribution and fix what the live system shows.~~ Running at [o3.pgb.md](https://o3.pgb.md/openmrs/spa); first live fixes are in.
 2. Take it to the patient-management squad, with patient search as the first provider and the `appearance` option ready.
 3. Add a dedicated centre slot to the navbar in esm-primary-navigation-app, since `top-nav-actions-slot` is crowded.
 4. Make ChartSearch the first external provider, to prove the contract handles streaming and sources.
@@ -227,7 +227,7 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 Open questions:
 
 - [ ] Is REST `/concept?q=` fast enough for type-ahead on a full CIEL dictionary, and does it match synonyms and locale names as assumed?
-- [ ] Does FHIR `Observation?code=<concept uuids>&_sort=-date` reliably return the latest value per concept?
+- [x] Does FHIR return the latest value per concept? Yes: chart lookup uses `Observation/$lastn?max=1`, verified on the sandbox.
 - [ ] Should destinations come from config, or be derived from routes.json pages with people-facing labels added? How should their labels be translated?
 - [ ] Can the results viewer accept a deep link to a specific test, so chart lookup lands on the value?
 - [ ] How does CIEL represent drug groupings such as antiretrovirals, and can that seed drug groups for cohort questions?
