@@ -10,7 +10,7 @@ The shell knows nothing clinical. Every capability is a provider, an ordinary O3
 
 ## Status
 
-Prototype. It type-checks, lints, builds and passes its unit tests, but has **not yet been run against a live O3 instance**. Open questions (concept search speed on CIEL, destination translation, tablet sheet on real devices) are listed in the design doc.
+Prototype, built against `@openmrs/esm-framework` 11.0.0, the version O3 3.8.0-rc.2 ships. It type-checks, lints, builds and passes its unit tests, but has **not yet been run against a live O3 instance**. Open questions (concept search speed on CIEL, destination translation, tablet sheet on real devices) are listed in the design doc.
 
 ## Trying it
 
@@ -26,7 +26,7 @@ Add `@openmrs/esm-omnibar-app` to a distro's SPA build, then remove the old sear
 }
 ```
 
-Framework 10.x merges `extensionSlots` config from all modules by slot name, and the last one read wins. If the distro already configures `top-nav-actions-slot` anywhere, add the `remove` entry to that block instead of adding a second one.
+Framework 10.x and 11.0.0 merge `extensionSlots` config from all modules by slot name, and the last one read wins (11.0.0 merges only `configure` blocks). If the distro already configures `top-nav-actions-slot` anywhere, add the `remove` entry to that block instead of adding a second one.
 
 Then check the default destination paths against the distro and add keywords in `@openmrs/esm-omnibar-app` config. To keep today's collapsed magnifier instead of a visible field:
 
