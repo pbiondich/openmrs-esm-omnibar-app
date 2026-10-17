@@ -1,23 +1,69 @@
 import React from 'react';
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { SWRConfig } from 'swr';
+import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type FetchResponse,
   getDefaultsFromConfigSchema,
   launchWorkspace2,
   navigate,
+  openmrsFetch,
+  useAssignedExtensions,
   useConfig,
   useLayoutType,
 } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import DestinationsProvider from '../providers/destinations.provider';
+import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
 import { executeTarget, getProviderOrder, useResultCollector } from './omnibar.resource';
 import { getPatientUuidFromPath } from './use-omnibar-context';
-import { type OmnibarReport } from './types';
+import { type OmnibarProviderMeta, type OmnibarProviderProps, type OmnibarReport } from './types';
+
+// The framework mock's ExtensionSlot renders a render-function child as a React child, and its
+// Extension renders nothing, so no provider ever mounts. These behave like the real ones: the
+// render function runs once per assigned extension, and <Extension state> passes state as props.
+const providerComponents = vi.hoisted(() => new Map<string, React.ComponentType<OmnibarProviderProps>>());
+
+vi.mock('@openmrs/esm-framework', async (importOriginal) => {
+  const framework = await importOriginal<typeof import('@openmrs/esm-framework')>();
+  const { createContext, createElement, useContext } = await import('react');
+  const ExtensionName = createContext('');
+  return {
+    ...framework,
+    ExtensionSlot: ({ name, children }) =>
+      framework
+        .useAssignedExtensions(name)
+        .map((extension) =>
+          createElement(ExtensionName.Provider, { key: extension.id, value: extension.name }, children(extension)),
+        ),
+    Extension: ({ state }) => {
+      const Component = providerComponents.get(useContext(ExtensionName));
+      return Component ? createElement(Component, state) : null;
+    },
+  };
+});
+
+function mountProviders(
+  providers: Array<{ name: string; meta: OmnibarProviderMeta; component: React.ComponentType<OmnibarProviderProps> }>,
+) {
+  providerComponents.clear();
+  for (const { name, component } of providers) {
+    providerComponents.set(name, component);
+  }
+  mockUseAssignedExtensions.mockReturnValue(
+    providers.map(({ name, meta }) => ({ id: name, name, moduleName: '@openmrs/esm-omnibar-app', meta, config: null })),
+  );
+}
+
+const renderWithFreshCache = (ui: React.ReactElement) =>
+  render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>{ui}</SWRConfig>);
 
 const mockUseConfig = vi.mocked(useConfig<OmnibarConfig>);
 const mockUseLayoutType = vi.mocked(useLayoutType);
+const mockUseAssignedExtensions = vi.mocked(useAssignedExtensions);
+const mockOpenmrsFetch = vi.mocked(openmrsFetch);
 
 const providers = {
   patients: { lane: 'record' as const, order: 10 },
@@ -166,5 +212,75 @@ describe('Omnibar', () => {
     await user.click(trigger);
     await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
     expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument();
+  });
+});
+
+describe('Omnibar with providers mounted through the slot', () => {
+  const navigateLane: OmnibarProviderMeta = { lane: 'navigate', scopes: ['global', 'patient'], order: 10 };
+  const recordLane: OmnibarProviderMeta = { lane: 'record', scopes: ['global', 'patient'], order: 10 };
+
+  beforeEach(() => {
+    mockUseLayoutType.mockReturnValue('small-desktop');
+    mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig);
+  });
+
+  it('lists what the destinations provider finds', async () => {
+    const user = userEvent.setup();
+    mountProviders([{ name: 'destinations', meta: navigateLane, component: DestinationsProvider }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'triage');
+
+    const listbox = screen.getByRole('listbox');
+    expect(within(listbox).getByRole('group', { name: 'Go to' })).toBeInTheDocument();
+    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['Service queues']);
+  });
+
+  it('drops a report for a query the user has typed past', async () => {
+    const user = userEvent.setup();
+    const mounted = new Map<string, OmnibarProviderProps>();
+    const RecordingProvider: React.FC<OmnibarProviderProps> = (props) => {
+      mounted.set(props.query, props);
+      return null;
+    };
+    mountProviders([{ name: 'recorder', meta: recordLane, component: RecordingProvider }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    expect([...mounted.keys()]).toEqual(['', 'c', 'cd', 'cd4']);
+
+    act(() => mounted.get('cd').report(ready('cd', 'Labs', ['stale result'])));
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+
+    act(() => mounted.get('cd4').report(ready('cd4', 'Labs', ['fresh result'])));
+    expect(screen.getByRole('option', { name: 'fresh result' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'stale result' })).not.toBeInTheDocument();
+  });
+
+  it('lists patients from the patient search provider', async () => {
+    const user = userEvent.setup();
+    mockOpenmrsFetch.mockImplementation((url: string) =>
+      url.includes('/patient?')
+        ? Promise.resolve({
+            data: {
+              results: [
+                {
+                  uuid: 'jane-uuid',
+                  identifiers: [{ identifier: '100GEJ', preferred: true }],
+                  person: { display: 'Jane Doe', gender: 'F', age: 34, dead: false },
+                },
+              ],
+            },
+          } as FetchResponse)
+        : new Promise(() => {}),
+    );
+    mountProviders([{ name: 'patients', meta: recordLane, component: PatientSearchProvider }]);
+    renderWithFreshCache(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'jane');
+
+    const jane = await screen.findByRole('option', { name: /jane doe/i });
+    expect(jane).toHaveTextContent('100GEJ');
+    expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining('/patient?q=jane'));
   });
 });
