@@ -167,6 +167,9 @@ describe('executeTarget', () => {
     '\\\\evil.example/openmrs/spa/home',
     'https:\\\\evil.example/openmrs/spa/home',
     `${window.location.protocol}//admin:Admin123@${window.location.host}/openmrs/spa/home`,
+    `${window.location.origin}//evil.example/phish`,
+    `${window.location.origin}/\\evil.example/phish`,
+    `${window.location.origin}/${window.location.origin}//evil.example`,
   ])('refuses to follow %s', async (to) => {
     await expect(executeTarget({ type: 'navigate', to })).rejects.toThrow();
     expect(navigate).not.toHaveBeenCalled();

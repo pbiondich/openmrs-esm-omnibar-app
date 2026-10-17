@@ -93,18 +93,24 @@ export function getProviderOrder(
   return scope === 'patient' ? (meta?.patientScopeOrder ?? base) : base;
 }
 
+const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;
+
 /** The only place a result turns into an action. */
 export async function executeTarget(target: OmnibarTarget): Promise<void> {
   switch (target.type) {
     case 'navigate': {
       // A result only moves the user around this site. Another origin, however the URL spells it
       // (//host, \\host, https:\\host), is somewhere a provider could send a clinician unseen, and a
-      // javascript: or data: URL has no origin at all. navigate() gets the URL that was checked.
+      // javascript: or data: URL has no origin at all. navigate() interpolates the path again and cuts
+      // the first copy of our origin out of it, so a path like //host or /<origin>//host would still
+      // leave the site. The string navigate() will act on is checked as well.
       const url = new URL(interpolateUrl(target.to), window.location.href);
-      if (url.origin !== window.location.origin || url.username || url.password) {
+      const to = url.pathname + url.search + url.hash;
+      const acted = new URL(interpolateUrl(to).replace(window.location.origin, ''), window.location.origin);
+      if (!isOnThisSite(url) || !isOnThisSite(acted)) {
         throw new Error('Omnibar results can only link to pages on this site');
       }
-      navigate({ to: url.pathname + url.search + url.hash });
+      navigate({ to });
       return;
     }
     case 'workspace':
