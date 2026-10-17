@@ -69,15 +69,20 @@ const Omnibar: React.FC = () => {
 
   const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(debouncedQuery, providerInfo);
 
-  // A change of chart or scope invalidates everything on screen, and the providers are remounted
-  // (keyed below) so that each reports again for the new context. This clears in a layout effect
-  // because a passive one would run after the remounted providers' first reports and drop them.
-  useLayoutEffect(clear, [clear, context]);
-  const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
-
   // The result the user arrowed or pointed to, else the first one that may be the default. When
   // none may, nothing is highlighted and Enter does nothing.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+
+  // A change of chart or scope invalidates everything on screen, the selection included, and the
+  // providers are remounted (keyed below) so that each reports again for the new context. A key kept
+  // from before would select another patient again when they re-report. This clears in a layout
+  // effect because a passive one would run after the remounted providers' first reports and drop them.
+  useLayoutEffect(() => {
+    clear();
+    setSelectedKey(null);
+  }, [clear, context]);
+  const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
+
   const selected =
     selectable.find((r) => r.key === selectedKey) ?? selectable.find((r) => !providerInfo[r.providerId].neverDefault);
   const selectedIndex = selected ? selectable.indexOf(selected) : -1;

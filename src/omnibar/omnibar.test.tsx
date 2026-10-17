@@ -824,6 +824,40 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(landedOn()).toBe(`/openmrs/spa/patient/${jane.uuid}/chart/`);
     });
 
+    it('forgets the highlight when the search is narrowed back to the chart', async () => {
+      const user = userEvent.setup();
+      await openChart([])();
+      await user.click(screen.getByRole('combobox'));
+      await user.click(screen.getByRole('button', { name: /search everywhere instead/i }));
+      await user.type(screen.getByRole('combobox', { name: /search patients and pages/i }), 'jane');
+      expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'true');
+
+      await user.click(screen.getByRole('button', { name: /search only .* chart/i }));
+      await user.click(screen.getByRole('combobox', { name: /search this chart/i }));
+      expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'false');
+      await user.keyboard('{Enter}');
+
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('forgets the highlight when the user moves to another chart', async () => {
+      const user = userEvent.setup();
+      await openChart([])();
+      await user.type(screen.getByRole('combobox', { name: /search this chart/i }), '100GEJ');
+      await screen.findByRole('option', { name: /jane doe/i });
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'true');
+
+      act(() => {
+        window.history.pushState({}, '', '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/Results');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'false');
+      await user.keyboard('{Enter}');
+
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
     it('opens the chart value, never another patient, when patient search answers "cd4" first', async () => {
       const user = userEvent.setup();
       const conceptsArrive = openChart([{ uuid: 'cd4-uuid', display: 'CD4 count', datatype: { display: 'Numeric' } }]);
