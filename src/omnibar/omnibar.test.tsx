@@ -890,7 +890,8 @@ describe('Omnibar with providers mounted through the slot', () => {
       ['arrowed to', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{ArrowDown}')],
       [
         'pointed at',
-        (user: ReturnType<typeof userEvent.setup>) => user.hover(screen.getByRole('option', { name: 'Jane Doe' })),
+        async () =>
+          fireEvent.mouseMove(screen.getByRole('option', { name: 'Jane Doe' }), { movementX: 4, movementY: 2 }),
       ],
     ])('stays unselected inside a chart if it was %s while the results were stale', async (_, pick) => {
       const user = userEvent.setup();
@@ -914,21 +915,34 @@ describe('Omnibar with providers mounted through the slot', () => {
       window.history.pushState({}, '', '/');
     });
 
-    it('is selected only by a pointer that moves, not by rows shifting under a still one', async () => {
+    it('is selected only by a pointer the browser reports moving, not by rows shifting under a still one', async () => {
       const user = userEvent.setup();
       window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
       mountProviders([{ name: 'others', meta: recordLane, component: OtherPatients }]);
       render(<Omnibar />);
       await user.type(screen.getByRole('combobox'), 'doe');
       const selection = () => screen.getAllByRole('option').map((option) => option.getAttribute('aria-selected'));
+      const still = { movementX: 0, movementY: 0 };
 
-      fireEvent.mouseMove(screen.getByRole('option', { name: 'Jane Doe' }), { clientX: 40, clientY: 80 });
-      fireEvent.mouseMove(screen.getByRole('option', { name: 'John Doe' }), { clientX: 40, clientY: 80 });
+      // Rows appear under a resting pointer, which moves off them onto the footer and stops there.
+      // Then a row shifts under it, and the browser sends another mousemove with no movement.
+      fireEvent.mouseMove(screen.getByRole('option', { name: 'Jane Doe' }), { clientX: 40, clientY: 80, ...still });
+      fireEvent.mouseMove(screen.getByText(/enter to open/i), {
+        clientX: 40,
+        clientY: 200,
+        movementX: 0,
+        movementY: 120,
+      });
+      fireEvent.mouseMove(screen.getByRole('option', { name: 'John Doe' }), { clientX: 40, clientY: 200, ...still });
       expect(selection()).toEqual(['false', 'false']);
       await user.keyboard('{Enter}');
       expect(navigate).not.toHaveBeenCalled();
 
-      fireEvent.mouseMove(screen.getByRole('option', { name: 'John Doe' }), { clientX: 40, clientY: 84 });
+      fireEvent.mouseMove(screen.getByRole('option', { name: 'John Doe' }), {
+        clientX: 40,
+        clientY: 203,
+        movementY: 3,
+      });
       expect(selection()).toEqual(['false', 'true']);
       window.history.pushState({}, '', '/');
     });

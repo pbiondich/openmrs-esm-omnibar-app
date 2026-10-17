@@ -171,12 +171,10 @@ const Omnibar: React.FC = () => {
   );
 
   // Chrome sends mousemove when rows shift under a pointer that hasn't moved, so a row is picked only
-  // by a pointer whose position changed since the last event. The first event only records it.
-  const lastPointer = useRef<{ x: number; y: number } | null>(null);
+  // when the browser reports movement for the event. Rows moving under a still pointer report none, and
+  // a browser that reports nothing counts as no movement.
   const pointAt = (event: React.MouseEvent, key: string) => {
-    const last = lastPointer.current;
-    lastPointer.current = { x: event.clientX, y: event.clientY };
-    const moved = last !== null && (last.x !== event.clientX || last.y !== event.clientY);
+    const moved = Boolean(event.movementX || event.movementY);
     if (moved && resultsAreCurrent && selected?.key !== key) {
       setSelectedKey(key);
     }
