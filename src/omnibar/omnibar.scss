@@ -7,12 +7,43 @@
 // The field sits on the dark brand header. At rest it reads as a field, not an icon, so people
 // learn it does more than find patients; when opened it turns light, like the panel below it.
 
+$omnibar-min-width: 18rem;
+$omnibar-max-width: 48rem;
+
 .omnibar {
   position: relative;
   display: flex;
   align-items: center;
-  width: clamp(18rem, 34vw, 38rem);
+  width: clamp($omnibar-min-width, 34vw, 38rem);
   margin-inline: layout.$spacing-05;
+}
+
+// On desktop the field fills the header between the location picker and the icons, up to a cap. The
+// navbar's top-nav-actions-slot doesn't grow, so the omnibar's slot entry and the slot itself are told
+// to, and only when the slot holds the omnibar. The other icons in the slot keep their size. Nothing
+// sets min-width: 0, so the field never shrinks below its minimum or onto its neighbours. A browser
+// without :has keeps the fixed width above.
+@supports selector(:has(*)) {
+  :global([data-extension-slot-name='top-nav-actions-slot']:has(> [data-extension-id='omnibar'])) {
+    flex: 1 1 auto;
+
+    > :global([data-extension-id='omnibar']) {
+      display: flex;
+      flex: 1 1 auto;
+      justify-content: flex-end;
+    }
+
+    > :global(:not([data-extension-id='omnibar'])) {
+      flex-shrink: 0;
+    }
+  }
+
+  :global([data-extension-id='omnibar']) > .omnibar:not(.sheet) {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: $omnibar-min-width;
+    max-width: $omnibar-max-width;
+  }
 }
 
 .field {
