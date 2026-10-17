@@ -517,6 +517,49 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(screen.getByRole('option', { name: 'someone else' })).toBeInTheDocument();
   });
 
+  it('ignores clicks on results and sources until they match what was typed', async () => {
+    const user = userEvent.setup();
+    const RecentsProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+      useEffect(() => report(ready(query, 'Recent patients', query ? [] : ['someone else'])), [query, report]);
+      return null;
+    };
+    const AnswerProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+      useEffect(
+        () =>
+          report({
+            query,
+            title: 'Answer',
+            status: 'ready',
+            answer: {
+              text: 'An answer about someone else',
+              streaming: false,
+              sources: [{ label: 'Their visit', target: { type: 'navigate', to: '/visit' } }],
+            },
+          }),
+        [query, report],
+      );
+      return null;
+    };
+    mountProviders([
+      { name: 'recents', meta: recordLane, component: RecentsProvider },
+      { name: 'answers', meta: { lane: 'answer', scopes: ['global'], order: 10 }, component: AnswerProvider },
+    ]);
+    vi.mocked(useDebounce).mockReturnValue('');
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), '100008E');
+    const staleRecent = screen.getByRole('option', { name: 'someone else' });
+    expect(staleRecent).toHaveAttribute('aria-disabled', 'true');
+    await user.click(staleRecent);
+    await user.click(screen.getByRole('button', { name: 'Their visit' }));
+    expect(navigate).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByRole('combobox'));
+    expect(screen.getByRole('option', { name: 'someone else' })).toHaveAttribute('aria-disabled', 'false');
+    await user.click(screen.getByRole('option', { name: 'someone else' }));
+    expect(landedOn()).toBe('/someone else');
+  });
+
   it('lists patients from the patient search provider', async () => {
     const user = userEvent.setup();
     mockOpenmrsFetch.mockImplementation((url: string) =>

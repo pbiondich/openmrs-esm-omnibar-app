@@ -119,21 +119,25 @@ const Omnibar: React.FC = () => {
   useOmnibarShortcut(openBar, inputRef);
   const containerRef = useOnClickOutside<HTMLDivElement>(closeBar, open && desktop);
 
+  // The results on screen may still be for an earlier query, e.g. recents while a scanner types an
+  // ID, so nothing on screen can be chosen, by key or by pointer, until they catch up.
   const choose = useCallback(
     (result: SelectableResult) => {
+      if (!resultsAreCurrent) return;
       announceSelection({ providerId: result.providerId, resultId: result.id });
       closeBar();
       void executeTarget(result.target);
     },
-    [closeBar],
+    [closeBar, resultsAreCurrent],
   );
 
   const openSource = useCallback(
     (target: OmnibarTarget) => {
+      if (!resultsAreCurrent) return;
       closeBar();
       void executeTarget(target);
     },
-    [closeBar],
+    [closeBar, resultsAreCurrent],
   );
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -150,8 +154,7 @@ const Omnibar: React.FC = () => {
         return;
       }
       case 'Enter':
-        // The results on screen may still be for an earlier query, e.g. recents while a scanner types an ID.
-        if (selected && resultsAreCurrent) {
+        if (selected) {
           event.preventDefault();
           choose(selected);
         }
@@ -373,6 +376,7 @@ const Omnibar: React.FC = () => {
                           id={`${listboxId}-${key}`}
                           role="option"
                           aria-selected={isSelected}
+                          aria-disabled={!resultsAreCurrent}
                           className={classNames(styles.option, { [styles.optionSelected]: isSelected })}
                           onMouseMove={() => !isSelected && setSelectedKey(key)}
                           onMouseDown={(event) => event.preventDefault()}
@@ -427,6 +431,7 @@ const Omnibar: React.FC = () => {
                             key={index}
                             type="button"
                             className={styles.sourceLink}
+                            aria-disabled={!resultsAreCurrent}
                             onClick={() => openSource(source.target)}
                           >
                             {source.label}
