@@ -156,7 +156,7 @@ The test mounts patient search and chart lookup with their `routes.json` meta, i
 
 ## Round 5
 
-Round 5 supersedes the round 4 fix. Paul's constraint is that a query that looks like a patient ID must show the matching patient in any scope. Round 4 stopped patient search running inside a chart, which hid those ID lookups. The safety rule is now that, inside a chart, the default highlight never lands on another patient, and Enter alone never opens another patient's chart.
+Round 5 supersedes the round 4 fix. Round 6 later replaced its `otherPatients` flag with the opt-in `defaultInChart`. Paul's constraint is that a query that looks like a patient ID must show the matching patient in any scope. Round 4 stopped patient search running inside a chart, which hid those ID lookups. The safety rule is now that, inside a chart, the default highlight never lands on another patient, and Enter alone never opens another patient's chart.
 
 | Change | Commit |
 | --- | --- |
@@ -183,5 +183,23 @@ Tests:
 The last two fail with round 4's `routes.json`, and with patient scope but no flag.
 
 - Tests: 59 before, 62 after. 59 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`. Round 4's test was replaced by the two chart tests.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
+- `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as before.
+
+## Round 6
+
+Three findings from the security re-review of rounds 4 and 5. One commit each.
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 | Blocking. The selected key outlived a change of chart or scope. Widening highlighted another patient by default. After narrowing back to the chart, patient search re-reported them, the explicit-key lookup skipped the chart rule, and Enter opened their chart. Arrowing to a patient and then moving to another chart did the same | The layout effect that clears reports on a context change also clears the selection. Tests narrow from global back to the chart, and move from one chart to another, then press Enter | 4fed7c7 |
+| 2 | Blocking. The chart rule failed open. A patient-scoped provider that left out `otherPatients` could take the default highlight with another patient's result | The flag is inverted and opt-in. `"defaultInChart": true` means the results are about the open chart or are pages. Chart lookup and destinations declare it, and patient search declares nothing. Without it, a provider's results inside a chart are selected only by an arrow key or the pointer. `types.ts`, `routes.json` and the design doc are updated. The regression test uses a patient-scoped provider with no flag. In a chart it is never the default, and in global scope it is, as before | da69b7d |
+| 3 | Arrow keys and hover set the selected key while rows were stale, and the pick became an explicit selection if the same key came back after the debounce | Arrow keys and mouse movement do nothing until the results are current. Tests arrow to a stale row and point at one, let the debounce catch up with the same key, and press Enter | 31b5b11 |
+
+On finding 3, I didn't add a separate step to drop a stale selection, because nothing can create one now. The pin waits for current results, arrow keys and hover are ignored while stale, and typing, closing and context changes clear the key.
+
+Each new test failed against the code before its fix.
+
+- Tests: 62 before, 66 after. 63 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`. The round 5 "other patients" tests now use a provider with no flag.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
 - `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as before.
