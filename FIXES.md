@@ -153,3 +153,35 @@ The test mounts patient search and chart lookup with their `routes.json` meta, i
 - Tests: 58 before, 59 after. 56 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
 - `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as before.
+
+## Round 5
+
+Round 5 supersedes the round 4 fix. Paul's constraint is that a query that looks like a patient ID must show the matching patient in any scope. Round 4 stopped patient search running inside a chart, which hid those ID lookups. The safety rule is now that, inside a chart, the default highlight never lands on another patient, and Enter alone never opens another patient's chart.
+
+| Change | Commit |
+| --- | --- |
+| A provider can declare `"otherPatients": true` in its `routes.json` meta, documented in `types.ts` and the design doc. Inside a chart, the shell skips its results when it picks the default highlight. Only an arrow key or the pointer selects them. If nothing else is on screen, no option is highlighted, `aria-activedescendant` is unset and Enter does nothing. From no highlight, Down starts at the top and Up at the bottom. Outside a chart nothing changes | 6614160 |
+| Reverted the round 4 scope change. Patient search runs inside a chart again as "Other patients", after chart lookup, and it declares `otherPatients`, so its patients, recents and "All patient results" rows are never the default there. The placeholder and design doc say "patients" again | f48cb36 |
+
+I added no ID gating. "cd4" and "hb1ac" look like IDs, so the highlight rule has to be the safety net anyway. A pattern strict enough to skip them would also hide real alphanumeric IDs. Every query searches patients inside a chart, as before round 4.
+
+This follows the Always rules in `docs/design/omnibar-context-rules.md`:
+
+- An ID-like query shows patient candidates in any scope.
+- The default highlight never lands on another patient in chart scope.
+- Enter alone never opens another chart.
+
+Widening to global scope inside a chart gives global behaviour, so the first result, a patient included, is the default there. Suggestion rows and the ChartSearch row are not built, as agreed for a later round.
+
+Tests:
+
+- **Generic flagged provider in a chart.** Enter does nothing, nothing is selected and there's no active descendant. Up selects the last row and Down the first, then Enter opens it. Fails before 6614160.
+- **Generic flagged provider outside a chart.** The first row is the default and Enter opens it. This passes before and after, since the behaviour is unchanged.
+- **ID typed in a chart.** Uses the shipped `routes.json` meta. The patient shows under "Other patients", Enter does nothing, and Down then Enter opens their chart.
+- **"cd4" in a chart, patient search answering first.** Uses the shipped meta. Enter does nothing until the CD4 value arrives, the value takes the highlight, and Enter opens `/openmrs/spa/patient/<this patient>/chart/Results`.
+
+The last two fail with round 4's `routes.json`, and with patient scope but no flag.
+
+- Tests: 59 before, 62 after. 59 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`. Round 4's test was replaced by the two chart tests.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
+- `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as before.
