@@ -263,3 +263,30 @@ Tests that failed before their fix:
 - Tests: 67 before, 76 after. 73 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
 - `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as before.
+
+## Hotfix 2
+
+Paul didn't accept the small flat initials tile from hotfix 1e. Patient rows now look like the historic patient search app's compact result. That result is `CompactPatientBannerRow`: `PatientPhoto` in a 3.5rem tile, then `PatientBannerPatientInfo`, in a flex row with a divider and grey hover (053dd00).
+
+| Part | Reused or redrawn | Why |
+| --- | --- | --- |
+| Avatar | Redrawn. It uses the `geopattern` package and version the styleguide uses (`GeoPattern.generate(uuid).toDataUrl()`, cover), at the same 3.5rem size with a 1rem margin and 1px radius. The initials follow PatientPhoto's rule: the first letter of up to three words, 1.75rem, white | `PatientPhoto` loads `new URL(obs link, origin).pathname` as an image, so a `//host/...` path fetches from another site. It also costs an `/obs` request per row. The bundled `geopattern` makes no requests. Its only URL string is the SVG namespace |
+| Name and gender | Redrawn with `PatientBannerPatientInfo`'s tokens: `heading-03` at weight 600 in gray-100, then a Gender icon (fill #525252) and the core translation in gray-70 | `PatientBannerPatientInfo` mounts two extension slots, which would put other apps' extensions, and whatever they fetch, inside every option |
+| Age, birthdate | Reused: the framework's `age()` and `formatPartialDate(birthdate, { time: false })`, in the banner's `body-compact-02` line in `$text-02` | |
+| Identifiers | Redrawn with `PatientBannerPatientIdentifiers`' rules. Untyped identifiers are left out, and so are the types the styleguide config excludes. The primary type, from `usePrimaryIdentifierCode`, sits in a gray Carbon tag, and the others read "Type: value" | Its secondary identifiers render a `<label>` with a fixed id that repeats the patient banner's on a chart page. It also reads the config of whichever module renders it, so in the omnibar the styleguide's exclusions wouldn't apply |
+
+`OmnibarResult.patient` now carries `gender`, `birthdate` and `identifiers`, each identifier with its type's uuid and name. The REST rep is `identifiers:(identifier,identifierType:(uuid,display))`. The subtitle on a patient row is only a trailing note, such as "Deceased". The avatar and icons are aria-hidden, so the option's name is the row's text.
+
+Requests: patient search is still one request per query, and recents are one user request plus one per recent patient, as before. `usePrimaryIdentifierCode` adds one metadatamapping request, which SWR shares across all rows. Rows no longer make any per-row requests.
+
+- **Tests: 76 before, 76 after.** The row test was rewritten for the brief's example, Mogan Zavai Kamwara. It checks:
+  - a `data:image/svg+xml` background with no `http(s)`, no image, no `PatientPhoto`, and no `/obs` request
+  - the initials "MZK"
+  - the accessible name "… Male 66 yrs · <birthdate> · OpenMRS ID: 2166KT-1 · Old ID: OLD-7"
+  - no buttons or links inside the row
+  - the default highlight, and that Enter opens the chart
+
+  It failed on the previous source. The recents test's expected name was updated, and it passes on both, because the old row produced the same text for that fixture.
+- The expected birthdate comes from the framework's `formatPartialDate`, because the month depends on the locale data: "Sept" in this Node, "Sep" in Paul's screenshot.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
+- `corepack yarn build`: `Rspack compiled with 1 warning`, for the two shared fallbacks. The framework fallback chunk shrank from 627 to 606 KiB, because `geopattern` is now in a chunk it shares with the row.
