@@ -284,6 +284,25 @@ describe('Omnibar', () => {
     expect(screen.getByTestId('searchPatientIcon')).toHaveFocus();
   });
 
+  it.each([
+    ['the tablet sheet', 'tablet' as const, 'field' as const, 'Close', /search patients and pages/i],
+    ['icon-mode search', 'small-desktop' as const, 'icon' as const, 'Close search', /search patients and pages/i],
+  ])('closes %s with Escape pressed on its close button', async (_, layout, appearance, closeName, triggerName) => {
+    const user = userEvent.setup();
+    mockUseLayoutType.mockReturnValue(layout);
+    mockUseConfig.mockReturnValue({ ...(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig), appearance });
+    render(<Omnibar />);
+
+    await user.click(screen.getByRole('button', { name: triggerName }));
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+    await user.tab();
+    expect(screen.getByRole('button', { name: closeName })).toHaveFocus();
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: triggerName })).toHaveFocus();
+  });
+
   it('keeps keyboard focus inside the full-screen tablet search', async () => {
     const user = userEvent.setup();
     mockUseLayoutType.mockReturnValue('tablet');

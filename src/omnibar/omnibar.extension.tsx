@@ -159,11 +159,6 @@ const Omnibar: React.FC = () => {
           choose(selected);
         }
         return;
-      case 'Escape':
-        event.preventDefault();
-        dismiss();
-        inputRef.current?.blur();
-        return;
       case 'Backspace':
         // Backspace on an empty field drops the patient scope, like removing a filter chip. Not on key
         // repeat, so holding Backspace to clear the text doesn't also clear the scope.
@@ -174,9 +169,16 @@ const Omnibar: React.FC = () => {
     }
   };
 
-  // The tablet and phone sheet covers the page, so Tab wraps around inside it.
-  const keepFocusInSheet = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Tab') return;
+  // Escape closes from anywhere in the bar, not only the field: Tab reaches the close and source
+  // buttons. The tablet and phone sheet covers the page, so Tab wraps around inside it.
+  const onContainerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' && open) {
+      event.preventDefault();
+      dismiss();
+      inputRef.current?.blur();
+      return;
+    }
+    if (event.key !== 'Tab' || desktop) return;
     const focusable = event.currentTarget.querySelectorAll<HTMLElement>('button, input');
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -253,7 +255,8 @@ const Omnibar: React.FC = () => {
     <div
       ref={containerRef}
       className={classNames(styles.omnibar, { [styles.sheet]: !desktop })}
-      {...(!desktop && { role: 'dialog', 'aria-modal': true, 'aria-label': placeholder, onKeyDown: keepFocusInSheet })}
+      onKeyDown={onContainerKeyDown}
+      {...(!desktop && { role: 'dialog', 'aria-modal': true, 'aria-label': placeholder })}
     >
       <div
         className={classNames(styles.field, { [styles.fieldActive]: open })}
