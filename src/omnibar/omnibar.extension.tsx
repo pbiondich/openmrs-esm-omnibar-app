@@ -101,6 +101,21 @@ const Omnibar: React.FC = () => {
     clear();
   }, [clear]);
 
+  // Escape and the close buttons give focus back to the button that replaces the field when it
+  // closes. Clicking elsewhere or choosing a result doesn't, so focus stays where the user went.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
+  const dismiss = useCallback(() => {
+    returnFocus.current = true;
+    closeBar();
+  }, [closeBar]);
+  useEffect(() => {
+    if (!open && returnFocus.current) {
+      returnFocus.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [open]);
+
   useOmnibarShortcut(openBar, inputRef);
   const containerRef = useOnClickOutside<HTMLDivElement>(closeBar, open && desktop);
 
@@ -141,7 +156,7 @@ const Omnibar: React.FC = () => {
         return;
       case 'Escape':
         event.preventDefault();
-        closeBar();
+        dismiss();
         inputRef.current?.blur();
         return;
       case 'Backspace':
@@ -187,6 +202,7 @@ const Omnibar: React.FC = () => {
       <button
         type="button"
         className={styles.iconTrigger}
+        ref={triggerRef}
         onClick={openBar}
         aria-label={placeholder}
         data-testid="searchPatientIcon"
@@ -202,6 +218,7 @@ const Omnibar: React.FC = () => {
       <button
         type="button"
         className={styles.fieldTrigger}
+        ref={triggerRef}
         onClick={openBar}
         aria-label={placeholder}
         data-tutorial-target="search-patient-icon"
@@ -224,7 +241,7 @@ const Omnibar: React.FC = () => {
           <button
             type="button"
             className={styles.iconButton}
-            onClick={closeBar}
+            onClick={dismiss}
             aria-label={t('close', 'Close')}
             data-tutorial-target="close-search-icon"
           >
@@ -271,7 +288,7 @@ const Omnibar: React.FC = () => {
           <button
             type="button"
             className={styles.iconButton}
-            onClick={closeBar}
+            onClick={dismiss}
             aria-label={t('closeSearch', 'Close search')}
             data-testid="closeSearchIcon"
             data-tutorial-target="close-search-icon"

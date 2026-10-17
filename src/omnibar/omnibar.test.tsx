@@ -65,7 +65,7 @@ function mountProviders(
 /** Where the last navigate() call sends the user; navigate() interpolates `to` the same way. */
 const landedOn = () => interpolateUrl(vi.mocked(navigate).mock.calls.at(-1)[0].to);
 
-const renderWithFreshCache =(ui: React.ReactElement) =>
+const renderWithFreshCache = (ui: React.ReactElement) =>
   render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>{ui}</SWRConfig>);
 
 const mockUseConfig = vi.mocked(useConfig<OmnibarConfig>);
@@ -240,7 +240,40 @@ describe('Omnibar', () => {
 
     await user.click(screen.getByTestId('closeSearchIcon'));
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    expect(screen.getByTestId('searchPatientIcon')).toBeInTheDocument();
+    expect(screen.getByTestId('searchPatientIcon')).toHaveFocus();
+  });
+
+  it.each([
+    ['Escape', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}')],
+    [
+      'the back button',
+      (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Close' })),
+    ],
+  ])('returns focus to the search button when the tablet sheet is closed with %s', async (_, close) => {
+    const user = userEvent.setup();
+    mockUseLayoutType.mockReturnValue('tablet');
+    render(<Omnibar />);
+
+    await user.click(screen.getByRole('button', { name: /search patients and pages/i }));
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+    await close(user);
+
+    expect(screen.getByRole('button', { name: /search patients and pages/i })).toHaveFocus();
+  });
+
+  it('returns focus to the search icon when the icon-mode search is closed with Escape', async () => {
+    const user = userEvent.setup();
+    mockUseConfig.mockReturnValue({
+      ...(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig),
+      appearance: 'icon',
+    });
+    render(<Omnibar />);
+
+    await user.click(screen.getByTestId('searchPatientIcon'));
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+    await user.keyboard('{Escape}');
+
+    expect(screen.getByTestId('searchPatientIcon')).toHaveFocus();
   });
 
   it('shows a field-shaped button on tablet that opens the full-screen search', async () => {
@@ -276,7 +309,11 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     const listbox = screen.getByRole('listbox');
     expect(within(listbox).getByRole('group', { name: 'Go to' })).toBeInTheDocument();
-    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['Service queues']);
+    expect(
+      within(listbox)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Service queues']);
 
     await user.keyboard('{Enter}');
     expect(landedOn()).toBe('/openmrs/spa/home/service-queues');
@@ -329,7 +366,11 @@ describe('Omnibar with providers mounted through the slot', () => {
 
   it('keeps showing results after the search is widened from the chart to everyone', async () => {
     const user = userEvent.setup();
-    window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Patient%20Summary');
+    window.history.pushState(
+      {},
+      '',
+      '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Patient%20Summary',
+    );
     mountProviders([{ name: 'destinations', meta: navigateLane, component: DestinationsProvider }]);
     render(<Omnibar />);
 
@@ -554,10 +595,16 @@ describe('Omnibar with providers mounted through the slot', () => {
 
   it('still lists recent patients when one of them can no longer be fetched', async () => {
     const user = userEvent.setup();
-    vi.mocked(useSession).mockReturnValue({ authenticated: true, sessionId: 's', user: { uuid: 'user-uuid' } } as Session);
+    vi.mocked(useSession).mockReturnValue({
+      authenticated: true,
+      sessionId: 's',
+      user: { uuid: 'user-uuid' },
+    } as Session);
     mockOpenmrsFetch.mockImplementation((url: string) => {
       if (url.includes('/user/user-uuid')) {
-        return Promise.resolve({ data: { userProperties: { patientsVisited: 'purged-uuid,jane-uuid' } } } as FetchResponse);
+        return Promise.resolve({
+          data: { userProperties: { patientsVisited: 'purged-uuid,jane-uuid' } },
+        } as FetchResponse);
       }
       if (url.includes('/patient/jane-uuid')) {
         return Promise.resolve({ data: jane } as FetchResponse);
