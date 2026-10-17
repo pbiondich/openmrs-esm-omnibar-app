@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { SWRConfig } from 'swr';
 import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -12,6 +12,7 @@ import {
   openmrsFetch,
   useAssignedExtensions,
   useConfig,
+  useDebounce,
   useLayoutType,
 } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
@@ -298,6 +299,23 @@ describe('Omnibar with providers mounted through the slot', () => {
     act(() => mounted.get('cd4').report(ready('cd4', 'Labs', ['fresh result'])));
     expect(screen.getByRole('option', { name: 'fresh result' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'stale result' })).not.toBeInTheDocument();
+  });
+
+  it('ignores Enter until the results match what was typed', async () => {
+    const user = userEvent.setup();
+    const RecentsProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+      useEffect(() => report(ready(query, 'Recent patients', query ? [] : ['someone else'])), [query, report]);
+      return null;
+    };
+    mountProviders([{ name: 'recents', meta: recordLane, component: RecentsProvider }]);
+    // The debounce hasn't caught up: a barcode scanner types the ID and Enter within 200 ms.
+    vi.mocked(useDebounce).mockReturnValue('');
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), '100008E{Enter}');
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByRole('option', { name: 'someone else' })).toBeInTheDocument();
   });
 
   it('lists patients from the patient search provider', async () => {

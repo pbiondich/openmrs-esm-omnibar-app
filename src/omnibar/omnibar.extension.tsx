@@ -121,7 +121,8 @@ const Omnibar: React.FC = () => {
         return;
       }
       case 'Enter':
-        if (selected) {
+        // The results on screen may still be for an earlier query, e.g. recents while a scanner types an ID.
+        if (selected && query.trim() === debouncedQuery) {
           event.preventDefault();
           choose(selected);
         }
