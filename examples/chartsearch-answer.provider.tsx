@@ -98,7 +98,7 @@ const ChartSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
       }
     })().catch((error: Error) => {
       if (error.name !== 'AbortError') {
-        report({ query, title, status: 'error', errorMessage: error.message });
+        report({ query, title, status: 'error' });
       }
     });
 

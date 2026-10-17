@@ -207,6 +207,8 @@ const Omnibar: React.FC = () => {
       : t('searchEverything', 'Search patients and pages');
   const shortcutHint = isMac ? '⌘K' : t('ctrlK', 'Ctrl K');
   const chartOwner = patientName || t('thisPatient', 'this patient');
+  // Never the provider's own error: a server's message can quote the query or the record.
+  const providerError = t('providerError', 'Couldn’t load results');
 
   const stillLoading = listGroups.some((g) => g.status === 'loading');
   const hasListResults = selectable.length > 0;
@@ -361,14 +363,7 @@ const Omnibar: React.FC = () => {
                   {group.status === 'loading' && !group.results?.length && (
                     <InlineLoading className={styles.groupLoading} description={t('searching', 'Searching')} />
                   )}
-                  {group.status === 'error' && (
-                    <p className={styles.groupError}>
-                      {t('providerError', 'Couldn’t load results: {{message}}', {
-                        message: group.errorMessage ?? '',
-                        interpolation: { escapeValue: false },
-                      })}
-                    </p>
-                  )}
+                  {group.status === 'error' && <p className={styles.groupError}>{providerError}</p>}
                   <ul role="group" aria-labelledby={headingId}>
                     {(group.results ?? []).map((result) => {
                       const key = `${group.providerId}:${result.id}`;
@@ -414,7 +409,7 @@ const Omnibar: React.FC = () => {
                 {group.status === 'loading' && !answer?.text && (
                   <InlineLoading className={styles.groupLoading} description={t('thinking', 'Working on an answer')} />
                 )}
-                {group.status === 'error' && <p className={styles.groupError}>{group.errorMessage}</p>}
+                {group.status === 'error' && <p className={styles.groupError}>{providerError}</p>}
                 {answer && unsourced && (
                   <p className={styles.groupError}>
                     {t('unsourcedAnswer', 'This answer is hidden because it didn’t cite any records.')}

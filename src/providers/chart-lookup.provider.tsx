@@ -84,9 +84,8 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
       report({ query, title, status: 'idle' });
       return;
     }
-    const error = concepts.error ?? observations.error;
-    if (error) {
-      report({ query, title, status: 'error', errorMessage: error.message });
+    if (concepts.error || observations.error) {
+      report({ query, title, status: 'error' });
       return;
     }
     const loading = concepts.isLoading || (candidates.length > 0 && observations.isLoading);

@@ -134,7 +134,7 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
     }
 
     if (search.error) {
-      report({ query, title: t('patients', 'Patients'), status: 'error', errorMessage: search.error.message });
+      report({ query, title: t('patients', 'Patients'), status: 'error' });
       return;
     }
 

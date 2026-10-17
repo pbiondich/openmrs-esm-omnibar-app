@@ -18,7 +18,7 @@
   "other": "Other",
   "otherPatients": "Other patients",
   "patients": "Patients",
-  "providerError": "Couldn’t load results: {{message}}",
+  "providerError": "Couldn’t load results",
   "recentPatients": "Recent patients",
   "recordedOn": "Latest, recorded {{date}}",
   "search": "Search",

@@ -96,7 +96,6 @@ interface OmnibarReport {
   title: string;                       // group heading, translated by the provider
   results?: Array<OmnibarResult>;
   answer?: OmnibarAnswer;              // answer lane only
-  errorMessage?: string;
 }
 
 interface OmnibarProviderProps { query: string; context: OmnibarContext; report: (r: OmnibarReport) => void }

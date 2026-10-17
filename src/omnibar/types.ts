@@ -85,7 +85,6 @@ export interface OmnibarReport {
   title: string;
   results?: Array<OmnibarResult>;
   answer?: OmnibarAnswer;
-  errorMessage?: string;
 }
 
 /** Props every provider extension receives. */

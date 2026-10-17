@@ -70,10 +70,6 @@ describe('ChartSearch example provider', () => {
     const report = vi.fn();
     render(<ChartSearchProvider query={question} context={context} report={report} />);
 
-    await waitFor(() =>
-      expect(report).toHaveBeenLastCalledWith(
-        expect.objectContaining({ status: 'error', errorMessage: '503 Service Unavailable' }),
-      ),
-    );
+    await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'error' })));
   });
 });

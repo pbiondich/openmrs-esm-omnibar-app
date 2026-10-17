@@ -745,6 +745,23 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
   });
 
+  it.each([
+    ['patient search', PatientSearchProvider, ['global', 'patient'] as const],
+    ['chart lookup', ChartLookupProvider, ['patient'] as const],
+  ])('says %s results could not load without repeating what the server said', async (_, component, scopes) => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+    mockOpenmrsFetch.mockRejectedValue(new Error('Server responded with 500 for ?q=jane+doe: Jane Doe, 100GEJ'));
+    mountProviders([{ name: 'provider', meta: { lane: 'record', scopes: [...scopes], order: 10 }, component }]);
+    renderWithFreshCache(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'jane doe');
+
+    expect(await screen.findByText('Couldn’t load results')).toBeInTheDocument();
+    expect(screen.queryByText(/100GEJ|500/)).not.toBeInTheDocument();
+    window.history.pushState({}, '', '/');
+  });
+
   it('says nothing matches when no patient does', async () => {
     const user = userEvent.setup();
     searchReturns([]);
