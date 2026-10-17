@@ -60,7 +60,7 @@ const Omnibar: React.FC = () => {
         info[extension.name] = {
           lane: meta.lane,
           order: getProviderOrder(meta, context.scope),
-          neverDefault: context.scope === 'patient' && Boolean(meta.otherPatients),
+          neverDefault: context.scope === 'patient' && !meta.defaultInChart,
         };
       }
     }

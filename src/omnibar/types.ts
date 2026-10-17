@@ -41,11 +41,12 @@ export interface OmnibarProviderMeta {
   /** Optional different order inside a chart, where chart lookups usually outrank patient search. */
   patientScopeOrder?: number;
   /**
-   * The results are other patients, as in patient search. Inside a chart they never take the default
-   * highlight, so Enter alone can't open someone else's chart. Only an arrow key or the pointer
-   * selects them.
+   * The results are about the open chart, or are pages, so inside a chart they may take the default
+   * highlight. Without it, a provider's results inside a chart are selected only by an arrow key or
+   * the pointer, so Enter alone can't open another patient's chart from a provider that forgot to say
+   * it lists other patients.
    */
-  otherPatients?: boolean;
+  defaultInChart?: boolean;
 }
 
 export type OmnibarTarget =

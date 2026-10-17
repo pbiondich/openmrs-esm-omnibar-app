@@ -723,17 +723,16 @@ describe('Omnibar with providers mounted through the slot', () => {
     person: { display: 'Jane Doe', gender: 'F', age: 34, dead: false },
   };
 
-  describe('a provider that lists other patients', () => {
+  describe('a provider that lists other patients and declares nothing', () => {
     const OtherPatients: React.FC<OmnibarProviderProps> = ({ query, report }) => {
       useEffect(() => report(ready(query, 'Other patients', query ? ['Jane Doe', 'John Doe'] : [])), [query, report]);
       return null;
     };
-    const otherPatientsLane: OmnibarProviderMeta = { ...recordLane, otherPatients: true };
 
     it('never takes the default highlight inside a chart, only an arrow key selects it', async () => {
       const user = userEvent.setup();
       window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
-      mountProviders([{ name: 'others', meta: otherPatientsLane, component: OtherPatients }]);
+      mountProviders([{ name: 'others', meta: recordLane, component: OtherPatients }]);
       render(<Omnibar />);
       const combobox = screen.getByRole('combobox', { name: /search this chart/i });
 
@@ -758,7 +757,7 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     it('takes the default highlight as usual outside a chart', async () => {
       const user = userEvent.setup();
-      mountProviders([{ name: 'others', meta: otherPatientsLane, component: OtherPatients }]);
+      mountProviders([{ name: 'others', meta: recordLane, component: OtherPatients }]);
       render(<Omnibar />);
 
       await user.type(screen.getByRole('combobox'), 'doe');

@@ -70,11 +70,11 @@ It registers in its own routes.json, where `meta` declares the lane, the scopes 
   "component": "labOrdersOmnibarProvider",
   "slot": "omnibar-providers-slot",
   "privileges": ["Get Orders"],
-  "meta": { "lane": "record", "scopes": ["patient"], "order": 20 }
+  "meta": { "lane": "record", "scopes": ["patient"], "order": 20, "defaultInChart": true }
 }
 ```
 
-A provider whose results are other patients, like patient search, adds `"otherPatients": true`. Inside a chart those results never take the default highlight, so Enter alone can't open someone else's chart. Only an arrow key or the pointer selects them. If nothing else is on screen, nothing is highlighted and Enter does nothing.
+Inside a chart, only a provider that declares `"defaultInChart": true` can have its results take the default highlight. It means the results are about the open chart, or are pages, as for chart lookup, destinations and the lab orders above. Any other provider's results, such as patient search or a third-party "similar patients" list, are selected only by an arrow key or the pointer. So Enter alone can't open someone else's chart, even from a provider that didn't say it lists other patients. If nothing default-eligible is on screen, nothing is highlighted and Enter does nothing.
 
 The core types, from `src/omnibar/types.ts`:
 
@@ -116,7 +116,7 @@ Three providers ship with the prototype, and a fourth shows how ChartSearch woul
 | Destinations | navigate | global, patient | `ward`, `triage` | Pages and apps, matched on label then keywords, filtered by privilege | Config: label, path, keywords, privilege |
 | ChartSearch (example) | answer | patient | `why was ART switched last year` | A streamed answer with source links into the chart | ChartSearch API (placeholder endpoint in the example) |
 
-Inside a chart, chart lookup comes first and patient search drops to "Other patients", through `patientScopeOrder`. Patient search declares `otherPatients`, so an ID typed in a chart still finds the patient, but Enter alone never opens their chart. The ChartSearch example only responds to question-like queries (more than 12 characters with a space) and aborts its request on every new keystroke or chart change. It lives in `examples/` because it belongs in the ChartSearch module, not the omnibar.
+Inside a chart, chart lookup comes first and patient search drops to "Other patients", through `patientScopeOrder`. Patient search doesn't declare `defaultInChart`, so an ID typed in a chart still finds the patient, but Enter alone never opens their chart. The ChartSearch example only responds to question-like queries (more than 12 characters with a space) and aborts its request on every new keystroke or chart change. It lives in `examples/` because it belongs in the ChartSearch module, not the omnibar.
 
 ## Visible by default
 
