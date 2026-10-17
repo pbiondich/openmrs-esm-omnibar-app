@@ -301,6 +301,30 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(screen.queryByRole('option', { name: 'stale result' })).not.toBeInTheDocument();
   });
 
+  it('keeps the highlight on the same result when a slower provider reports above it', async () => {
+    const user = userEvent.setup();
+    const mounted = new Map<string, OmnibarProviderProps>();
+    const SlowPatients: React.FC<OmnibarProviderProps> = (props) => {
+      mounted.set(props.query, props);
+      return null;
+    };
+    mountProviders([
+      { name: 'destinations', meta: navigateLane, component: DestinationsProvider },
+      { name: 'patients', meta: recordLane, component: SlowPatients },
+    ]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'home');
+    expect(screen.getByRole('option', { name: 'Home' })).toHaveAttribute('aria-selected', 'true');
+
+    act(() => mounted.get('home').report(ready('home', 'Patients', ['Homer Simpson'])));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Homer Simpson', 'Home']);
+    expect(screen.getByRole('option', { name: 'Home' })).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe('/openmrs/spa/home');
+  });
+
   it('ignores Enter until the results match what was typed', async () => {
     const user = userEvent.setup();
     const RecentsProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {

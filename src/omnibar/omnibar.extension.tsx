@@ -77,6 +77,15 @@ const Omnibar: React.FC = () => {
     : -1;
   const selected = selectedIndex >= 0 ? selectable[selectedIndex] : undefined;
 
+  // Pin the default highlight to the first result shown, so a slower provider that sorts above it
+  // can't move it to another row just before the user presses Enter.
+  const resultsAreCurrent = query.trim() === debouncedQuery;
+  useEffect(() => {
+    if (resultsAreCurrent && selected && selected.key !== selectedKey) {
+      setSelectedKey(selected.key);
+    }
+  }, [resultsAreCurrent, selected, selectedKey]);
+
   const openBar = useCallback(() => {
     setOpen(true);
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -122,7 +131,7 @@ const Omnibar: React.FC = () => {
       }
       case 'Enter':
         // The results on screen may still be for an earlier query, e.g. recents while a scanner types an ID.
-        if (selected && query.trim() === debouncedQuery) {
+        if (selected && resultsAreCurrent) {
           event.preventDefault();
           choose(selected);
         }
