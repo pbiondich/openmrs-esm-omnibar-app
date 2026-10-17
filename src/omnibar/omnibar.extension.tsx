@@ -203,7 +203,7 @@ const Omnibar: React.FC = () => {
 
   const placeholder =
     context.scope === 'patient'
-      ? t('searchThisChart', 'Search this chart, patients or pages')
+      ? t('searchThisChart', 'Search this chart or pages')
       : t('searchEverything', 'Search patients and pages');
   const shortcutHint = isMac ? '⌘K' : t('ctrlK', 'Ctrl K');
   const chartOwner = patientName || t('thisPatient', 'this patient');

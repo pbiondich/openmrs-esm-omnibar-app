@@ -16,7 +16,7 @@
       "component": "patientSearchProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Patients"],
-      "meta": { "lane": "record", "scopes": ["global", "patient"], "order": 10, "patientScopeOrder": 30 }
+      "meta": { "lane": "record", "scopes": ["global"], "order": 10 }
     },
     {
       "name": "omnibar-chart-lookup-provider",

@@ -71,7 +71,7 @@ function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
   return uuids;
 }
 
-const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
+const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {
   const { t } = useTranslation();
   const config = useConfig<OmnibarConfig>();
   const { minSearchCharacters, maxResults, showRecentPatients, includeDead, patientChartUrl } = config.patientSearch;
@@ -161,13 +161,12 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
 
     report({
       query,
-      title: context.scope === 'patient' ? t('otherPatients', 'Other patients') : t('patients', 'Patients'),
+      title: t('patients', 'Patients'),
       status: search.isLoading ? 'loading' : 'ready',
       results,
     });
   }, [
     query,
-    context.scope,
     isSearching,
     showingRecents,
     search.data,

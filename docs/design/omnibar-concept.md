@@ -109,12 +109,12 @@ Three providers ship with the prototype, and a fourth shows how ChartSearch woul
 
 | Provider | Lane | Scopes | Example query | What it returns | Data source |
 | --- | --- | --- | --- | --- | --- |
-| Patient search | record | global, patient | `kip` or an ID | Up to 5 patients, then "All patient results" linking to `/search`; recents when the field is empty | REST `/patient?q=`, `patientsVisited` user property |
+| Patient search | record | global | `kip` or an ID | Up to 5 patients, then "All patient results" linking to `/search`; recents when the field is empty | REST `/patient?q=`, `patientsVisited` user property |
 | Chart lookup | record | patient | `cd4`, `hb`, `weight` | Latest value and date per matching concept, linking to the results viewer | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation/$lastn?max=1&code=…` |
 | Destinations | navigate | global, patient | `ward`, `triage` | Pages and apps, matched on label then keywords, filtered by privilege | Config: label, path, keywords, privilege |
 | ChartSearch (example) | answer | patient | `why was ART switched last year` | A streamed answer with source links into the chart | ChartSearch API (placeholder endpoint in the example) |
 
-Inside a chart, chart lookup comes first and patient search drops to "Other patients", through `patientScopeOrder`. The ChartSearch example only responds to question-like queries (more than 12 characters with a space) and aborts its request on every new keystroke or chart change. It lives in `examples/` because it belongs in the ChartSearch module, not the omnibar.
+Inside a chart, patient search doesn't run, so nothing in the list belongs to another patient and Enter can't open someone else's chart. Widening the scope (the chip's close button, Backspace in the empty field) brings patient search back. The ChartSearch example only responds to question-like queries (more than 12 characters with a space) and aborts its request on every new keystroke or chart change. It lives in `examples/` because it belongs in the ChartSearch module, not the omnibar.
 
 ## Visible by default
 
