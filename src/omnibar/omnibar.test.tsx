@@ -15,6 +15,7 @@ import {
   useLayoutType,
 } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
+import ChartLookupProvider from '../providers/chart-lookup.provider';
 import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
@@ -327,6 +328,59 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     await user.keyboard('{Enter}');
     expect(landedOn()).toBe('/openmrs/spa/patient/jane-uuid/chart/');
+  });
+
+  it('shows the latest value of every matching concept, however many readings another one has', async () => {
+    const user = userEvent.setup();
+    const patientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+    window.history.pushState({}, '', `/openmrs/spa/patient/${patientUuid}/chart/Patient%20Summary`);
+
+    const concepts = [
+      { uuid: 'cd4-uuid', display: 'CD4 count', datatype: { display: 'Numeric' } },
+      { uuid: 'weight-uuid', display: 'Weight', datatype: { display: 'Numeric' } },
+    ];
+    const cd4Readings = Array.from({ length: 60 }, (_, hoursAgo) => ({
+      code: { coding: [{ code: 'cd4-uuid' }] },
+      effectiveDateTime: new Date(Date.UTC(2026, 2, 30) - hoursAgo * 3_600_000).toISOString(),
+      valueQuantity: { value: 350 - hoursAgo, unit: 'cells/µL' },
+    }));
+    const weight = {
+      code: { coding: [{ code: 'weight-uuid' }] },
+      effectiveDateTime: '2026-01-05T00:00:00Z',
+      valueQuantity: { value: 70, unit: 'kg' },
+    };
+    const newestFirst = [...cd4Readings, weight].sort((a, b) => b.effectiveDateTime.localeCompare(a.effectiveDateTime));
+
+    // A small FHIR server: plain search pages through the newest observations across all codes;
+    // $lastn returns the newest per code.
+    const fhir = (url: URL) => {
+      const codes = url.searchParams.get('code').split(',');
+      const matching = newestFirst.filter((obs) => codes.includes(obs.code.coding[0].code));
+      const resources = url.pathname.endsWith('/$lastn')
+        ? codes.map((code) => matching.find((obs) => obs.code.coding[0].code === code)).filter(Boolean)
+        : matching.slice(0, Number(url.searchParams.get('_count') ?? 10));
+      return { entry: resources.map((resource) => ({ resource })) };
+    };
+    mockOpenmrsFetch.mockImplementation((path: string) => {
+      const url = new URL(path, 'http://localhost');
+      if (url.pathname.endsWith('/concept')) {
+        return Promise.resolve({ data: { results: concepts } } as FetchResponse);
+      }
+      if (url.pathname.includes('/Observation')) {
+        return Promise.resolve({ data: fhir(url) } as FetchResponse);
+      }
+      return new Promise(() => {});
+    });
+    mountProviders([
+      { name: 'chart', meta: { lane: 'record', scopes: ['patient'], order: 10 }, component: ChartLookupProvider },
+    ]);
+    renderWithFreshCache(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'count');
+
+    expect(await screen.findByRole('option', { name: /CD4 count: 350 cells\/µL/ })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: /Weight: 70 kg/ })).toBeInTheDocument();
+    window.history.pushState({}, '', '/');
   });
 
   it('links to the full patient search page', async () => {

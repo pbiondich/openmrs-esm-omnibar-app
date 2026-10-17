@@ -111,7 +111,7 @@ Three providers ship with the prototype, and a fourth shows how ChartSearch woul
 | Provider | Lane | Scopes | Example query | What it returns | Data source |
 | --- | --- | --- | --- | --- | --- |
 | Patient search | record | global, patient | `kip` or an ID | Up to 5 patients, then "All patient results" linking to `/search`; recents when the field is empty | REST `/patient?q=`, `patientsVisited` user property |
-| Chart lookup | record | patient | `cd4`, `hb`, `weight` | Latest value and date per matching concept, linking to the results viewer | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation?code=…&_sort=-date` |
+| Chart lookup | record | patient | `cd4`, `hb`, `weight` | Latest value and date per matching concept, linking to the results viewer | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation/$lastn?max=1&code=…` |
 | Destinations | navigate | global, patient | `ward`, `triage` | Pages and apps, matched on label then keywords, filtered by privilege | Config: label, path, keywords, privilege |
 | ChartSearch (example) | answer | patient | `why was ART switched last year` | A streamed answer with source links into the chart | ChartSearch API (placeholder endpoint in the example) |
 
@@ -160,7 +160,7 @@ Then check the default destination paths against the distro and add keywords in 
 The prototype type-checks, lints, builds and passes 11 unit tests. Open questions before it goes further:
 
 - [ ] Is REST `/concept?q=` fast enough for type-ahead on a full CIEL dictionary, and does it match synonyms and locale names as assumed?
-- [ ] Does FHIR `Observation?code=<concept uuids>&_sort=-date` return the latest values per concept reliably?
+- [x] Does FHIR `Observation?code=<concept uuids>&_sort=-date` return the latest values per concept reliably? No: one page of the newest observations across all codes lets a frequently measured concept crowd out the rest. Chart lookup uses `Observation/$lastn?max=1`, which returns the latest per code.
 - [ ] Should destinations come from config, or be derived from routes.json pages with people-facing labels added?
 - [ ] Can the results viewer accept a deep link to a specific test, so chart lookup lands on the value?
 - [ ] How should destination labels be translated?

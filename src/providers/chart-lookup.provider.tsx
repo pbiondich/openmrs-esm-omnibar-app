@@ -70,11 +70,10 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
 
   const obsUrl =
     active && candidates.length
-      ? `${fhirBaseUrl}/Observation?${new URLSearchParams({
-          'subject:Patient': patientUuid,
+      ? `${fhirBaseUrl}/Observation/$lastn?${new URLSearchParams({
+          max: '1',
+          subject: `Patient/${patientUuid}`,
           code: candidates.map((c) => c.uuid).join(','),
-          _sort: '-date',
-          _count: '50',
         })}`
       : null;
   const observations = useSWR<{ entry?: Array<{ resource: FhirObservation }> }>(obsUrl, fetcher);
@@ -92,7 +91,7 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
     }
     const loading = concepts.isLoading || (candidates.length > 0 && observations.isLoading);
 
-    // Entries arrive newest first, so the first one seen for each concept is its latest value.
+    // $lastn returns every observation at a concept's latest time, so there can be more than one.
     const latest = new Map<string, FhirObservation>();
     for (const { resource } of observations.data?.entry ?? []) {
       for (const coding of resource.code?.coding ?? []) {
