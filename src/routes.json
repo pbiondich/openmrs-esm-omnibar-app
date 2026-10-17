@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json.openmrs.org/routes.schema.json",
+  "backendDependencies": {
+    "webservices.rest": ">=2.2.0",
+    "fhir2": ">=1.2"
+  },
+  "extensions": [
+    {
+      "name": "omnibar",
+      "component": "omnibar",
+      "slot": "top-nav-actions-slot",
+      "order": 0
+    },
+    {
+      "name": "omnibar-patient-search-provider",
+      "component": "patientSearchProvider",
+      "slot": "omnibar-providers-slot",
+      "meta": { "lane": "record", "scopes": ["global", "patient"], "order": 10, "patientScopeOrder": 30 }
+    },
+    {
+      "name": "omnibar-chart-lookup-provider",
+      "component": "chartLookupProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["Get Observations"],
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 10 }
+    },
+    {
+      "name": "omnibar-destinations-provider",
+      "component": "destinationsProvider",
+      "slot": "omnibar-providers-slot",
+      "meta": { "lane": "navigate", "scopes": ["global", "patient"], "order": 10 }
+    }
+  ]
+}

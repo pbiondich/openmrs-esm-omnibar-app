@@ -1,0 +1,316 @@
+@use '@carbon/colors';
+@use '@carbon/layout';
+@use '@carbon/type';
+@use '@carbon/themes';
+@use '@openmrs/esm-styleguide/src/vars' as *;
+
+// The field sits on the dark brand header. At rest it reads as a field, not an icon, so people
+// learn it does more than find patients; when opened it turns light, like the panel below it.
+
+.omnibar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: clamp(18rem, 34vw, 38rem);
+  margin-inline: layout.$spacing-05;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: layout.$spacing-03;
+  width: 100%;
+  height: layout.$spacing-07;
+  padding-inline: layout.$spacing-04 layout.$spacing-03;
+  background-color: rgba(255, 255, 255, 0.12);
+  color: themes.$text-on-color;
+  border-bottom: 1px solid transparent;
+  transition: background-color 110ms;
+
+  &:hover {
+    background-color: rgba(255, 255, 255, 0.18);
+  }
+}
+
+.fieldActive,
+.fieldActive:hover {
+  background-color: $ui-02;
+  color: themes.$text-primary;
+  border-bottom-color: themes.$focus;
+}
+
+.fieldIcon {
+  flex-shrink: 0;
+  fill: currentColor;
+}
+
+.input {
+  @include type.type-style(body-compact-01);
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  outline: none;
+
+  &::placeholder {
+    color: currentColor;
+    opacity: 0.72;
+  }
+}
+
+.shortcut {
+  @include type.type-style(label-01);
+  padding: 0 layout.$spacing-02;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 2px;
+  font-family: inherit;
+  opacity: 0.85;
+}
+
+.scopeChip {
+  @include type.type-style(label-01);
+  display: inline-flex;
+  align-items: center;
+  gap: layout.$spacing-02;
+  flex-shrink: 0;
+  max-width: 40%;
+  padding: layout.$spacing-01 layout.$spacing-02 layout.$spacing-01 layout.$spacing-03;
+  border-radius: 1rem;
+  background-color: colors.$teal-10;
+  color: colors.$teal-80;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chipButton,
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+
+  svg {
+    fill: currentColor;
+  }
+
+  &:focus-visible {
+    outline: 2px solid themes.$focus;
+    outline-offset: -2px;
+  }
+}
+
+.chipButton {
+  padding: 0;
+  border-radius: 50%;
+}
+
+.iconButton {
+  width: layout.$spacing-07;
+  height: layout.$spacing-07;
+}
+
+.iconTrigger {
+  @extend .iconButton;
+  width: layout.$spacing-09;
+  height: layout.$spacing-09;
+  color: themes.$text-on-color;
+}
+
+// Tablet and phone: looks like the desktop field, but opens the full-screen sheet.
+.fieldTrigger {
+  @extend .field;
+  width: clamp(9rem, 38vw, 20rem);
+  margin-inline: layout.$spacing-03;
+  border: 0;
+  cursor: pointer;
+  text-align: start;
+
+  &:focus-visible {
+    outline: 2px solid themes.$focus;
+    outline-offset: -2px;
+  }
+}
+
+.fieldTriggerText {
+  @include type.type-style(body-compact-01);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.72;
+}
+
+.panel {
+  position: absolute;
+  top: 100%;
+  inset-inline: 0;
+  z-index: 9000;
+  max-height: min(70vh, 36rem);
+  overflow-y: auto;
+  background-color: $ui-02;
+  color: themes.$text-primary;
+  box-shadow: 0 layout.$spacing-03 layout.$spacing-05 rgba(0, 0, 0, 0.24);
+}
+
+.listbox,
+.listbox ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.groupHeading {
+  @include type.type-style(label-01);
+  padding: layout.$spacing-04 layout.$spacing-05 layout.$spacing-02;
+  color: themes.$text-secondary;
+}
+
+.groupLoading {
+  padding-inline: layout.$spacing-05;
+}
+
+.groupError,
+.emptyState {
+  @include type.type-style(body-compact-01);
+  margin: 0;
+  padding: layout.$spacing-03 layout.$spacing-05;
+  color: themes.$text-secondary;
+}
+
+.emptyState {
+  padding-block: layout.$spacing-06;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: layout.$spacing-01;
+  padding: layout.$spacing-03 layout.$spacing-05;
+  border-inline-start: 3px solid transparent;
+  cursor: pointer;
+}
+
+.optionSelected {
+  background-color: themes.$layer-selected-01;
+  border-inline-start-color: themes.$interactive;
+}
+
+.optionTitle {
+  @include type.type-style(body-compact-01);
+  font-weight: 600;
+}
+
+.optionSubtitle {
+  @include type.type-style(label-01);
+  color: themes.$text-secondary;
+}
+
+.scopeNotice {
+  @include type.type-style(body-compact-01);
+  display: block;
+  width: 100%;
+  padding: layout.$spacing-03 layout.$spacing-05;
+  border: 0;
+  border-bottom: 1px solid themes.$border-subtle-01;
+  background: themes.$layer-accent-01;
+  color: themes.$link-primary;
+  text-align: start;
+  cursor: pointer;
+}
+
+// The answer region sits below the list and never shares its arrow-key order, so a streaming
+// answer can't push a result away from under the cursor.
+.answer {
+  margin-top: layout.$spacing-03;
+  padding-bottom: layout.$spacing-04;
+  border-top: 1px solid themes.$border-subtle-01;
+  background-color: themes.$layer-01;
+}
+
+.answerText {
+  @include type.type-style(body-01);
+  margin: 0;
+  padding: layout.$spacing-02 layout.$spacing-05;
+  max-width: 70ch;
+  white-space: pre-wrap;
+}
+
+.caret {
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-inline-start: 2px;
+  vertical-align: text-bottom;
+  background-color: currentColor;
+  animation: blink 1s steps(1) infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: layout.$spacing-02 layout.$spacing-04;
+  padding: layout.$spacing-03 layout.$spacing-05 0;
+}
+
+.sourcesLabel {
+  @include type.type-style(label-01);
+  color: themes.$text-secondary;
+}
+
+.sourceLink {
+  @include type.type-style(label-01);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: themes.$link-primary;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.footer {
+  @include type.type-style(label-01);
+  padding: layout.$spacing-03 layout.$spacing-05;
+  border-top: 1px solid themes.$border-subtle-01;
+  color: themes.$text-secondary;
+}
+
+// Tablet and phone: a full-screen sheet rather than a dropdown.
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  flex-direction: column;
+  align-items: stretch;
+  width: auto;
+  margin: 0;
+  background-color: $ui-02;
+
+  .field {
+    height: layout.$spacing-09;
+  }
+
+  .panel {
+    position: static;
+    flex: 1;
+    max-height: none;
+    box-shadow: none;
+  }
+}
