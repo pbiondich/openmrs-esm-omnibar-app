@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { SWRConfig } from 'swr';
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type FetchResponse,
   type Session,
@@ -768,57 +768,76 @@ describe('Omnibar with providers mounted through the slot', () => {
     });
   });
 
-  it('keeps other patients out of a chart search until it is widened', async () => {
-    const user = userEvent.setup();
+  describe('inside a chart, with the providers as routes.json declares them', () => {
     const chartPatient = '8673ee4f-e2ab-4077-ba55-4980f408773e';
-    window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
-    let conceptsArrive: () => void;
-    const concepts = new Promise<FetchResponse>((resolve) => {
-      conceptsArrive = () =>
-        resolve({
-          data: { results: [{ uuid: 'cd4-uuid', display: 'CD4 count', datatype: { display: 'Numeric' } }] },
-        } as FetchResponse);
-    });
-    mockOpenmrsFetch.mockImplementation((url: string) => {
-      if (url.includes('/patient?')) {
-        return Promise.resolve({ data: { results: [jane] } } as FetchResponse);
-      }
-      if (url.includes('/concept?')) {
-        return concepts;
-      }
-      if (url.includes('/Observation')) {
-        return Promise.resolve({
-          data: { entry: [{ resource: { code: { coding: [{ code: 'cd4-uuid' }] }, valueQuantity: { value: 350 } } }] },
-        } as FetchResponse);
-      }
-      return new Promise(() => {});
-    });
-    // The scopes and order come from routes.json, as the app shell would read them.
     const shipped = (name: string, component: React.ComponentType<OmnibarProviderProps>) => ({
       name,
       meta: routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta,
       component,
     });
-    mountProviders([
-      shipped('omnibar-patient-search-provider', PatientSearchProvider),
-      shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
-    ]);
-    renderWithFreshCache(<Omnibar />);
+    // Patient search answers at once; the concept lookup waits until the test lets it through.
+    const openChart = (conceptResults: Array<object>) => {
+      window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+      let conceptsArrive: () => void;
+      const concepts = new Promise<FetchResponse>((resolve) => {
+        conceptsArrive = () => resolve({ data: { results: conceptResults } } as FetchResponse);
+      });
+      mockOpenmrsFetch.mockImplementation((url: string) => {
+        if (url.includes('/patient?')) {
+          return Promise.resolve({ data: { results: [jane] } } as FetchResponse);
+        }
+        if (url.includes('/concept?')) {
+          return concepts;
+        }
+        if (url.includes('/Observation')) {
+          return Promise.resolve({
+            data: {
+              entry: [{ resource: { code: { coding: [{ code: 'cd4-uuid' }] }, valueQuantity: { value: 350 } } }],
+            },
+          } as FetchResponse);
+        }
+        return new Promise(() => {});
+      });
+      mountProviders([
+        shipped('omnibar-patient-search-provider', PatientSearchProvider),
+        shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+      ]);
+      renderWithFreshCache(<Omnibar />);
+      return () => act(async () => conceptsArrive());
+    };
 
-    await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'cd4');
-    await waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining('/concept?q=cd4')));
-    await user.keyboard('{Enter}');
+    afterEach(() => window.history.pushState({}, '', '/'));
 
-    expect(navigate).not.toHaveBeenCalled();
-    expect(screen.queryByRole('option', { name: /jane doe/i })).not.toBeInTheDocument();
-    expect(mockOpenmrsFetch).not.toHaveBeenCalledWith(expect.stringContaining('/patient?'));
+    it('lists the patient an ID matches, but opens their chart only once the user arrows to them', async () => {
+      const user = userEvent.setup();
+      const conceptsArrive = openChart([]);
 
-    await act(async () => conceptsArrive());
-    expect(await screen.findByRole('option', { name: /CD4 count: 350/ })).toBeInTheDocument();
+      await user.type(screen.getByRole('combobox', { name: /search this chart/i }), '100GEJ');
+      await conceptsArrive();
+      const otherPatients = await screen.findByRole('group', { name: 'Other patients' });
+      expect(within(otherPatients).getByRole('option', { name: /jane doe/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /search everywhere instead/i }));
-    expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
-    window.history.pushState({}, '', '/');
+      await user.keyboard('{Enter}');
+      expect(navigate).not.toHaveBeenCalled();
+
+      await user.keyboard('{ArrowDown}{Enter}');
+      expect(landedOn()).toBe(`/openmrs/spa/patient/${jane.uuid}/chart/`);
+    });
+
+    it('opens the chart value, never another patient, when patient search answers "cd4" first', async () => {
+      const user = userEvent.setup();
+      const conceptsArrive = openChart([{ uuid: 'cd4-uuid', display: 'CD4 count', datatype: { display: 'Numeric' } }]);
+
+      await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'cd4');
+      expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+      expect(navigate).not.toHaveBeenCalled();
+
+      await conceptsArrive();
+      expect(await screen.findByRole('option', { name: /CD4 count: 350/ })).toHaveAttribute('aria-selected', 'true');
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+    });
   });
 
   it('links to the full patient search page', async () => {
