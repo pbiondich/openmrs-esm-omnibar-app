@@ -482,6 +482,16 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(scrolledTo).toEqual(['Bed management']);
   });
 
+  it('shows what was typed in messages exactly as typed', async () => {
+    const user = userEvent.setup();
+    mountProviders([{ name: 'destinations', meta: navigateLane, component: DestinationsProvider }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), "o'brien 1/2");
+
+    expect(screen.getByText(/nothing matches/i)).toHaveTextContent("Nothing matches “o'brien 1/2”.");
+  });
+
   it('ignores Enter until the results match what was typed', async () => {
     const user = userEvent.setup();
     const RecentsProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {

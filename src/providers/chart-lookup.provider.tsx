@@ -111,7 +111,9 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
         return {
           id: concept.uuid,
           title: value ? `${concept.display}: ${value}` : concept.display,
-          subtitle: when ? t('recordedOn', 'Latest, recorded {{date}}', { date: when }) : undefined,
+          subtitle: when
+            ? t('recordedOn', 'Latest, recorded {{date}}', { date: when, interpolation: { escapeValue: false } })
+            : undefined,
           target: { type: 'navigate', to: resultsUrl },
         };
       });

@@ -30,8 +30,14 @@ const renderNodes = (reactNodes) => {
   });
 };
 
+// Real i18next, initialised as the app shell does (esm-app-shell/src/locale.ts), so tests see the
+// same interpolation and escaping users do.
+const i18n = require('i18next').createInstance();
+i18n.init({ fallbackLng: 'en', nsSeparator: false, initAsync: false, resources: {} });
+
 const useMock = [(k) => k, {}];
-useMock.t = (k, o) => (o && o.defaultValue) || (typeof o === 'string' ? o : k);
+useMock.t = (key, defaultValue, options) =>
+  typeof defaultValue === 'string' ? i18n.t(key, { ...options, defaultValue }) : i18n.t(key, defaultValue);
 useMock.i18n = {};
 
 module.exports = {

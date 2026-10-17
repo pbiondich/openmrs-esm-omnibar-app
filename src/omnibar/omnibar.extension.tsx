@@ -335,6 +335,7 @@ const Omnibar: React.FC = () => {
             <button type="button" className={styles.scopeNotice} onClick={narrowToPatient}>
               {t('backToChart', 'Search only {{name}}’s chart', {
                 name: patientName || t('thisPatient', 'this patient'),
+                interpolation: { escapeValue: false },
               })}
             </button>
           )}
@@ -355,7 +356,10 @@ const Omnibar: React.FC = () => {
                   )}
                   {group.status === 'error' && (
                     <p className={styles.groupError}>
-                      {t('providerError', 'Couldn’t load results: {{message}}', { message: group.errorMessage ?? '' })}
+                      {t('providerError', 'Couldn’t load results: {{message}}', {
+                        message: group.errorMessage ?? '',
+                        interpolation: { escapeValue: false },
+                      })}
                     </p>
                   )}
                   <ul role="group" aria-labelledby={headingId}>
@@ -439,6 +443,7 @@ const Omnibar: React.FC = () => {
             <p className={styles.emptyState}>
               {t('noMatches', 'Nothing matches “{{query}}”. Check the spelling or try a patient ID.', {
                 query: debouncedQuery,
+                interpolation: { escapeValue: false },
               })}
             </p>
           )}
