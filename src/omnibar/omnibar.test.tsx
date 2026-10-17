@@ -532,7 +532,7 @@ describe('Omnibar with providers mounted through the slot', () => {
     await user.type(screen.getByRole('combobox'), 'jane');
 
     const jane = await screen.findByRole('option', { name: /jane doe/i });
-    expect(jane).toHaveTextContent('100GEJ');
+    expect(jane).toHaveTextContent('100GEJ, Female, 34 yrs');
     expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining('/patient?q=jane'));
 
     await user.keyboard('{Enter}');

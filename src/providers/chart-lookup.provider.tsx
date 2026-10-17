@@ -110,7 +110,13 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
         const when = obs.effectiveDateTime ? formatDate(new Date(obs.effectiveDateTime), { time: false }) : null;
         return {
           id: concept.uuid,
-          title: value ? `${concept.display}: ${value}` : concept.display,
+          title: value
+            ? t('conceptValue', '{{concept}}: {{value}}', {
+                concept: concept.display,
+                value,
+                interpolation: { escapeValue: false },
+              })
+            : concept.display,
           subtitle: when
             ? t('recordedOn', 'Latest, recorded {{date}}', { date: when, interpolation: { escapeValue: false } })
             : undefined,

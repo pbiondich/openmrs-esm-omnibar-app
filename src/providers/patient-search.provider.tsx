@@ -95,12 +95,18 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
   );
 
   useEffect(() => {
+    const genders: Record<string, string> = {
+      M: t('male', 'Male'),
+      F: t('female', 'Female'),
+      O: t('other', 'Other'),
+      U: t('unknown', 'Unknown'),
+    };
     const toResult = (patient: SearchedPatient): OmnibarResult => {
       const identifier =
         patient.identifiers.find((id) => id.preferred)?.identifier ?? patient.identifiers[0]?.identifier;
       const details = [
         identifier,
-        patient.person.gender,
+        genders[patient.person.gender] ?? patient.person.gender,
         patient.person.age != null ? t('ageYears', '{{age}} yrs', { age: patient.person.age }) : null,
         patient.person.dead ? t('deceased', 'Deceased') : null,
       ].filter(Boolean);

@@ -200,7 +200,8 @@ const Omnibar: React.FC = () => {
     context.scope === 'patient'
       ? t('searchThisChart', 'Search this chart, patients or pages')
       : t('searchEverything', 'Search patients and pages');
-  const shortcutHint = isMac ? '⌘K' : 'Ctrl K';
+  const shortcutHint = isMac ? '⌘K' : t('ctrlK', 'Ctrl K');
+  const chartOwner = patientName || t('thisPatient', 'this patient');
 
   const stillLoading = listGroups.some((g) => g.status === 'loading');
   const hasListResults = selectable.length > 0;
@@ -334,7 +335,7 @@ const Omnibar: React.FC = () => {
           {context.scope === 'global' && chartPatientUuid && (
             <button type="button" className={styles.scopeNotice} onClick={narrowToPatient}>
               {t('backToChart', 'Search only {{name}}’s chart', {
-                name: patientName || t('thisPatient', 'this patient'),
+                name: chartOwner,
                 interpolation: { escapeValue: false },
               })}
             </button>
