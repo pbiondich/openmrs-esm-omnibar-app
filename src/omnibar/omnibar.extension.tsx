@@ -186,13 +186,6 @@ const Omnibar: React.FC = () => {
           choose(selected);
         }
         return;
-      case 'Backspace':
-        // Backspace on an empty field drops the patient scope, like removing a filter chip. Not on key
-        // repeat, so holding Backspace to clear the text doesn't also clear the scope.
-        if (!query && !event.repeat && context.scope === 'patient') {
-          widenToGlobal();
-        }
-        return;
     }
   };
 
@@ -306,11 +299,18 @@ const Omnibar: React.FC = () => {
         {context.scope === 'patient' && (
           <span className={styles.scopeChip}>
             {patientName || t('thisChart', 'This chart')}
+            {/* The only way out of the chart's scope: Backspace and Delete edit the text and nothing else. */}
             <button
               type="button"
               className={styles.chipButton}
-              onClick={widenToGlobal}
-              aria-label={t('searchEverywhere', 'Search everywhere instead')}
+              onClick={() => {
+                widenToGlobal();
+                inputRef.current?.focus();
+              }}
+              aria-label={t('removePatientContext', 'Remove {{name}} context', {
+                name: chartOwner,
+                interpolation: { escapeValue: false },
+              })}
             >
               <Close size={12} />
             </button>

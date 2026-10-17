@@ -546,7 +546,7 @@ describe('Omnibar with providers mounted through the slot', () => {
     await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'ward');
     expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /search everywhere instead/i }));
+    await user.click(screen.getByRole('button', { name: /remove .* context/i }));
 
     expect(screen.getByRole('combobox', { name: /search patients and pages/i })).toHaveValue('ward');
     expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
@@ -571,18 +571,43 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(screen.getByText(/nothing matches/i)).toBeInTheDocument();
   });
 
-  it('keeps the chart scope when Backspace is held down to clear the field', async () => {
+  it.each([
+    ['Backspace', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Backspace}')],
+    ['Delete', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Delete}')],
+    [
+      'Backspace held down',
+      // user-event doesn't set `repeat`, so send the auto-repeat directly.
+      async () => fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Backspace', repeat: true }),
+    ],
+  ])('keeps the chart scope when %s is pressed in the empty field', async (_, press) => {
     const user = userEvent.setup();
     window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
     render(<Omnibar />);
 
-    await user.type(screen.getByRole('combobox'), 'hb{Backspace}{Backspace}');
-    // user-event doesn't set `repeat`, so send the auto-repeat that follows the last character directly.
-    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Backspace', repeat: true });
-    expect(screen.getByRole('combobox', { name: /search this chart/i })).toHaveValue('');
+    await user.click(screen.getByRole('combobox'));
+    await press(user);
 
-    await user.keyboard('{Backspace}');
-    expect(screen.getByRole('combobox', { name: /search patients and pages/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /search this chart/i })).toHaveValue('');
+    expect(screen.getByText('This chart')).toBeInTheDocument();
+    window.history.pushState({}, '', '/');
+  });
+
+  it.each([
+    ['Enter', '{Enter}'],
+    ['Space', ' '],
+  ])('removes the chart context with the pill button and %s, and keeps typing in the field', async (_, key) => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+    render(<Omnibar />);
+
+    await user.click(screen.getByRole('combobox'));
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Remove this patient context' })).toHaveFocus();
+    await user.keyboard(key);
+
+    const field = screen.getByRole('combobox', { name: /search patients and pages/i });
+    expect(field).toHaveFocus();
+    expect(screen.queryByText('This chart')).not.toBeInTheDocument();
     window.history.pushState({}, '', '/');
   });
 
@@ -993,7 +1018,7 @@ describe('Omnibar with providers mounted through the slot', () => {
       const user = userEvent.setup();
       await openChart([])();
       await user.click(screen.getByRole('combobox'));
-      await user.click(screen.getByRole('button', { name: /search everywhere instead/i }));
+      await user.click(screen.getByRole('button', { name: /remove .* context/i }));
       await user.type(screen.getByRole('combobox', { name: /search patients and pages/i }), 'jane');
       expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'true');
 
