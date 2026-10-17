@@ -134,7 +134,7 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
       results.push({
         id: 'see-all',
         title: t('allPatientResults', 'All patient results for “{{query}}”', { query }),
-        target: { type: 'navigate', to: `\${openmrsSpaBase}search?query=${encodeURIComponent(query)}` },
+        target: { type: 'navigate', to: `\${openmrsSpaBase}/search?query=${encodeURIComponent(query)}` },
       });
     }
 

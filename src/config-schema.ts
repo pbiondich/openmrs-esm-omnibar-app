@@ -31,7 +31,7 @@ export const configSchema = {
     },
     patientChartUrl: {
       _type: Type.String,
-      _default: '${openmrsSpaBase}patient/${patientUuid}/chart/',
+      _default: '${openmrsSpaBase}/patient/${patientUuid}/chart/',
       _description: 'Where choosing a patient goes.',
     },
   },
@@ -48,7 +48,7 @@ export const configSchema = {
     },
     resultsUrl: {
       _type: Type.String,
-      _default: '${openmrsSpaBase}patient/${patientUuid}/chart/Results',
+      _default: '${openmrsSpaBase}/patient/${patientUuid}/chart/Results',
       _description: 'Where choosing a chart value goes.',
     },
   },
@@ -73,25 +73,25 @@ export const configSchema = {
       },
     },
     _default: [
-      { label: 'Home', path: '${openmrsSpaBase}home', keywords: ['dashboard', 'start'] },
+      { label: 'Home', path: '${openmrsSpaBase}/home', keywords: ['dashboard', 'start'] },
       {
         label: 'Register a patient',
-        path: '${openmrsSpaBase}patient-registration',
+        path: '${openmrsSpaBase}/patient-registration',
         keywords: ['new patient', 'add patient', 'registration'],
       },
       {
         label: 'Appointments',
-        path: '${openmrsSpaBase}home/appointments',
+        path: '${openmrsSpaBase}/home/appointments',
         keywords: ['booking', 'schedule', 'calendar'],
       },
       {
         label: 'Service queues',
-        path: '${openmrsSpaBase}home/service-queues',
+        path: '${openmrsSpaBase}/home/service-queues',
         keywords: ['queue', 'triage', 'waiting'],
       },
-      { label: 'Patient lists', path: '${openmrsSpaBase}home/patient-lists', keywords: ['cohort', 'list'] },
-      { label: 'Ward', path: '${openmrsSpaBase}ward', keywords: ['inpatient', 'admit', 'admission', 'beds'] },
-      { label: 'Bed management', path: '${openmrsSpaBase}bed-management', keywords: ['beds', 'bed'] },
+      { label: 'Patient lists', path: '${openmrsSpaBase}/home/patient-lists', keywords: ['cohort', 'list'] },
+      { label: 'Ward', path: '${openmrsSpaBase}/ward', keywords: ['inpatient', 'admit', 'admission', 'beds'] },
+      { label: 'Bed management', path: '${openmrsSpaBase}/bed-management', keywords: ['beds', 'bed'] },
     ],
     _validators: [
       validator(

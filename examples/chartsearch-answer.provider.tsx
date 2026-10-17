@@ -48,7 +48,7 @@ const ChartSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
     const controller = new AbortController();
     let text = '';
     const sources: Array<OmnibarSource> = [];
-    const chart = `\${openmrsSpaBase}patient/${context.patientUuid}/chart`;
+    const chart = `\${openmrsSpaBase}/patient/${context.patientUuid}/chart`;
 
     report({ query, title, status: 'loading' });
 

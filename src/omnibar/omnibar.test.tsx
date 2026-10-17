@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type FetchResponse,
   getDefaultsFromConfigSchema,
+  interpolateUrl,
   launchWorkspace2,
   navigate,
   openmrsFetch,
@@ -57,7 +58,10 @@ function mountProviders(
   );
 }
 
-const renderWithFreshCache = (ui: React.ReactElement) =>
+/** Where the last navigate() call sends the user; navigate() interpolates `to` the same way. */
+const landedOn = () => interpolateUrl(vi.mocked(navigate).mock.calls.at(-1)[0].to);
+
+const renderWithFreshCache =(ui: React.ReactElement) =>
   render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>{ui}</SWRConfig>);
 
 const mockUseConfig = vi.mocked(useConfig<OmnibarConfig>);
@@ -135,8 +139,8 @@ describe('scope and ordering', () => {
 
 describe('executeTarget', () => {
   it('navigates or opens a workspace, and nothing else', async () => {
-    await executeTarget({ type: 'navigate', to: '${openmrsSpaBase}home' });
-    expect(navigate).toHaveBeenCalledWith({ to: '${openmrsSpaBase}home' });
+    await executeTarget({ type: 'navigate', to: '${openmrsSpaBase}/home' });
+    expect(navigate).toHaveBeenCalledWith({ to: '${openmrsSpaBase}/home' });
 
     await executeTarget({ type: 'workspace', workspaceName: 'order-basket', workspaceProps: { a: 1 } });
     expect(launchWorkspace2).toHaveBeenCalledWith('order-basket', { a: 1 }, null, null);
@@ -234,6 +238,9 @@ describe('Omnibar with providers mounted through the slot', () => {
     const listbox = screen.getByRole('listbox');
     expect(within(listbox).getByRole('group', { name: 'Go to' })).toBeInTheDocument();
     expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual(['Service queues']);
+
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe('/openmrs/spa/home/service-queues');
   });
 
   it('drops a report for a query the user has typed past', async () => {
@@ -282,5 +289,22 @@ describe('Omnibar with providers mounted through the slot', () => {
     const jane = await screen.findByRole('option', { name: /jane doe/i });
     expect(jane).toHaveTextContent('100GEJ');
     expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining('/patient?q=jane'));
+
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe('/openmrs/spa/patient/jane-uuid/chart/');
+  });
+
+  it('links to the full patient search page', async () => {
+    const user = userEvent.setup();
+    mockOpenmrsFetch.mockImplementation((url: string) =>
+      url.includes('/patient?') ? Promise.resolve({ data: { results: [] } } as FetchResponse) : new Promise(() => {}),
+    );
+    mountProviders([{ name: 'patients', meta: recordLane, component: PatientSearchProvider }]);
+    renderWithFreshCache(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'jane');
+    await user.click(await screen.findByRole('option', { name: /all patient results/i }));
+
+    expect(landedOn()).toBe('/openmrs/spa/search?query=jane');
   });
 });

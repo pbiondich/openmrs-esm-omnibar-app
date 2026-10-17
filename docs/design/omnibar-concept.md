@@ -54,7 +54,7 @@ const LabOrdersProvider: React.FC<OmnibarProviderProps> = ({ query, context, rep
       results: data?.map((order) => ({
         id: order.uuid,
         title: order.display,
-        target: { type: 'navigate', to: `\${openmrsSpaBase}patient/${context.patientUuid}/chart/Orders` },
+        target: { type: 'navigate', to: `\${openmrsSpaBase}/patient/${context.patientUuid}/chart/Orders` },
       })),
     });
   }, [query, context, data, isLoading]);
