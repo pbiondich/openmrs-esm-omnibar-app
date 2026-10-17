@@ -10,7 +10,7 @@ The shell knows nothing clinical. Every capability is a provider, an ordinary O3
 
 ## Status
 
-Prototype. It type-checks, lints, builds and passes its 11 unit tests, but has **not yet been run against a live O3 instance**. Open questions (concept search speed on CIEL, FHIR latest-value queries, destination translation, tablet sheet on real devices) are listed in the design doc.
+Prototype. It type-checks, lints, builds and passes its unit tests, but has **not yet been run against a live O3 instance**. Open questions (concept search speed on CIEL, destination translation, tablet sheet on real devices) are listed in the design doc.
 
 ## Trying it
 

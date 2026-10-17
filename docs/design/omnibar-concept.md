@@ -8,7 +8,7 @@ O3's top-nav search should become a visible, extensible omnibar: one field that 
 
 A clinician in a patient's chart presses Ctrl K and types `cd4`. Before they finish typing, the bar shows "CD4 count: 350 cells/µL, recorded 12 Mar 2026", matched through the concept dictionary with no model involved. If they instead type `why was ART switched last year`, ChartSearch streams an answer below the list, with links to the encounters it drew on. At the front desk, a clerk types `triage` and gets Service queues, because destinations carry the words staff actually use.
 
-The omnibar shell knows nothing clinical. Every capability arrives as a provider, which is an ordinary O3 extension, so it gets lazy loading, privilege gating, feature flags, config and translations from the existing framework. A working prototype, esm-omnibar-app, implements the shell, three built-in providers and a ChartSearch example. It type-checks, lints, builds and passes 11 unit tests, but has not yet run against a live O3 instance.
+The omnibar shell knows nothing clinical. Every capability arrives as a provider, which is an ordinary O3 extension, so it gets lazy loading, privilege gating, feature flags, config and translations from the existing framework. A working prototype, esm-omnibar-app, implements the shell, three built-in providers and a ChartSearch example. It type-checks, lints, builds and passes its unit tests, but has not yet run against a live O3 instance.
 
 ## How search works in O3 today
 
@@ -157,7 +157,7 @@ To try it, add esm-omnibar-app to a distro's SPA build and remove the old icon. 
 
 Then check the default destination paths against the distro and add keywords in `@openmrs/esm-omnibar-app` config.
 
-The prototype type-checks, lints, builds and passes 11 unit tests. Open questions before it goes further:
+The prototype type-checks, lints, builds and passes its unit tests. Open questions before it goes further:
 
 - [ ] Is REST `/concept?q=` fast enough for type-ahead on a full CIEL dictionary, and does it match synonyms and locale names as assumed?
 - [x] Does FHIR `Observation?code=<concept uuids>&_sort=-date` return the latest values per concept reliably? No: one page of the newest observations across all codes lets a frequently measured concept crowd out the rest. Chart lookup uses `Observation/$lastn?max=1`, which returns the latest per code.
@@ -192,5 +192,6 @@ The full source of every file below is in Source files. Build tooling comes unch
 | `src/providers/chart-lookup.provider.tsx` | Concept dictionary to latest observation |
 | `src/providers/destinations.provider.tsx` | Config-driven pages and apps |
 | `examples/chartsearch-answer.provider.tsx` | Streaming answer provider for ChartSearch to adapt |
-| `src/omnibar/omnibar.test.tsx` | 11 unit tests |
+| `src/omnibar/omnibar.test.tsx` | Unit tests, with providers mounted through the slot |
+| `examples/chartsearch-answer.provider.test.tsx` | Streaming, cancellation and errors for the ChartSearch example |
 | `translations/en.json` | English strings |
