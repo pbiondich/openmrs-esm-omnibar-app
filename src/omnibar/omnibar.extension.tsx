@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { useTranslation } from 'react-i18next';
 import { InlineLoading } from '@carbon/react';
@@ -65,8 +65,11 @@ const Omnibar: React.FC = () => {
 
   const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(debouncedQuery, providerInfo);
 
-  // A change of chart or scope invalidates everything on screen.
-  useEffect(clear, [clear, context]);
+  // A change of chart or scope invalidates everything on screen, and the providers are remounted
+  // (keyed below) so that each reports again for the new context. This clears in a layout effect
+  // because a passive one would run after the remounted providers' first reports and drop them.
+  useLayoutEffect(clear, [clear, context]);
+  const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const selectedIndex = selectable.length
@@ -402,7 +405,7 @@ const Omnibar: React.FC = () => {
       )}
 
       {open && (
-        <div hidden>
+        <div hidden key={contextKey}>
           <ExtensionSlot name={providersSlot}>
             {(extension) =>
               providerInfo[extension.name] ? (

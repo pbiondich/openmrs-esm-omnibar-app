@@ -325,6 +325,22 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(landedOn()).toBe('/openmrs/spa/home');
   });
 
+  it('keeps showing results after the search is widened from the chart to everyone', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Patient%20Summary');
+    mountProviders([{ name: 'destinations', meta: navigateLane, component: DestinationsProvider }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'ward');
+    expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /search everywhere instead/i }));
+
+    expect(screen.getByRole('combobox', { name: /search patients and pages/i })).toHaveValue('ward');
+    expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
+    window.history.pushState({}, '', '/');
+  });
+
   it('ignores Enter until the results match what was typed', async () => {
     const user = userEvent.setup();
     const RecentsProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {
