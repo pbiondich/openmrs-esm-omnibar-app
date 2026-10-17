@@ -154,6 +154,8 @@ const Omnibar: React.FC = () => {
       case 'ArrowUp': {
         if (!count) return;
         event.preventDefault();
+        // A row picked from results for an earlier query would stay picked if its key came back.
+        if (!resultsAreCurrent) return;
         const step = event.key === 'ArrowDown' ? 1 : -1;
         // With nothing highlighted, Down starts at the top and Up at the bottom.
         const from = selectedIndex >= 0 ? selectedIndex : step > 0 ? -1 : 0;
@@ -385,7 +387,7 @@ const Omnibar: React.FC = () => {
                           aria-selected={isSelected}
                           aria-disabled={!resultsAreCurrent}
                           className={classNames(styles.option, { [styles.optionSelected]: isSelected })}
-                          onMouseMove={() => !isSelected && setSelectedKey(key)}
+                          onMouseMove={() => resultsAreCurrent && !isSelected && setSelectedKey(key)}
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => choose({ ...result, providerId: group.providerId, key })}
                         >

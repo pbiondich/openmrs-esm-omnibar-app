@@ -755,6 +755,34 @@ describe('Omnibar with providers mounted through the slot', () => {
       window.history.pushState({}, '', '/');
     });
 
+    it.each([
+      ['arrowed to', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{ArrowDown}')],
+      [
+        'pointed at',
+        (user: ReturnType<typeof userEvent.setup>) => user.hover(screen.getByRole('option', { name: 'Jane Doe' })),
+      ],
+    ])('stays unselected inside a chart if it was %s while the results were stale', async (_, pick) => {
+      const user = userEvent.setup();
+      window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+      const SamePatients: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => report(ready(query, 'Other patients', ['Jane Doe'])), [query, report]);
+        return null;
+      };
+      mountProviders([{ name: 'others', meta: recordLane, component: SamePatients }]);
+      vi.mocked(useDebounce).mockReturnValue('');
+      const { rerender } = render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'jane');
+      await pick(user);
+      vi.mocked(useDebounce).mockReturnValue('jane');
+      rerender(<Omnibar />);
+
+      expect(screen.getByRole('option', { name: 'Jane Doe' })).toHaveAttribute('aria-selected', 'false');
+      await user.keyboard('{Enter}');
+      expect(navigate).not.toHaveBeenCalled();
+      window.history.pushState({}, '', '/');
+    });
+
     it('takes the default highlight as usual outside a chart', async () => {
       const user = userEvent.setup();
       mountProviders([{ name: 'others', meta: recordLane, component: OtherPatients }]);
