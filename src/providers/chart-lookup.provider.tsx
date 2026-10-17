@@ -34,7 +34,7 @@ const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((response) => res
 
 function formatValue(obs: FhirObservation, yes: string, no: string): string | null {
   if (obs.valueQuantity?.value != null) {
-    return [obs.valueQuantity.value, obs.valueQuantity.unit].filter(Boolean).join(' ');
+    return [obs.valueQuantity.value, obs.valueQuantity.unit].filter((part) => part != null && part !== '').join(' ');
   }
   if (obs.valueCodeableConcept) {
     return obs.valueCodeableConcept.text ?? obs.valueCodeableConcept.coding?.[0]?.display ?? null;

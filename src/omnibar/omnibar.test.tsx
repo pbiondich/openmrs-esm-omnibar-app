@@ -441,6 +441,32 @@ describe('Omnibar with providers mounted through the slot', () => {
     window.history.pushState({}, '', '/');
   });
 
+  it('shows a latest value of zero', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+    const viralLoad = {
+      code: { coding: [{ code: 'vl-uuid' }] },
+      effectiveDateTime: '2026-03-01T00:00:00Z',
+      valueQuantity: { value: 0, unit: 'copies/mL' },
+    };
+    mockOpenmrsFetch.mockImplementation((path: string) =>
+      Promise.resolve({
+        data: path.includes('/concept?')
+          ? { results: [{ uuid: 'vl-uuid', display: 'HIV viral load', datatype: { display: 'Numeric' } }] }
+          : { entry: [{ resource: viralLoad }] },
+      } as FetchResponse),
+    );
+    mountProviders([
+      { name: 'chart', meta: { lane: 'record', scopes: ['patient'], order: 10 }, component: ChartLookupProvider },
+    ]);
+    renderWithFreshCache(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'viral');
+
+    expect(await screen.findByRole('option', { name: /HIV viral load: 0 copies\/mL/ })).toBeInTheDocument();
+    window.history.pushState({}, '', '/');
+  });
+
   it('links to the full patient search page', async () => {
     const user = userEvent.setup();
     mockOpenmrsFetch.mockImplementation((url: string) =>
