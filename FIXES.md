@@ -49,13 +49,68 @@ A review of the omnibar prototype, with one commit per issue. Each fix keeps the
   - The grouped listbox markup follows the APG pattern.
   - Index keys on the append-only source list are safe.
   - There's no `dangerouslySetInnerHTML`.
-  - `patientsVisited` UUIDs in REST paths run with the user's own session and privileges, and render as text.
+  - `patientsVisited` UUIDs in REST paths run with the user's own session and privileges, and render as text. Round 2 validates them anyway (4990d26).
   - The rAF focus after unmount is a no-op.
 - **Template auto-update workflow.** `tools/update-openmrs-deps.mjs` would bump the pins back to `next`. It only runs when the repo owner is `openmrs`, so it's inert here, and I left it.
-- **Not run against a live O3 3.7.1.** In particular, `$lastn` with system-less concept-UUID codes (the same assumption the old query made) and openmrsFetch's `_summary=data` on an operation are untested against fhir2.
+- **Not run against a live O3 3.8.0-rc.2.** In particular, `$lastn` with system-less concept-UUID codes (the same assumption the old query made) and openmrsFetch's `_summary=data` on an operation are untested against fhir2.
 
 ## Results
 
 - Tests: 11 before, 41 after (38 in `src/omnibar/omnibar.test.tsx`, 3 in `examples/chartsearch-answer.provider.test.tsx`). The "Functions are not valid as a React child" warning is gone.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`. That's lint, typescript and coverage, with 2 test files and 41 tests passing.
-- `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the asset size limit on `965.js` (1.691 MiB of Carbon styles). It was there on the first build after the 10.0.0 pin, before any source change. The original 11.x tree wasn't built for comparison.
+- `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the asset size limit on `965.js` (1.691 MiB). Its contents show it was the framework's shared fallback, not Carbon styles (see round 2). It was there on the first build after the 10.0.0 pin, before any source change. The original 11.x tree wasn't built for comparison.
+
+## Round 2
+
+The second round retargets the build to the O3 3.8.0-rc.2 sandbox, which runs app shell 11.0.0-20261015, `@openmrs/esm-framework` 11.0.0 and core 2.8.10. It also fixes the findings from the code and security reviews. One commit per change.
+
+### Retarget
+
+| Change | Commit |
+| --- | --- |
+| Pinned `@openmrs/esm-framework`, `@openmrs/esm-styleguide` and `openmrs` to 11.0.0 (all three exist on npm). The peer range stays `10.x \|\| 11.x`. tsc and the tests passed with no source change | e77b086 |
+| `@carbon/react` moved from `dependencies` to a `1.x` peer, with the devDependency at the shell's 1.118.0, deduped with the styleguide's copy | 5f57bdd |
+| Dropped the `rxjs` peer. Nothing imports it, framework 11 doesn't depend on it, and the shell doesn't share it | 2a06833 |
+| README states the target. The slot config note covers 11.0.0. The design doc says targets are same-site pages | 63d6d21 |
+
+**RC compatibility.** No source or test changes were needed for 11.0.0. I diffed the 10.0.0 and 11.0.0 sources of every framework API the module uses. Five changed, and none of them changes behaviour here:
+
+- `useAssignedExtensions` now applies display conditions. None of the providers declares one.
+- `navigate()` now refuses non-http URLs itself.
+- `interpolateUrl` keeps a leading `//` in the template. The trailing slash on `openmrsSpaBase` is still trimmed, so the `${openmrsSpaBase}/` fix from round 1 still holds.
+- `Extension` was rewritten internally. Its API is the same.
+- `openmrsFetch` decides on the `Disable-WWW-Authenticate` header differently. The result is the same for `${restBaseUrl}` paths.
+
+`launchWorkspace2`, `ExtensionSlot` render-function children and `state`, `userHasAccess`, `getAsyncLifecycle`, `useLayoutType`, `useDebounce`, `useOnClickOutside`, `usePatient` and the mocks for them are unchanged.
+
+Shared dependencies were checked against the shell. `swr` 2.5.1 matches the shell's exact `requiredVersion`. The `react`, `react-dom`, `react-i18next`, `react-router-dom` and `dayjs` peers all admit the versions the shell shares. The dev copies of `react-i18next` (16.0.0), `react-router-dom` (6.30.1) and `dayjs` (1.11.13) are older than the shell's. They are only the fallbacks, and the shell's newer singletons win. Yarn still warns that the module doesn't provide `single-spa`, which the framework lists as a peer. The module never imports it, and the shell shares 6.0.3.
+
+**The large chunk.** I read the chunk origins from rspack's stats.
+
+- On 10.0.0, the 1.69 MiB `965.js` held react-aria, rxjs, esm-styleguide and esm-react-utils. That is the `@openmrs/esm-framework` shared fallback, judged by its contents, because I didn't rebuild 10.0.0 to read its origins. On 11.0.0, the same fallback is `132.js` at 627 KiB. Its only origins are the `provide shared` and `consume shared` modules for the framework. The shell always provides the framework, so the browser never loads this chunk.
+- `@carbon/react` was not shared. It sat in `dependencies`, and the rspack config shares only peer dependencies, so the omnibar extension loaded its own Carbon next to the shell's. That is against O3 convention. The 11.0.0 app shell lists `@carbon/react` in its shared modules (`dependencies.json`), and released apps declare it as a `1.x` peer: esm-patient-search-app and esm-home-app 12.1.1, plus esm-login-app and esm-primary-navigation-app on `next`. Fixed in 5f57bdd.
+- After the fix, the warning names two chunks, and both are shared fallbacks. `769.js` (755 KiB) is `@carbon/react` and `132.js` (627 KiB) is the framework. The omnibar's own load path is its 15 KiB extension chunk, 14 KiB of `@carbon/icons-react`, and a few KiB per provider. `@carbon/react/icons` is a subpath, and the config shares only exact package names, so it stays bundled.
+
+### Review findings
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 | Blocking. A click chose a row or an answer source even while the results were for an earlier query, so a clerk who scanned an ID and clicked a recent patient opened the wrong chart | The stale-query guard moved into `choose()` and `openSource()`, so Enter, clicks and sources all pass through it. Stale rows and sources are `aria-disabled` and dimmed. The test clicks a stale recent and a stale source, sees no navigation, then clicks once the results are current and navigates | 19db611 |
+| 2 | Escape worked only in the combobox. Tab reaches Close in the tablet sheet and Close search in icon mode, and Escape there did nothing | The container handles Escape in every layout and returns focus to the trigger. Tests cover both layouts | 8faca85 |
+| 3 | The http(s) check allowed other origins: `https://evil`, `//evil`, `\\evil`, `https:\\evil` | `executeTarget` interpolates and parses once, requires `window.location.origin` and no credentials, and calls `navigate()` with the checked path. One test per bypass, plus `${openmrsSpaBase}/home` and an absolute same-origin URL. A destination on another site is now refused, and the config description says so | 28ca927 |
+| 4 | Raw REST and FHIR error messages were shown to clinicians | The omnibar shows a translated "Couldn't load results" for every failed group. `errorMessage` is removed from `OmnibarReport`, so no provider can put server text on screen. Nothing is logged, because the same text would carry the query into the console. Tests make patient search and chart lookup fail with a message that holds a name and an ID | 464a890 |
+| 5 | `patientsVisited` and selection-event UUIDs went into REST paths unchecked | Only canonical UUIDs are fetched or recorded, and the path segments are encoded. Tests cover a path-traversal entry in `patientsVisited` and a forged selection event | 4990d26 |
+| 6 | The Ctrl+K test had no `<select>` | Added. It fails if `SELECT` is dropped from `isTypingInField` | 4c82332 |
+| 7 | FIXES.md said the peer range type-checks against the 11 prerelease | Reworded. `10.x \|\| 11.x` doesn't admit 11.0.1-pre. The range stays | 613d0de |
+
+Each behavioural test above failed against the code before its fix. I checked that by running it against the previous version of the source.
+
+**Left open.** The recents `userProperties` write still races with other writers, and it still sends a partial update.
+
+**Trade-off.** OpenMRS accepts non-canonical UUIDs, for example in imported data. Patients with one no longer show up in recents.
+
+### Round 2 results
+
+- Tests: 41 before, 54 after. 51 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
+- `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the asset size limit on the two shared fallbacks above.
