@@ -723,6 +723,51 @@ describe('Omnibar with providers mounted through the slot', () => {
     person: { display: 'Jane Doe', gender: 'F', age: 34, dead: false },
   };
 
+  describe('a provider that lists other patients', () => {
+    const OtherPatients: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+      useEffect(() => report(ready(query, 'Other patients', query ? ['Jane Doe', 'John Doe'] : [])), [query, report]);
+      return null;
+    };
+    const otherPatientsLane: OmnibarProviderMeta = { ...recordLane, otherPatients: true };
+
+    it('never takes the default highlight inside a chart, only an arrow key selects it', async () => {
+      const user = userEvent.setup();
+      window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+      mountProviders([{ name: 'others', meta: otherPatientsLane, component: OtherPatients }]);
+      render(<Omnibar />);
+      const combobox = screen.getByRole('combobox', { name: /search this chart/i });
+
+      await user.type(combobox, '100GEJ{Enter}');
+      expect(screen.getAllByRole('option').map((option) => option.getAttribute('aria-selected'))).toEqual([
+        'false',
+        'false',
+      ]);
+      expect(combobox).not.toHaveAttribute('aria-activedescendant');
+      expect(navigate).not.toHaveBeenCalled();
+
+      await user.keyboard('{ArrowUp}');
+      expect(screen.getByRole('option', { name: 'John Doe' })).toHaveAttribute('aria-selected', 'true');
+      await user.keyboard('{ArrowDown}');
+      const jane = screen.getByRole('option', { name: 'Jane Doe' });
+      expect(jane).toHaveAttribute('aria-selected', 'true');
+      expect(combobox).toHaveAttribute('aria-activedescendant', jane.id);
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe('/Jane%20Doe');
+      window.history.pushState({}, '', '/');
+    });
+
+    it('takes the default highlight as usual outside a chart', async () => {
+      const user = userEvent.setup();
+      mountProviders([{ name: 'others', meta: otherPatientsLane, component: OtherPatients }]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'doe');
+      expect(screen.getByRole('option', { name: 'Jane Doe' })).toHaveAttribute('aria-selected', 'true');
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe('/Jane%20Doe');
+    });
+  });
+
   it('keeps other patients out of a chart search until it is widened', async () => {
     const user = userEvent.setup();
     const chartPatient = '8673ee4f-e2ab-4077-ba55-4980f408773e';

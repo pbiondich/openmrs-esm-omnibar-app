@@ -74,6 +74,8 @@ It registers in its own routes.json, where `meta` declares the lane, the scopes 
 }
 ```
 
+A provider whose results are other patients, like patient search, adds `"otherPatients": true`. Inside a chart those results never take the default highlight, so Enter alone can't open someone else's chart. Only an arrow key or the pointer selects them. If nothing else is on screen, nothing is highlighted and Enter does nothing.
+
 The core types, from `src/omnibar/types.ts`:
 
 ```ts

@@ -25,6 +25,8 @@ export interface SelectableResult extends OmnibarResult {
 export interface ProviderInfo {
   lane: OmnibarLane;
   order: number;
+  /** Its results are never highlighted by default, only by an arrow key or the pointer. */
+  neverDefault?: boolean;
 }
 
 const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 2 };

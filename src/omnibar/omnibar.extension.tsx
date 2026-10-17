@@ -57,7 +57,11 @@ const Omnibar: React.FC = () => {
     for (const extension of assigned) {
       const meta = extension.meta as OmnibarProviderMeta | undefined;
       if (meta?.lane && meta.scopes?.includes(context.scope)) {
-        info[extension.name] = { lane: meta.lane, order: getProviderOrder(meta, context.scope) };
+        info[extension.name] = {
+          lane: meta.lane,
+          order: getProviderOrder(meta, context.scope),
+          neverDefault: context.scope === 'patient' && Boolean(meta.otherPatients),
+        };
       }
     }
     return info;
@@ -71,17 +75,15 @@ const Omnibar: React.FC = () => {
   useLayoutEffect(clear, [clear, context]);
   const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
 
+  // The result the user arrowed or pointed to, else the first one that may be the default. When
+  // none may, nothing is highlighted and Enter does nothing.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const selectedIndex = selectable.length
-    ? Math.max(
-        0,
-        selectable.findIndex((r) => r.key === selectedKey),
-      )
-    : -1;
-  const selected = selectedIndex >= 0 ? selectable[selectedIndex] : undefined;
+  const selected =
+    selectable.find((r) => r.key === selectedKey) ?? selectable.find((r) => !providerInfo[r.providerId].neverDefault);
+  const selectedIndex = selected ? selectable.indexOf(selected) : -1;
 
-  // Pin the default highlight to the first result shown, so a slower provider that sorts above it
-  // can't move it to another row just before the user presses Enter.
+  // Pin the default highlight to the result it first lands on, so a slower provider that sorts above
+  // it can't move it to another row just before the user presses Enter.
   const resultsAreCurrent = query.trim() === debouncedQuery;
   useEffect(() => {
     if (resultsAreCurrent && selected && selected.key !== selectedKey) {
@@ -148,7 +150,9 @@ const Omnibar: React.FC = () => {
         if (!count) return;
         event.preventDefault();
         const step = event.key === 'ArrowDown' ? 1 : -1;
-        const next = selectable[(selectedIndex + step + count) % count];
+        // With nothing highlighted, Down starts at the top and Up at the bottom.
+        const from = selectedIndex >= 0 ? selectedIndex : step > 0 ? -1 : 0;
+        const next = selectable[(from + step + count) % count];
         setSelectedKey(next.key);
         document.getElementById(`${listboxId}-${next.key}`)?.scrollIntoView({ block: 'nearest' });
         return;
