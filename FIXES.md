@@ -129,3 +129,27 @@ Both tests failed against the code before their fix.
 - Tests: 54 before, 58 after. 55 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
 - `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as in round 2.
+
+## Round 4
+
+One blocking patient-safety bug.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| Inside a chart, patient search usually reported before chart lookup, and the default highlight pinned to its first row. Typing "cd4" and pressing Enter could open another patient's chart | Patient search declares only the `global` scope in `routes.json`, so it isn't mounted inside a chart. Its `patientScopeOrder` and the "Other patients" title are gone. The chart placeholder reads "Search this chart or pages". The design doc says patient search comes back when the user widens the scope | 24170d1 |
+
+I took the preferred fix rather than only guarding the highlight. A highlight guard would still show other patients one arrow key away from the chart's own values, and the design doc already offers widening for searching everyone.
+
+What's left in patient scope can't put another patient first. Chart lookup reads only the open chart, and destinations are configured pages. A third-party provider that declares patient scope could still list other patients. Nothing in the contract prevents that.
+
+Recents also stop showing in a chart, because they are other patients too.
+
+`patientScopeOrder` stays in the provider contract and `getProviderOrder`, though no shipped provider uses it now.
+
+The "Nothing matches" message still says "try a patient ID" inside a chart, where an ID finds nothing until the scope is widened. I left that wording alone.
+
+The test mounts patient search and chart lookup with their `routes.json` meta, inside a chart. Patient search returns at once and the concept lookup is held back. Before the fix, Enter went to `/openmrs/spa/patient/<other patient>/chart/`. After it, Enter does nothing, no `/patient?q=` request goes out, and CD4 shows when the lookup returns. After "Search everywhere instead", the other patient appears.
+
+- Tests: 58 before, 59 after. 56 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
+- `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as before.
