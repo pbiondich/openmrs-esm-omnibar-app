@@ -276,6 +276,27 @@ describe('Omnibar', () => {
     expect(screen.getByTestId('searchPatientIcon')).toHaveFocus();
   });
 
+  it('keeps keyboard focus inside the full-screen tablet search', async () => {
+    const user = userEvent.setup();
+    mockUseLayoutType.mockReturnValue('tablet');
+    render(
+      <>
+        <button type="button">Behind the sheet</button>
+        <Omnibar />
+      </>,
+    );
+
+    await user.click(screen.getByRole('button', { name: /search patients and pages/i }));
+    const sheet = screen.getByRole('dialog', { name: /search patients and pages/i });
+    expect(sheet).toHaveAttribute('aria-modal', 'true');
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+
+    await user.tab();
+    expect(within(sheet).getByRole('button', { name: 'Close' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole('combobox')).toHaveFocus();
+  });
+
   it('shows a field-shaped button on tablet that opens the full-screen search', async () => {
     const user = userEvent.setup();
     mockUseLayoutType.mockReturnValue('tablet');

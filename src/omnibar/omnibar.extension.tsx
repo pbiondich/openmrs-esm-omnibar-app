@@ -169,6 +169,18 @@ const Omnibar: React.FC = () => {
     }
   };
 
+  // The tablet and phone sheet covers the page, so Tab wraps around inside it.
+  const keepFocusInSheet = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return;
+    const focusable = event.currentTarget.querySelectorAll<HTMLElement>('button, input');
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey ? document.activeElement === first : document.activeElement === last) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  };
+
   // State objects are cached per query and context so providers only re-render when those change.
   const providerState = useMemo(() => {
     const cache = new Map<string, OmnibarProviderProps>();
@@ -232,7 +244,11 @@ const Omnibar: React.FC = () => {
   }
 
   return (
-    <div ref={containerRef} className={classNames(styles.omnibar, { [styles.sheet]: !desktop })}>
+    <div
+      ref={containerRef}
+      className={classNames(styles.omnibar, { [styles.sheet]: !desktop })}
+      {...(!desktop && { role: 'dialog', 'aria-modal': true, 'aria-label': placeholder, onKeyDown: keepFocusInSheet })}
+    >
       <div
         className={classNames(styles.field, { [styles.fieldActive]: open })}
         data-tutorial-target={desktop && appearance === 'field' ? 'search-patient-icon' : undefined}
