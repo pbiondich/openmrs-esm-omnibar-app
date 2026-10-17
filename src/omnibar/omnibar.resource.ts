@@ -65,7 +65,10 @@ export function useResultCollector(query: string, providerInfo: Record<string, P
   );
 
   const listGroups = useMemo(() => groups.filter((group) => group.lane !== 'answer'), [groups]);
-  const answerGroups = useMemo(() => groups.filter((group) => group.lane === 'answer'), [groups]);
+  const answerGroups = useMemo(
+    () => groups.filter((group) => group.lane === 'answer' && group.status !== 'idle'),
+    [groups],
+  );
 
   const selectable = useMemo<Array<SelectableResult>>(
     () =>

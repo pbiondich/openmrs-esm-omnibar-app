@@ -341,6 +341,24 @@ describe('Omnibar with providers mounted through the slot', () => {
     window.history.pushState({}, '', '/');
   });
 
+  it('shows no answer section while the answer provider has nothing to say', async () => {
+    const user = userEvent.setup();
+    const QuestionsOnly: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+      useEffect(() => report({ query, title: 'Answer from this chart', status: 'idle' }), [query, report]);
+      return null;
+    };
+    mountProviders([
+      { name: 'destinations', meta: navigateLane, component: DestinationsProvider },
+      { name: 'answers', meta: { lane: 'answer', scopes: ['global'], order: 10 }, component: QuestionsOnly },
+    ]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'qzxv');
+
+    expect(screen.queryByText('Answer from this chart')).not.toBeInTheDocument();
+    expect(screen.getByText(/nothing matches/i)).toBeInTheDocument();
+  });
+
   it('ignores Enter until the results match what was typed', async () => {
     const user = userEvent.setup();
     const RecentsProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {
