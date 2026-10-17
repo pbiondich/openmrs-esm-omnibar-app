@@ -33,26 +33,33 @@ import {
 } from './types';
 
 // The framework mock's ExtensionSlot renders a render-function child as a React child, and its
-// Extension renders nothing, so no provider ever mounts. These behave like the real ones: the
-// render function runs once per assigned extension, and <Extension state> passes state as props.
+// Extension renders nothing, so no provider ever mounts. These behave like the real ones
+// (esm-react-utils ExtensionSlot.tsx): `select` filters the assigned extensions, the render function
+// runs once per extension that's left, and <Extension state> passes state as props. As in the real
+// slot, a null from the render function falls through to <Extension state={slotState}>, which
+// mounts the extension anyway with no props.
 const providerComponents = vi.hoisted(() => new Map<string, React.ComponentType<OmnibarProviderProps>>());
 
 vi.mock('@openmrs/esm-framework', async (importOriginal) => {
   const framework = await importOriginal<typeof import('@openmrs/esm-framework')>();
   const { createContext, createElement, useContext } = await import('react');
   const ExtensionName = createContext('');
+  const Extension = ({ state }) => {
+    const Component = providerComponents.get(useContext(ExtensionName));
+    return Component ? createElement(Component, state) : null;
+  };
   return {
     ...framework,
-    ExtensionSlot: ({ name, children }) =>
-      framework
-        .useAssignedExtensions(name)
-        .map((extension) =>
-          createElement(ExtensionName.Provider, { key: extension.id, value: extension.name }, children(extension)),
+    ExtensionSlot: ({ name, select = (extensions) => extensions, children, state }) =>
+      select(framework.useAssignedExtensions(name)).map((extension) =>
+        createElement(
+          ExtensionName.Provider,
+          { key: extension.id, value: extension.name },
+          (typeof children === 'function' ? children(extension, state) : children) ??
+            createElement(Extension, { state }),
         ),
-    Extension: ({ state }) => {
-      const Component = providerComponents.get(useContext(ExtensionName));
-      return Component ? createElement(Component, state) : null;
-    },
+      ),
+    Extension,
   };
 });
 
@@ -371,6 +378,30 @@ describe('Omnibar with providers mounted through the slot', () => {
   beforeEach(() => {
     mockUseLayoutType.mockReturnValue('small-desktop');
     mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig);
+  });
+
+  it('never mounts a provider outside the scopes it declares', async () => {
+    const user = userEvent.setup();
+    const chartLookupRenders = vi.fn();
+    const SpiedChartLookup: React.FC<OmnibarProviderProps> = (props) => {
+      chartLookupRenders(props);
+      return <ChartLookupProvider {...props} />;
+    };
+    const shipped = (name: string, component: React.ComponentType<OmnibarProviderProps>) => ({
+      name,
+      meta: routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta,
+      component,
+    });
+    mountProviders([
+      shipped('omnibar-chart-lookup-provider', SpiedChartLookup),
+      shipped('omnibar-destinations-provider', DestinationsProvider),
+    ]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox', { name: /search patients and pages/i }), 'cd4');
+
+    expect(chartLookupRenders).not.toHaveBeenCalled();
+    expect(screen.getByText(/nothing matches/i)).toBeInTheDocument();
   });
 
   it('lists what the destinations provider finds', async () => {

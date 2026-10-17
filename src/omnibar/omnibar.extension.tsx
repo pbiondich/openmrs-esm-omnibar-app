@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { InlineLoading } from '@carbon/react';
 import { ArrowLeft, Close, Search } from '@carbon/react/icons';
 import {
+  type AssignedExtension,
   Extension,
   ExtensionSlot,
   isDesktop,
@@ -68,6 +69,14 @@ const Omnibar: React.FC = () => {
   }, [assigned, context.scope]);
 
   const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(debouncedQuery, providerInfo);
+
+  // Out-of-scope providers are dropped with `select`, never by returning null from the slot's render
+  // function: ExtensionSlot renders `children(extension) ?? <Extension state={slotState} />`, so a null
+  // still mounts the extension, with no props at all.
+  const selectProviders = useCallback(
+    (extensions: Array<AssignedExtension>) => extensions.filter((extension) => providerInfo[extension.name]),
+    [providerInfo],
+  );
 
   // The result the user arrowed or pointed to, else the first one that may be the default. When
   // none may, nothing is highlighted and Enter does nothing.
@@ -477,12 +486,8 @@ const Omnibar: React.FC = () => {
 
       {open && (
         <div hidden key={contextKey}>
-          <ExtensionSlot name={providersSlot}>
-            {(extension) =>
-              providerInfo[extension.name] ? (
-                <Extension state={providerState(extension.name) as unknown as Record<string, unknown>} />
-              ) : null
-            }
+          <ExtensionSlot name={providersSlot} select={selectProviders}>
+            {(extension) => <Extension state={providerState(extension.name) as unknown as Record<string, unknown>} />}
           </ExtensionSlot>
         </div>
       )}
