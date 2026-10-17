@@ -24,7 +24,12 @@ import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
 import { executeTarget, getProviderOrder, useResultCollector } from './omnibar.resource';
 import { getPatientUuidFromPath } from './use-omnibar-context';
-import { type OmnibarProviderMeta, type OmnibarProviderProps, type OmnibarReport } from './types';
+import {
+  OMNIBAR_SELECTED_EVENT,
+  type OmnibarProviderMeta,
+  type OmnibarProviderProps,
+  type OmnibarReport,
+} from './types';
 
 // The framework mock's ExtensionSlot renders a render-function child as a React child, and its
 // Extension renders nothing, so no provider ever mounts. These behave like the real ones: the
@@ -702,7 +707,7 @@ describe('Omnibar with providers mounted through the slot', () => {
       url.includes('/patient?') ? Promise.resolve({ data: { results } } as FetchResponse) : new Promise(() => {}),
     );
   const jane = {
-    uuid: 'jane-uuid',
+    uuid: '5b3c6f0e-8d2a-4c1e-9f7b-2a6d4e8c1b90',
     identifiers: [{ identifier: '100GEJ', preferred: true }],
     person: { display: 'Jane Doe', gender: 'F', age: 34, dead: false },
   };
@@ -719,8 +724,8 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(landedOn()).toBe('/openmrs/spa/search?query=jane');
   });
 
-  it('still lists recent patients when one of them can no longer be fetched', async () => {
-    const user = userEvent.setup();
+  const purgedUuid = 'a1b2c3d4-0000-4000-8000-000000000001';
+  const serveRecents = (patientsVisited: string) => {
     vi.mocked(useSession).mockReturnValue({
       authenticated: true,
       sessionId: 's',
@@ -728,21 +733,66 @@ describe('Omnibar with providers mounted through the slot', () => {
     } as Session);
     mockOpenmrsFetch.mockImplementation((url: string) => {
       if (url.includes('/user/user-uuid')) {
-        return Promise.resolve({
-          data: { userProperties: { patientsVisited: 'purged-uuid,jane-uuid' } },
-        } as FetchResponse);
+        return Promise.resolve({ data: { userProperties: { patientsVisited } } } as FetchResponse);
       }
-      if (url.includes('/patient/jane-uuid')) {
+      if (url.includes(`/patient/${jane.uuid}`)) {
         return Promise.resolve({ data: jane } as FetchResponse);
       }
       return Promise.reject(new Error('Not found'));
     });
+  };
+  const fetched = () => mockOpenmrsFetch.mock.calls.map(([url]) => url);
+  const posts = () => mockOpenmrsFetch.mock.calls.filter(([, init]) => init?.method === 'POST');
+
+  it('still lists recent patients when one of them can no longer be fetched', async () => {
+    const user = userEvent.setup();
+    serveRecents(`${purgedUuid},${jane.uuid}`);
     mountProviders([{ name: 'patients', meta: recordLane, component: PatientSearchProvider }]);
     renderWithFreshCache(<Omnibar />);
 
     await user.click(screen.getByRole('combobox'));
 
     expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+  });
+
+  it('fetches only patient UUIDs from the recently visited list', async () => {
+    const user = userEvent.setup();
+    serveRecents(`../../session?x=,${jane.uuid}`);
+    mountProviders([{ name: 'patients', meta: recordLane, component: PatientSearchProvider }]);
+    renderWithFreshCache(<Omnibar />);
+
+    await user.click(screen.getByRole('combobox'));
+
+    expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+    expect(fetched().filter((url) => !url.includes('/user/user-uuid'))).toEqual([
+      expect.stringContaining(`/patient/${jane.uuid}?`),
+    ]);
+  });
+
+  it('records a chosen patient as recently visited, and nothing that only looks like one', async () => {
+    const user = userEvent.setup();
+    serveRecents(`${purgedUuid},${jane.uuid}`);
+    mountProviders([{ name: 'omnibar-patient-search-provider', meta: recordLane, component: PatientSearchProvider }]);
+    renderWithFreshCache(<Omnibar />);
+    await user.click(screen.getByRole('combobox'));
+    const janeOption = await screen.findByRole('option', { name: /jane doe/i });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(OMNIBAR_SELECTED_EVENT, {
+          detail: { providerId: 'omnibar-patient-search-provider', resultId: 'patient:../../role/x' },
+        }),
+      );
+    });
+    expect(posts()).toEqual([]);
+
+    await user.click(janeOption);
+    expect(posts()).toEqual([
+      [
+        expect.stringMatching(/\/user\/user-uuid$/),
+        expect.objectContaining({ body: { userProperties: { patientsVisited: `${jane.uuid},${purgedUuid}` } } }),
+      ],
+    ]);
   });
 
   it.each([

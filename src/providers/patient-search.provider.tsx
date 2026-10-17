@@ -32,12 +32,21 @@ interface UserProperties {
 
 const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((response) => response.data);
 
+// patientsVisited is a free-text user property and the selection event can come from any script, so
+// only canonical UUIDs from either make it into a REST path.
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
   const { user } = useSession();
-  const url = enabled && user?.uuid ? `${restBaseUrl}/user/${user.uuid}?v=custom:(userProperties)` : null;
+  const url =
+    enabled && user?.uuid ? `${restBaseUrl}/user/${encodeURIComponent(user.uuid)}?v=custom:(userProperties)` : null;
   const { data, mutate } = useSWR<UserProperties>(url, fetcher);
   const uuids = useMemo(
-    () => (data?.userProperties?.patientsVisited ?? '').split(',').filter(Boolean).slice(0, maxRecent),
+    () =>
+      (data?.userProperties?.patientsVisited ?? '')
+        .split(',')
+        .filter((uuid) => uuidPattern.test(uuid))
+        .slice(0, maxRecent),
     [data, maxRecent],
   );
 
@@ -48,10 +57,11 @@ function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
       const { providerId: from, resultId } = (event as CustomEvent<OmnibarSelectedDetail>).detail;
       if (from !== providerId || !resultId.startsWith('patient:')) return;
       const patientUuid = resultId.slice('patient:'.length);
+      if (!uuidPattern.test(patientUuid)) return;
       const visited = (data.userProperties?.patientsVisited ?? '').split(',').filter(Boolean);
       const updated = Array.from(new Set([patientUuid, ...visited])).slice(0, 10);
       const userProperties = { ...data.userProperties, patientsVisited: updated.join(',') };
-      void openmrsFetch(`${restBaseUrl}/user/${user.uuid}`, {
+      void openmrsFetch(`${restBaseUrl}/user/${encodeURIComponent(user.uuid)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { userProperties },
@@ -89,7 +99,9 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
     async () =>
       (
         await Promise.allSettled(
-          recentUuids.map((uuid) => fetcher<SearchedPatient>(`${restBaseUrl}/patient/${uuid}?v=${representation}`)),
+          recentUuids.map((uuid) =>
+            fetcher<SearchedPatient>(`${restBaseUrl}/patient/${encodeURIComponent(uuid)}?v=${representation}`),
+          ),
         )
       ).flatMap((result) => (result.status === 'fulfilled' ? [result.value] : [])),
   );
