@@ -779,6 +779,24 @@ describe('Omnibar with providers mounted through the slot', () => {
     ]);
   });
 
+  it('drops entries that are not patient UUIDs when it records a visit, so they cannot push out real ones', async () => {
+    const user = userEvent.setup();
+    const junk = Array.from({ length: 9 }, (_, i) => `junk-${i}`);
+    serveRecents([...junk, purgedUuid, jane.uuid].join(','));
+    mountProviders([{ name: 'omnibar-patient-search-provider', meta: recordLane, component: PatientSearchProvider }]);
+    renderWithFreshCache(<Omnibar />);
+    await user.click(screen.getByRole('combobox'));
+
+    await user.click(await screen.findByRole('option', { name: /jane doe/i }));
+
+    expect(posts()).toEqual([
+      [
+        expect.stringMatching(/\/user\/user-uuid$/),
+        expect.objectContaining({ body: { userProperties: { patientsVisited: `${jane.uuid},${purgedUuid}` } } }),
+      ],
+    ]);
+  });
+
   it('records a chosen patient as recently visited, and nothing that only looks like one', async () => {
     const user = userEvent.setup();
     serveRecents(`${purgedUuid},${jane.uuid}`);

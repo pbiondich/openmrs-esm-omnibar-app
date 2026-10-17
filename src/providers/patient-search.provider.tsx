@@ -35,6 +35,7 @@ const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((response) => res
 // patientsVisited is a free-text user property and the selection event can come from any script, so
 // only canonical UUIDs from either make it into a REST path.
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const parseVisited = (patientsVisited = '') => patientsVisited.split(',').filter((uuid) => uuidPattern.test(uuid));
 
 function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
   const { user } = useSession();
@@ -42,11 +43,7 @@ function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
     enabled && user?.uuid ? `${restBaseUrl}/user/${encodeURIComponent(user.uuid)}?v=custom:(userProperties)` : null;
   const { data, mutate } = useSWR<UserProperties>(url, fetcher);
   const uuids = useMemo(
-    () =>
-      (data?.userProperties?.patientsVisited ?? '')
-        .split(',')
-        .filter((uuid) => uuidPattern.test(uuid))
-        .slice(0, maxRecent),
+    () => parseVisited(data?.userProperties?.patientsVisited).slice(0, maxRecent),
     [data, maxRecent],
   );
 
@@ -58,7 +55,7 @@ function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
       if (from !== providerId || !resultId.startsWith('patient:')) return;
       const patientUuid = resultId.slice('patient:'.length);
       if (!uuidPattern.test(patientUuid)) return;
-      const visited = (data.userProperties?.patientsVisited ?? '').split(',').filter(Boolean);
+      const visited = parseVisited(data.userProperties?.patientsVisited);
       const updated = Array.from(new Set([patientUuid, ...visited])).slice(0, 10);
       const userProperties = { ...data.userProperties, patientsVisited: updated.join(',') };
       void openmrsFetch(`${restBaseUrl}/user/${encodeURIComponent(user.uuid)}`, {
