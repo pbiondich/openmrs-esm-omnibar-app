@@ -290,3 +290,9 @@ Requests: patient search is still one request per query, and recents are one use
 - The expected birthdate comes from the framework's `formatPartialDate`, because the month depends on the locale data: "Sept" in this Node, "Sep" in Paul's screenshot.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
 - `corepack yarn build`: `Rspack compiled with 1 warning`, for the two shared fallbacks. The framework fallback chunk shrank from 627 to 606 KiB, because `geopattern` is now in a chunk it shares with the row.
+
+### Hotfix 2 review (one quick pass, Cursor): APPROVE WITH NITS
+
+Logged, not fixed (small-hotfix rule: one review, fix only blockers):
+- NIT `src/omnibar/patient-row.tsx:65-70`: Carbon `Tag` can swap an ellipsized label for a focusable `DefinitionTooltip` button, so "no focusable descendants inside an option" depends on layout (`max-inline-size: none` normally prevents it). A locally styled, non-interactive span would make it unconditional.
+- NIT `package.json:45`: `geopattern` is `^1.2.3`, not an exact pin; `yarn.lock` resolves 1.2.3.
