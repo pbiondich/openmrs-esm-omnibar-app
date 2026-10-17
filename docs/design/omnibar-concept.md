@@ -74,6 +74,8 @@ It registers in its own routes.json, where `meta` declares the lane, the scopes 
 }
 ```
 
+Each provider runs as its own extension, so an error in one would reach the framework's handler and raise an error toast. The omnibar registers its providers through `withProviderBoundary`, which turns a provider that throws while rendering or in an effect into a "Couldn't load results" group. Other modules can wrap theirs the same way: `withProviderBoundary` is exported from `@openmrs/esm-omnibar-app`.
+
 Inside a chart, only a provider that declares `"defaultInChart": true` can have its results take the default highlight. It means the results are about the open chart, or are pages, as for chart lookup, destinations and the lab orders above. Any other provider's results, such as patient search or a third-party "similar patients" list, are selected only by an arrow key or the pointer. So Enter alone can't open someone else's chart, even from a provider that didn't say it lists other patients. If nothing default-eligible is on screen, nothing is highlighted and Enter does nothing.
 
 The core types, from `src/omnibar/types.ts`:

@@ -21,6 +21,7 @@
   "providerError": "Couldn’t load results",
   "recentPatients": "Recent patients",
   "recordedOn": "Latest, recorded {{date}}",
+  "results": "Results",
   "search": "Search",
   "searchEverything": "Search patients and pages",
   "searchEverywhere": "Search everywhere instead",

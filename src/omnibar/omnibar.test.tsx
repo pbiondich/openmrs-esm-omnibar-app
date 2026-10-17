@@ -11,6 +11,7 @@ import {
   launchWorkspace2,
   navigate,
   openmrsFetch,
+  showToast,
   useAssignedExtensions,
   useConfig,
   useDebounce,
@@ -24,6 +25,7 @@ import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
 import { executeTarget, getProviderOrder, useResultCollector } from './omnibar.resource';
+import { withProviderBoundary } from './provider-boundary';
 import { getPatientUuidFromPath } from './use-omnibar-context';
 import {
   OMNIBAR_SELECTED_EVENT,
@@ -402,6 +404,69 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     expect(chartLookupRenders).not.toHaveBeenCalled();
     expect(screen.getByText(/nothing matches/i)).toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      'while rendering',
+      () => {
+        throw new Error('render failed');
+      },
+    ],
+    [
+      'in an effect',
+      () => {
+        useEffect(() => {
+          throw new Error('effect failed');
+        });
+      },
+    ],
+  ])('shows a provider that throws %s as a failed group, and keeps the others', async (_, fail) => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // React's development build rethrows an effect's error inside an event listener so that dev tools see
+    // it, then hands it to the nearest boundary. A browser reports a throwing listener as an error event
+    // and carries on. vitest turns off happy-dom's capturing, which lets the throw escape React's commit
+    // before the boundary sees it, so this restores browser behaviour for the test.
+    const settings = (window as unknown as { happyDOM: { settings: { disableErrorCapturing: boolean } } }).happyDOM
+      .settings;
+    settings.disableErrorCapturing = false;
+    const ignore = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener('error', ignore);
+    const Broken: React.FC<OmnibarProviderProps> = () => {
+      fail();
+      return null;
+    };
+    mountProviders([
+      { name: 'broken', meta: recordLane, component: withProviderBoundary(Broken) },
+      { name: 'destinations', meta: navigateLane, component: withProviderBoundary(DestinationsProvider) },
+    ]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'ward');
+
+    expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
+    expect(screen.getByText('Couldn’t load results')).toBeInTheDocument();
+    expect(showToast).not.toHaveBeenCalled();
+    window.removeEventListener('error', ignore);
+    settings.disableErrorCapturing = true;
+    consoleError.mockRestore();
+  });
+
+  it('renders nothing for a provider mounted without the omnibar props', () => {
+    const provider = vi.fn(() => null);
+    const Bounded = withProviderBoundary(provider);
+
+    const { container } = render(
+      <>
+        <Bounded />
+        <Bounded query="cd4" />
+        <Bounded query="cd4" context={{ scope: 'global', locale: 'en' }} />
+      </>,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+    expect(provider).not.toHaveBeenCalled();
   });
 
   it('lists what the destinations provider finds', async () => {
