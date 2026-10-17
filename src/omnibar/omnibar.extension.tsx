@@ -96,6 +96,13 @@ const Omnibar: React.FC = () => {
     }
   }, [resultsAreCurrent, selected, selectedKey]);
 
+  // A new query starts with nothing picked. A key kept from the old results could match a row in the
+  // new ones, such as a patient who is also a recent, and Enter would open them.
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    setSelectedKey(null);
+  };
+
   const openBar = useCallback(() => {
     setOpen(true);
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -306,8 +313,7 @@ const Omnibar: React.FC = () => {
           value={query}
           placeholder={placeholder}
           onChange={(event) => {
-            setQuery(event.target.value);
-            setSelectedKey(null);
+            changeQuery(event.target.value);
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
@@ -339,7 +345,7 @@ const Omnibar: React.FC = () => {
             type="button"
             className={styles.iconButton}
             onClick={() => {
-              setQuery('');
+              changeQuery('');
               inputRef.current?.focus();
             }}
             aria-label={t('clearSearch', 'Clear search')}

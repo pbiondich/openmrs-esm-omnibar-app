@@ -851,6 +851,48 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(landedOn()).toBe(`/openmrs/spa/patient/${jane.uuid}/chart/`);
     });
 
+    it('forgets the highlight when the field is cleared with its clear button', async () => {
+      const user = userEvent.setup();
+      window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+      vi.mocked(useSession).mockReturnValue({
+        authenticated: true,
+        sessionId: 's',
+        user: { uuid: 'user-uuid' },
+      } as Session);
+      mockOpenmrsFetch.mockImplementation((url: string) => {
+        if (url.includes('/user/user-uuid')) {
+          return Promise.resolve({ data: { userProperties: { patientsVisited: jane.uuid } } } as FetchResponse);
+        }
+        if (url.includes('/patient?')) {
+          return Promise.resolve({ data: { results: [jane] } } as FetchResponse);
+        }
+        if (url.includes(`/patient/${jane.uuid}`)) {
+          return Promise.resolve({ data: jane } as FetchResponse);
+        }
+        if (url.includes('/concept?')) {
+          return Promise.resolve({ data: { results: [] } } as FetchResponse);
+        }
+        return new Promise(() => {});
+      });
+      mountProviders([
+        shipped('omnibar-patient-search-provider', PatientSearchProvider),
+        shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+      ]);
+      renderWithFreshCache(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'jane');
+      await screen.findByRole('option', { name: /jane doe/i });
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'true');
+
+      await user.click(screen.getByRole('button', { name: /clear search/i }));
+      const recents = await screen.findByRole('group', { name: 'Recent patients' });
+      expect(within(recents).getByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'false');
+      await user.keyboard('{Enter}');
+
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
     it('forgets the highlight when the search is narrowed back to the chart', async () => {
       const user = userEvent.setup();
       await openChart([])();
