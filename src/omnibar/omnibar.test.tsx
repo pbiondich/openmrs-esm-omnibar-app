@@ -467,11 +467,19 @@ describe('Omnibar with providers mounted through the slot', () => {
     window.history.pushState({}, '', '/');
   });
 
+  const searchReturns = (results: Array<object>) =>
+    mockOpenmrsFetch.mockImplementation((url: string) =>
+      url.includes('/patient?') ? Promise.resolve({ data: { results } } as FetchResponse) : new Promise(() => {}),
+    );
+  const jane = {
+    uuid: 'jane-uuid',
+    identifiers: [{ identifier: '100GEJ', preferred: true }],
+    person: { display: 'Jane Doe', gender: 'F', age: 34, dead: false },
+  };
+
   it('links to the full patient search page', async () => {
     const user = userEvent.setup();
-    mockOpenmrsFetch.mockImplementation((url: string) =>
-      url.includes('/patient?') ? Promise.resolve({ data: { results: [] } } as FetchResponse) : new Promise(() => {}),
-    );
+    searchReturns([jane]);
     mountProviders([{ name: 'patients', meta: recordLane, component: PatientSearchProvider }]);
     renderWithFreshCache(<Omnibar />);
 
@@ -479,5 +487,17 @@ describe('Omnibar with providers mounted through the slot', () => {
     await user.click(await screen.findByRole('option', { name: /all patient results/i }));
 
     expect(landedOn()).toBe('/openmrs/spa/search?query=jane');
+  });
+
+  it('says nothing matches when no patient does', async () => {
+    const user = userEvent.setup();
+    searchReturns([]);
+    mountProviders([{ name: 'patients', meta: recordLane, component: PatientSearchProvider }]);
+    renderWithFreshCache(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'qzxv');
+
+    expect(await screen.findByText(/nothing matches/i)).toBeInTheDocument();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
   });
 });

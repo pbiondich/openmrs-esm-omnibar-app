@@ -130,7 +130,7 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
     }
 
     const results = (search.data?.results ?? []).map(toResult);
-    if (search.data) {
+    if (results.length) {
       results.push({
         id: 'see-all',
         title: t('allPatientResults', 'All patient results for “{{query}}”', { query }),
