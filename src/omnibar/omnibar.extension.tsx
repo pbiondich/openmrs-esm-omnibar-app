@@ -144,7 +144,9 @@ const Omnibar: React.FC = () => {
         if (!count) return;
         event.preventDefault();
         const step = event.key === 'ArrowDown' ? 1 : -1;
-        setSelectedKey(selectable[(selectedIndex + step + count) % count].key);
+        const next = selectable[(selectedIndex + step + count) % count];
+        setSelectedKey(next.key);
+        document.getElementById(`${listboxId}-${next.key}`)?.scrollIntoView({ block: 'nearest' });
         return;
       }
       case 'Enter':

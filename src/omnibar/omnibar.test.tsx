@@ -466,6 +466,22 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(screen.getByRole('region', { name: 'Answer' })).toHaveTextContent('Because the viral load rose.');
   });
 
+  it('scrolls the option the user arrows to into view', async () => {
+    const user = userEvent.setup();
+    const scrolledTo: Array<string> = [];
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      scrolledTo.push(this.textContent);
+    });
+    mountProviders([{ name: 'destinations', meta: navigateLane, component: DestinationsProvider }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'beds');
+    await user.keyboard('{ArrowDown}');
+
+    expect(screen.getByRole('option', { name: 'Bed management' })).toHaveAttribute('aria-selected', 'true');
+    expect(scrolledTo).toEqual(['Bed management']);
+  });
+
   it('ignores Enter until the results match what was typed', async () => {
     const user = userEvent.setup();
     const RecentsProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {
