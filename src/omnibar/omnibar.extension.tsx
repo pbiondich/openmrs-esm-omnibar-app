@@ -352,9 +352,18 @@ const Omnibar: React.FC = () => {
           {answerGroups.map((group) => {
             const answer = group.answer;
             const unsourced = answer && !answer.streaming && answer.sources.length === 0;
+            const headingId = `${listboxId}-${group.providerId}-heading`;
             return (
-              <section key={group.providerId} className={styles.answer} aria-live="polite">
-                <div className={styles.groupHeading}>{group.title}</div>
+              <section
+                key={group.providerId}
+                className={styles.answer}
+                aria-labelledby={headingId}
+                aria-live="polite"
+                aria-busy={Boolean(answer?.streaming)}
+              >
+                <div id={headingId} className={styles.groupHeading}>
+                  {group.title}
+                </div>
                 {group.status === 'loading' && !answer?.text && (
                   <InlineLoading className={styles.groupLoading} description={t('thinking', 'Working on an answer')} />
                 )}

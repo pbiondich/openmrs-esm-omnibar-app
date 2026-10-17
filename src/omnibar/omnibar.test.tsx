@@ -376,6 +376,34 @@ describe('Omnibar with providers mounted through the slot', () => {
     window.history.pushState({}, '', '/');
   });
 
+  it('holds back screen reader announcements until a streaming answer is complete', async () => {
+    const user = userEvent.setup();
+    const mounted = new Map<string, OmnibarProviderProps>();
+    const Answers: React.FC<OmnibarProviderProps> = (props) => {
+      mounted.set(props.query, props);
+      return null;
+    };
+    mountProviders([{ name: 'answers', meta: { lane: 'answer', scopes: ['global'], order: 10 }, component: Answers }]);
+    render(<Omnibar />);
+    await user.type(screen.getByRole('combobox'), 'why');
+    const answer = (text: string, streaming: boolean) =>
+      act(() =>
+        mounted.get('why').report({
+          query: 'why',
+          title: 'Answer',
+          status: 'ready',
+          answer: { text, streaming, sources: [{ label: 'Visit', target: { type: 'navigate', to: '/visit' } }] },
+        }),
+      );
+
+    answer('Because the', true);
+    expect(screen.getByRole('region', { name: 'Answer' })).toHaveAttribute('aria-busy', 'true');
+
+    answer('Because the viral load rose.', false);
+    expect(screen.getByRole('region', { name: 'Answer' })).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByRole('region', { name: 'Answer' })).toHaveTextContent('Because the viral load rose.');
+  });
+
   it('ignores Enter until the results match what was typed', async () => {
     const user = userEvent.setup();
     const RecentsProvider: React.FC<OmnibarProviderProps> = ({ query, report }) => {
