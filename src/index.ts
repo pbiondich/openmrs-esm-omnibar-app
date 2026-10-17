@@ -17,20 +17,22 @@ export function startupApp() {
 
 export const omnibar = getAsyncLifecycle(() => import('./omnibar/omnibar.extension'), options);
 
-const bounded = ({ default: Provider }) => ({ default: withProviderBoundary(Provider) });
+const bounded =
+  (name: string) =>
+  ({ default: Provider }) => ({ default: withProviderBoundary(Provider, name) });
 
 export const patientSearchProvider = getAsyncLifecycle(
-  () => import('./providers/patient-search.provider').then(bounded),
+  () => import('./providers/patient-search.provider').then(bounded('omnibar-patient-search-provider')),
   options,
 );
 
 export const chartLookupProvider = getAsyncLifecycle(
-  () => import('./providers/chart-lookup.provider').then(bounded),
+  () => import('./providers/chart-lookup.provider').then(bounded('omnibar-chart-lookup-provider')),
   options,
 );
 
 export const destinationsProvider = getAsyncLifecycle(
-  () => import('./providers/destinations.provider').then(bounded),
+  () => import('./providers/destinations.provider').then(bounded('omnibar-destinations-provider')),
   options,
 );
 

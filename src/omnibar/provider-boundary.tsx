@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { type OmnibarProviderProps, type OmnibarReport } from './types';
 
 interface BoundaryProps {
+  name: string;
   query: string;
   onError: () => void;
   children: React.ReactNode;
@@ -16,7 +17,10 @@ class ProviderErrorBoundary extends React.Component<BoundaryProps, { failed: boo
   }
 
   componentDidCatch(error: unknown) {
-    console.error('An omnibar provider failed', error);
+    // Only the kind of error: its message or a server response in it can quote the query or a record.
+    console.error(
+      `Omnibar provider ${this.props.name} failed with ${error instanceof Error ? error.name : typeof error}`,
+    );
     this.props.onError();
   }
 
@@ -38,7 +42,11 @@ class ProviderErrorBoundary extends React.Component<BoundaryProps, { failed: boo
  * bar and other providers carry on. Mounted without the omnibar's props, as a misused slot would,
  * the provider isn't rendered at all.
  */
-export function withProviderBoundary(Provider: React.ComponentType<OmnibarProviderProps>) {
+export function withProviderBoundary(
+  Provider: React.ComponentType<OmnibarProviderProps>,
+  /** Named in the console when it fails, such as its extension name. Component names don't survive minifying. */
+  name = Provider.displayName ?? Provider.name,
+) {
   const Bounded: React.FC<Partial<OmnibarProviderProps>> = (props) => {
     const { t } = useTranslation();
     const { report } = props;
@@ -58,11 +66,11 @@ export function withProviderBoundary(Provider: React.ComponentType<OmnibarProvid
       report({ query: props.query, status: 'error', title: lastTitle.current ?? t('results', 'Results') });
 
     return (
-      <ProviderErrorBoundary query={props.query} onError={onError}>
+      <ProviderErrorBoundary name={name} query={props.query} onError={onError}>
         <Provider {...(props as OmnibarProviderProps)} report={recordTitle} />
       </ProviderErrorBoundary>
     );
   };
-  Bounded.displayName = `withProviderBoundary(${Provider.displayName ?? Provider.name})`;
+  Bounded.displayName = `withProviderBoundary(${name})`;
   return Bounded;
 }

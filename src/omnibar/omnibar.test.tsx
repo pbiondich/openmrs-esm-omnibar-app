@@ -411,14 +411,14 @@ describe('Omnibar with providers mounted through the slot', () => {
     [
       'while rendering',
       () => {
-        throw new Error('render failed');
+        throw new Error('Server said Jane Doe 100GEJ is unavailable');
       },
     ],
     [
       'in an effect',
       () => {
         useEffect(() => {
-          throw new Error('effect failed');
+          throw new Error('Server said Jane Doe 100GEJ is unavailable');
         });
       },
     ],
@@ -449,6 +449,8 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
     expect(screen.getByText('Couldn’t load results')).toBeInTheDocument();
     expect(showToast).not.toHaveBeenCalled();
+    expect(consoleError.mock.calls.flat().map(String).join('\n')).not.toMatch(/Jane Doe|100GEJ/);
+    expect(consoleError).toHaveBeenCalledWith('Omnibar provider Broken failed with Error');
     window.removeEventListener('error', ignore);
     settings.disableErrorCapturing = true;
     consoleError.mockRestore();
