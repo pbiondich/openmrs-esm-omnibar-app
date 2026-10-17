@@ -235,36 +235,21 @@ $omnibar-max-width: 48rem;
   min-width: 0;
 }
 
-.patientTile {
-  @include type.type-style(heading-compact-01);
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: layout.$spacing-08;
-  height: layout.$spacing-08;
-  background-color: colors.$teal-60;
-  color: themes.$text-on-color;
-  text-transform: uppercase;
-  user-select: none;
-}
-
-.gender {
-  display: inline-flex;
-  align-items: center;
-  gap: layout.$spacing-02;
-  margin-inline-start: layout.$spacing-03;
-  font-weight: 400;
-  color: themes.$text-secondary;
-}
-
-.genderIcon {
-  display: inline-flex;
-}
-
 .optionSelected {
   background-color: themes.$layer-selected-01;
   border-inline-start-color: themes.$interactive;
+}
+
+// Patient rows take the patient search app's spacing, where the avatar and text carry their own
+// margins, with its divider and grey hover. The selected bar and background still show over them.
+.patientOption {
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid $ui-03;
+
+  &:hover:not(.optionSelected) {
+    background-color: $ui-01;
+  }
 }
 
 .option[aria-disabled='true'],

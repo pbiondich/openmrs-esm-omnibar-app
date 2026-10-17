@@ -94,7 +94,8 @@ interface OmnibarResult {
   id: string;
   title: string;
   subtitle?: string;
-  patient?: { uuid: string; gender?: string }; // shows an initials tile and the gender, as patient search does
+  // A patient row, laid out like the patient search app's: avatar, name and gender, then age · birthdate · identifiers
+  patient?: { uuid: string; gender?: string; birthdate?: string; identifiers?: Array<{ identifier: string; typeUuid?: string; typeName?: string }> };
   target: OmnibarTarget;
 }
 

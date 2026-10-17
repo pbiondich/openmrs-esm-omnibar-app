@@ -7,10 +7,6 @@ import {
   type AssignedExtension,
   Extension,
   ExtensionSlot,
-  GenderFemaleIcon,
-  GenderMaleIcon,
-  GenderOtherIcon,
-  GenderUnknownIcon,
   isDesktop,
   useAssignedExtensions,
   useConfig,
@@ -28,6 +24,7 @@ import {
   useOmnibarShortcut,
   useResultCollector,
 } from './omnibar.resource';
+import { PatientRow } from './patient-row';
 import { useOmnibarContext } from './use-omnibar-context';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderMeta, type OmnibarProviderProps, type OmnibarTarget } from './types';
@@ -36,15 +33,6 @@ import styles from './omnibar.scss';
 export const providersSlot = 'omnibar-providers-slot';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
-
-const genderIcons = { M: GenderMaleIcon, F: GenderFemaleIcon, O: GenderOtherIcon, U: GenderUnknownIcon };
-
-function initials(name: string): string {
-  const words = name.split(/\s+/).filter(Boolean);
-  const first = words[0] ?? '';
-  const last = words.length > 1 ? words[words.length - 1] : '';
-  return (Array.from(first)[0] ?? '') + (Array.from(last)[0] ?? '');
-}
 
 const Omnibar: React.FC = () => {
   const { t } = useTranslation();
@@ -252,12 +240,6 @@ const Omnibar: React.FC = () => {
   const chartOwner = patientName || t('thisPatient', 'this patient');
   // Never the provider's own error: a server's message can quote the query or the record.
   const providerError = t('providerError', 'Couldn’t load results');
-  const genders: Record<string, string> = {
-    M: t('male', 'Male'),
-    F: t('female', 'Female'),
-    O: t('other', 'Other'),
-    U: t('unknown', 'Unknown'),
-  };
 
   const stillLoading = listGroups.some((g) => g.status === 'loading');
   const hasListResults = selectable.length > 0;
@@ -430,28 +412,22 @@ const Omnibar: React.FC = () => {
                           role="option"
                           aria-selected={isSelected}
                           aria-disabled={!resultsAreCurrent}
-                          className={classNames(styles.option, { [styles.optionSelected]: isSelected })}
+                          className={classNames(styles.option, {
+                            [styles.optionSelected]: isSelected,
+                            [styles.patientOption]: result.patient,
+                          })}
                           onMouseMove={(event) => pointAt(event, key)}
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => choose({ ...result, providerId: group.providerId, key })}
                         >
-                          {result.patient && (
-                            // Drawn here rather than with the framework's PatientPhoto, which loads an image
-                            // from a path the server supplies and can be sent off-site. The row's text already
-                            // names the patient, so the tile is decoration.
-                            <span className={styles.patientTile} aria-hidden>
-                              {initials(result.title)}
+                          {result.patient ? (
+                            <PatientRow name={result.title} patient={result.patient} note={result.subtitle} />
+                          ) : (
+                            <span className={styles.optionText}>
+                              <span className={styles.optionTitle}>{result.title}</span>
+                              {result.subtitle && <span className={styles.optionSubtitle}>{result.subtitle}</span>}
                             </span>
                           )}
-                          <span className={styles.optionText}>
-                            <span className={styles.optionTitle}>
-                              {result.title}
-                              {result.patient?.gender && (
-                                <PatientGender code={result.patient.gender} labels={genders} />
-                              )}
-                            </span>
-                            {result.subtitle && <span className={styles.optionSubtitle}>{result.subtitle}</span>}
-                          </span>
                         </li>
                       );
                     })}
@@ -536,22 +512,6 @@ const Omnibar: React.FC = () => {
         </div>
       )}
     </div>
-  );
-};
-
-const PatientGender: React.FC<{ code: string; labels: Record<string, string> }> = ({ code, labels }) => {
-  const Icon = genderIcons[code] ?? GenderUnknownIcon;
-  return (
-    <>
-      {' '}
-      <span className={styles.gender}>
-        {/* Icon drops aria-hidden, so the wrapper carries it. */}
-        <span aria-hidden className={styles.genderIcon}>
-          <Icon size={16} />
-        </span>
-        {labels[code] ?? code}
-      </span>
-    </>
   );
 };
 

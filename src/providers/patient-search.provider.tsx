@@ -1,16 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import { useTranslation } from 'react-i18next';
-import {
-  age,
-  formatDate,
-  interpolateUrl,
-  openmrsFetch,
-  parseDate,
-  restBaseUrl,
-  useConfig,
-  useSession,
-} from '@openmrs/esm-framework';
+import { interpolateUrl, openmrsFetch, restBaseUrl, useConfig, useSession } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import {
   OMNIBAR_SELECTED_EVENT,
@@ -28,11 +19,11 @@ import {
 export const providerId = 'omnibar-patient-search-provider';
 
 const representation =
-  'custom:(uuid,identifiers:(identifier,preferred,identifierType:(display)),person:(display,gender,birthdate,dead))';
+  'custom:(uuid,identifiers:(identifier,identifierType:(uuid,display)),person:(display,gender,birthdate,dead))';
 
 interface SearchedPatient {
   uuid: string;
-  identifiers: Array<{ identifier: string; preferred: boolean; identifierType?: { display: string } }>;
+  identifiers: Array<{ identifier: string; identifierType?: { uuid: string; display: string } }>;
   person: { display: string; gender: string; birthdate: string | null; dead: boolean };
 }
 
@@ -114,30 +105,22 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
   );
 
   useEffect(() => {
-    // Laid out as the patient search app shows a patient: age, birthdate, then the identifier with its type.
-    const toResult = (patient: SearchedPatient): OmnibarResult => {
-      const { birthdate, dead } = patient.person;
-      const identifier = patient.identifiers.find((id) => id.preferred) ?? patient.identifiers[0];
-      const details = [
-        birthdate ? age(birthdate) : null,
-        birthdate ? formatDate(parseDate(birthdate), { time: false }) : null,
-        identifier?.identifierType
-          ? t('identifierWithType', '{{type}}: {{identifier}}', {
-              type: identifier.identifierType.display,
-              identifier: identifier.identifier,
-              interpolation: { escapeValue: false },
-            })
-          : identifier?.identifier,
-        dead ? t('deceased', 'Deceased') : null,
-      ].filter(Boolean);
-      return {
-        id: `patient:${patient.uuid}`,
-        title: patient.person.display,
-        subtitle: details.join(' · '),
-        patient: { uuid: patient.uuid, gender: patient.person.gender },
-        target: { type: 'navigate', to: interpolateUrl(patientChartUrl, { patientUuid: patient.uuid }) },
-      };
-    };
+    const toResult = (patient: SearchedPatient): OmnibarResult => ({
+      id: `patient:${patient.uuid}`,
+      title: patient.person.display,
+      subtitle: patient.person.dead ? t('deceased', 'Deceased') : undefined,
+      patient: {
+        uuid: patient.uuid,
+        gender: patient.person.gender,
+        birthdate: patient.person.birthdate ?? undefined,
+        identifiers: patient.identifiers.map(({ identifier, identifierType }) => ({
+          identifier,
+          typeUuid: identifierType?.uuid,
+          typeName: identifierType?.display,
+        })),
+      },
+      target: { type: 'navigate', to: interpolateUrl(patientChartUrl, { patientUuid: patient.uuid }) },
+    });
 
     if (showingRecents) {
       report({

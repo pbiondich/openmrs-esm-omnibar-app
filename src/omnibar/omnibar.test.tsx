@@ -17,8 +17,10 @@ import {
   useConfig,
   useDebounce,
   useLayoutType,
+  usePrimaryIdentifierCode,
   useSession,
 } from '@openmrs/esm-framework';
+import { formatPartialDate } from '@openmrs/esm-utils';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
 import ChartLookupProvider from '../providers/chart-lookup.provider';
@@ -53,6 +55,8 @@ vi.mock('@openmrs/esm-framework', async (importOriginal) => {
   };
   return {
     ...framework,
+    // Missing from the framework mock; the real one, as the app shell provides it.
+    formatPartialDate: (await import('@openmrs/esm-utils')).formatPartialDate,
     ExtensionSlot: ({ name, select = (extensions) => extensions, children, state }) =>
       select(framework.useAssignedExtensions(name)).map((extension) =>
         createElement(
@@ -377,10 +381,16 @@ describe('Omnibar', () => {
 describe('Omnibar with providers mounted through the slot', () => {
   const navigateLane: OmnibarProviderMeta = { lane: 'navigate', scopes: ['global', 'patient'], order: 10 };
   const recordLane: OmnibarProviderMeta = { lane: 'record', scopes: ['global', 'patient'], order: 10 };
+  const openmrsIdType = '05a29f94-c0ed-11e2-94be-8c13b969e334';
 
   beforeEach(() => {
     mockUseLayoutType.mockReturnValue('small-desktop');
     mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig);
+    vi.mocked(usePrimaryIdentifierCode).mockReturnValue({
+      primaryIdentifierCode: openmrsIdType,
+      isLoading: false,
+      error: undefined,
+    });
   });
 
   it('never mounts a provider outside the scopes it declares', async () => {
@@ -738,12 +748,17 @@ describe('Omnibar with providers mounted through the slot', () => {
             data: {
               results: [
                 {
-                  uuid: 'jane-uuid',
+                  uuid: 'c6e4b4c4-2e5a-4f6f-9c8b-6a1c2f0d9e11',
                   identifiers: [
-                    { identifier: 'OLD-7', preferred: false, identifierType: { display: 'Old ID' } },
-                    { identifier: '100GEJ', preferred: true, identifierType: { display: 'OpenMRS ID' } },
+                    { identifier: '2166KT-1', identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' } },
+                    { identifier: 'OLD-7', identifierType: { uuid: 'old-id-type', display: 'Old ID' } },
                   ],
-                  person: { display: 'Jane Doe', gender: 'F', birthdate: '1990-03-15T00:00:00.000+0000', dead: false },
+                  person: {
+                    display: 'Mogan Zavai Kamwara',
+                    gender: 'M',
+                    birthdate: '1960-09-24T00:00:00.000+0000',
+                    dead: false,
+                  },
                 },
               ],
             },
@@ -753,21 +768,32 @@ describe('Omnibar with providers mounted through the slot', () => {
     mountProviders([{ name: 'patients', meta: recordLane, component: PatientSearchProvider }]);
     renderWithFreshCache(<Omnibar />);
 
-    await user.type(screen.getByRole('combobox'), 'jane');
+    await user.type(screen.getByRole('combobox'), 'mogan');
 
-    const jane = await screen.findByRole('option', { name: /jane doe/i });
+    const mogan = await screen.findByRole('option', { name: /mogan zavai kamwara/i });
     vi.useRealTimers();
-    expect(jane).toHaveAccessibleName('Jane Doe Female 36 yrs · 15-Mar-1990 · OpenMRS ID: 100GEJ');
-    // The initials tile is drawn locally, out of the accessible name, and nothing loads a photo.
-    expect(within(jane).getByText('JD')).toBeInTheDocument();
-    expect(within(jane).queryByRole('img')).not.toBeInTheDocument();
+    // The birthdate is formatted by the framework for the locale, as the patient banner formats it.
+    const birthdate = formatPartialDate('1960-09-24T00:00:00.000+0000', { time: false });
+    expect(birthdate).toMatch(/^24-Sept?-1960$/);
+    expect(mogan).toHaveAccessibleName(
+      `Mogan Zavai Kamwara Male 66 yrs · ${birthdate} · OpenMRS ID: 2166KT-1 · Old ID: OLD-7`,
+    );
+    expect(mogan).toHaveAttribute('aria-selected', 'true');
+    // The avatar is drawn locally from the patient's uuid: a generated pattern and up to three initials,
+    // left out of the accessible name. Nothing loads a photo.
+    const avatar = within(mogan).getByTestId('patientAvatar');
+    expect(avatar).toHaveTextContent('MZK');
+    expect(avatar).toHaveAttribute('aria-hidden', 'true');
+    expect(avatar.style.backgroundImage).toMatch(/^url\("?data:image\/svg\+xml;base64,/);
+    expect(avatar.style.backgroundImage).not.toMatch(/https?:/);
+    expect(within(mogan).queryByRole('img')).not.toBeInTheDocument();
+    expect(within(mogan).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(mogan).queryByRole('link')).not.toBeInTheDocument();
     expect(vi.mocked(PatientPhoto)).not.toHaveBeenCalled();
-    expect(mockOpenmrsFetch).not.toHaveBeenCalledWith(expect.stringContaining('/obs'), expect.anything());
-    expect(mockOpenmrsFetch).not.toHaveBeenCalledWith(expect.stringContaining('/obs'));
-    expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining('/patient?q=jane'));
+    expect(fetched().filter((url) => url.includes('/obs'))).toEqual([]);
 
     await user.keyboard('{Enter}');
-    expect(landedOn()).toBe('/openmrs/spa/patient/jane-uuid/chart/');
+    expect(landedOn()).toBe('/openmrs/spa/patient/c6e4b4c4-2e5a-4f6f-9c8b-6a1c2f0d9e11/chart/');
   });
 
   it('shows the latest value of every matching concept, however many readings another one has', async () => {
@@ -855,8 +881,8 @@ describe('Omnibar with providers mounted through the slot', () => {
     );
   const jane = {
     uuid: '5b3c6f0e-8d2a-4c1e-9f7b-2a6d4e8c1b90',
-    identifiers: [{ identifier: '100GEJ', preferred: true }],
-    person: { display: 'Jane Doe', gender: 'F', age: 34, dead: false },
+    identifiers: [{ identifier: '100GEJ', identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' } }],
+    person: { display: 'Jane Doe', gender: 'F', birthdate: null, dead: false },
   };
 
   describe('a provider that lists other patients and declares nothing', () => {
@@ -1152,7 +1178,9 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     await user.click(screen.getByRole('combobox'));
 
-    expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAccessibleName('Jane Doe Female 100GEJ');
+    expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAccessibleName(
+      'Jane Doe Female OpenMRS ID: 100GEJ',
+    );
   });
 
   it('fetches only patient UUIDs from the recently visited list', async () => {

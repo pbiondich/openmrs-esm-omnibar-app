@@ -69,11 +69,22 @@ export interface OmnibarResult {
   title: string;
   subtitle?: string;
   /**
-   * Set when the result is a patient. The row then shows a tile with their initials, and their gender
-   * beside the name, as the patient search app does. The gender is the OpenMRS code (M, F, O or U).
+   * Set when the result is a patient. The row is then laid out like the patient search app's: an
+   * avatar, the title as the name with the gender beside it, then age, birthdate and identifiers.
+   * The subtitle, if any, follows them.
    */
-  patient?: { uuid: string; gender?: string };
+  patient?: OmnibarPatient;
   target: OmnibarTarget;
+}
+
+export interface OmnibarPatient {
+  uuid: string;
+  /** The OpenMRS code: M, F, O or U. */
+  gender?: string;
+  /** As the REST API returns it. */
+  birthdate?: string;
+  /** Shown in order. The one whose type is the primary identifier type is shown as a tag. */
+  identifiers?: Array<{ identifier: string; typeUuid?: string; typeName?: string }>;
 }
 
 export interface OmnibarSource {

@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "classnames": "^2.5.1",
+    "geopattern": "^1.2.3",
     "lodash-es": "^4.17.21"
   },
   "peerDependencies": {
@@ -67,6 +68,7 @@
     "@testing-library/jest-dom": "^6.4.5",
     "@testing-library/react": "^15.0.6",
     "@testing-library/user-event": "^14.5.2",
+    "@types/geopattern": "^1.2.9",
     "@types/react": "^18.3.21",
     "@types/react-dom": "^18.3.0",
     "@types/react-router": "^5.1.20",

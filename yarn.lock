@@ -2762,6 +2762,7 @@ __metadata:
     "@testing-library/jest-dom": "npm:^6.4.5"
     "@testing-library/react": "npm:^15.0.6"
     "@testing-library/user-event": "npm:^14.5.2"
+    "@types/geopattern": "npm:^1.2.9"
     "@types/react": "npm:^18.3.21"
     "@types/react-dom": "npm:^18.3.0"
     "@types/react-router": "npm:^5.1.20"
@@ -2772,6 +2773,7 @@ __metadata:
     dayjs: "npm:^1.11.13"
     dotenv: "npm:^16.0.3"
     eslint: "npm:^9.39.0"
+    geopattern: "npm:^1.2.3"
     happy-dom: "npm:^20.0.0"
     husky: "npm:^8.0.3"
     i18next: "npm:^25.0.0"
@@ -5048,6 +5050,13 @@ __metadata:
   version: 7946.0.16
   resolution: "@types/geojson@npm:7946.0.16"
   checksum: 10/34d07421bdd60e7b99fa265441d17ac6e9aef48e3ce22d04324127d0de1daf7fbaa0bd3be1cece2092eb6995f21da84afa5231e24621a2910ff7340bc98f496f
+  languageName: node
+  linkType: hard
+
+"@types/geopattern@npm:^1.2.9":
+  version: 1.2.9
+  resolution: "@types/geopattern@npm:1.2.9"
+  checksum: 10/627540a97505ea85a81aa05b7289078ee9ddc50349aa384da0b1ccd45dee9b00c718ebb5a528379a9169d515f2d6558a76419c7d9be23e8c2bea6997b24dea87
   languageName: node
   linkType: hard
 
