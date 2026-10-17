@@ -20,7 +20,7 @@
  */
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { openmrsFetch, restBaseUrl } from '@openmrs/esm-framework';
+import { makeUrl, restBaseUrl } from '@openmrs/esm-framework';
 import type { OmnibarProviderProps, OmnibarSource } from '@openmrs/esm-omnibar-app';
 
 // Placeholder: ChartSearch's streaming endpoint.
@@ -53,22 +53,29 @@ const ChartSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
     report({ query, title, status: 'loading' });
 
     (async () => {
-      const response = await openmrsFetch(askUrl, {
+      // Not openmrsFetch: it reads the whole body before resolving, so nothing would stream.
+      const response = await window.fetch(makeUrl(askUrl), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: { patientUuid: context.patientUuid, question: query, locale: context.locale },
+        headers: { 'Content-Type': 'application/json', 'Disable-WWW-Authenticate': 'true' },
+        body: JSON.stringify({ patientUuid: context.patientUuid, question: query, locale: context.locale }),
         signal: controller.signal,
       });
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let finished = false;
+      const show = () =>
+        report({ query, title, status: 'ready', answer: { text, streaming: !finished, sources: [...sources] } });
 
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+      for (let done = false; !done; ) {
+        const chunk = await reader.read();
+        done = chunk.done;
+        buffer += decoder.decode(chunk.value, { stream: !done });
         const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+        buffer = done ? '' : (lines.pop() ?? '');
 
         for (const line of lines.filter(Boolean)) {
           const message = JSON.parse(line) as StreamMessage;
@@ -80,13 +87,14 @@ const ChartSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
               target: { type: 'navigate', to: message.encounterUuid ? `${chart}/Visits` : `${chart}/Results` },
             });
           }
-          report({
-            query,
-            title,
-            status: 'ready',
-            answer: { text, streaming: message.type !== 'done', sources: [...sources] },
-          });
+          finished = message.type === 'done';
+          show();
         }
+      }
+      // The answer is complete when the stream ends, with or without a "done" message.
+      if (!finished) {
+        finished = true;
+        show();
       }
     })().catch((error: Error) => {
       if (error.name !== 'AbortError') {
