@@ -144,19 +144,28 @@ describe('scope and ordering', () => {
 describe('executeTarget', () => {
   it('navigates or opens a workspace, and nothing else', async () => {
     await executeTarget({ type: 'navigate', to: '${openmrsSpaBase}/home' });
-    expect(navigate).toHaveBeenCalledWith({ to: '${openmrsSpaBase}/home' });
+    expect(navigate).toHaveBeenCalledWith({ to: '/openmrs/spa/home' });
+
+    await executeTarget({ type: 'navigate', to: `${window.location.origin}/openmrs/spa/search?query=jane#top` });
+    expect(navigate).toHaveBeenLastCalledWith({ to: '/openmrs/spa/search?query=jane#top' });
 
     await executeTarget({ type: 'workspace', workspaceName: 'order-basket', workspaceProps: { a: 1 } });
     expect(launchWorkspace2).toHaveBeenCalledWith('order-basket', { a: 1 }, null, null);
   });
 
-  it.each(['javascript:alert(document.cookie)', ' JavaScript:alert(1)', 'data:text/html,<script>alert(1)</script>'])(
-    'refuses to follow %s',
-    async (to) => {
-      await expect(executeTarget({ type: 'navigate', to })).rejects.toThrow();
-      expect(navigate).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    'javascript:alert(document.cookie)',
+    ' JavaScript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'https://evil.example/openmrs/spa/home',
+    '//evil.example/openmrs/spa/home',
+    '\\\\evil.example/openmrs/spa/home',
+    'https:\\\\evil.example/openmrs/spa/home',
+    `${window.location.protocol}//admin:Admin123@${window.location.host}/openmrs/spa/home`,
+  ])('refuses to follow %s', async (to) => {
+    await expect(executeTarget({ type: 'navigate', to })).rejects.toThrow();
+    expect(navigate).not.toHaveBeenCalled();
+  });
 });
 
 describe('DestinationsProvider', () => {
@@ -576,7 +585,7 @@ describe('Omnibar with providers mounted through the slot', () => {
     await user.clear(screen.getByRole('combobox'));
     expect(screen.getByRole('option', { name: 'someone else' })).toHaveAttribute('aria-disabled', 'false');
     await user.click(screen.getByRole('option', { name: 'someone else' }));
-    expect(landedOn()).toBe('/someone else');
+    expect(landedOn()).toBe('/someone%20else');
   });
 
   it('lists patients from the patient search provider', async () => {

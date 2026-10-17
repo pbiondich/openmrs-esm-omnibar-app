@@ -58,7 +58,10 @@ export const configSchema = {
     _elements: {
       _type: Type.Object,
       label: { _type: Type.String, _description: 'Shown to the user.' },
-      path: { _type: Type.String, _description: 'Passed to navigate(); ${openmrsSpaBase} is supported.' },
+      path: {
+        _type: Type.String,
+        _description: 'A page on this site, passed to navigate(); ${openmrsSpaBase} is supported.',
+      },
       description: { _type: Type.String, _default: '' },
       keywords: {
         _type: Type.Array,

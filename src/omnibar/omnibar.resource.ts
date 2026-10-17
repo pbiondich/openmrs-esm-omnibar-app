@@ -97,13 +97,14 @@ export function getProviderOrder(
 export async function executeTarget(target: OmnibarTarget): Promise<void> {
   switch (target.type) {
     case 'navigate': {
-      // A javascript: or data: URL would run code rather than go somewhere, which is what a result
-      // must not do. navigate() hands any URL outside the SPA to location.assign, so check here.
-      const { protocol } = new URL(interpolateUrl(target.to), window.location.href);
-      if (protocol !== 'http:' && protocol !== 'https:') {
-        throw new Error(`Omnibar results can only link to web pages, not ${protocol} URLs`);
+      // A result only moves the user around this site. Another origin, however the URL spells it
+      // (//host, \\host, https:\\host), is somewhere a provider could send a clinician unseen, and a
+      // javascript: or data: URL has no origin at all. navigate() gets the URL that was checked.
+      const url = new URL(interpolateUrl(target.to), window.location.href);
+      if (url.origin !== window.location.origin || url.username || url.password) {
+        throw new Error('Omnibar results can only link to pages on this site');
       }
-      navigate({ to: target.to });
+      navigate({ to: url.pathname + url.search + url.hash });
       return;
     }
     case 'workspace':
