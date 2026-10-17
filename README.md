@@ -14,7 +14,7 @@ Prototype. It type-checks, lints, builds and passes its 11 unit tests, but has *
 
 ## Trying it
 
-Add `@openmrs/esm-omnibar-app` to a distro's SPA build, then remove the old search icon. Slot config belongs to the module that renders the slot, here the navigation app:
+Add `@openmrs/esm-omnibar-app` to a distro's SPA build, then remove the old search icon (`patient-search-icon` from `@openmrs/esm-patient-search-app`). The omnibar doesn't hide it itself, so without this config both appear in the header. Slot config belongs to the module that renders the slot, here the navigation app:
 
 ```json
 {
@@ -25,6 +25,8 @@ Add `@openmrs/esm-omnibar-app` to a distro's SPA build, then remove the old sear
   }
 }
 ```
+
+Framework 10.x merges `extensionSlots` config from all modules by slot name, and the last one read wins. If the distro already configures `top-nav-actions-slot` anywhere, add the `remove` entry to that block instead of adding a second one.
 
 Then check the default destination paths against the distro and add keywords in `@openmrs/esm-omnibar-app` config. To keep today's collapsed magnifier instead of a visible field:
 
