@@ -217,8 +217,8 @@ A live blocker on the 3.8.0-rc.2 sandbox, plus Paul's follow-ups from testing it
 | **Crash in global scope.** Typing on the home page threw `Cannot read properties of undefined (reading 'patientUuid')` from chart lookup, and the framework raised an error toast. The slot's render function returned `null` for out-of-scope providers. `ExtensionSlot` renders `children(extension) ?? <Extension state={slotState} />`, the same line in framework 10.0.0 and 11.0.0, so a `null` still mounts the extension. With children given, the slot state is undefined, so the provider got no props. Providers are now filtered with `select`, and the render function always returns an `<Extension>` with the shell's state. The tests' slot mock now falls through the same way | aa136eb |
 | **Provider errors contained.** Every provider the omnibar registers is wrapped in `withProviderBoundary`. A throw while rendering or in an effect is logged to the console and shown as the provider's "Couldn't load results" group, with no toast. A new query retries. Without query, context and report, the wrapper renders nothing. It is exported for other modules' providers | c6e432a |
 | **Backspace leaves the pill alone (1b).** Backspace and Delete only edit the text. The pill's button is the only way out of the chart's scope. It is a native button in the tab order, labelled "Remove <patient> context", and it puts focus back in the field. This replaces the old rule that Backspace on an empty field widens the search, including the round 1 key-repeat fix (6a578be) | 9d7bfb0 |
-| **Pointer must move (1c A).** Chrome sends mousemove when rows shift under a pointer that hasn't moved. A row is now picked only when the pointer's position changes, and a resting pointer never selects anything | efed4e9 |
-| **Patient rows (1c B).** Rows look like the patient search app's result. `PatientPhoto` shows the photo or a locally generated initials avatar. Beside the bold name are a gender icon and label. The second line is `age()` · `formatDate(birthdate)` · `<identifier type>: <id>`. Results gain an optional `patient: { uuid, gender }`. The custom rep adds `identifierType:(display)`. `PatientPhoto` makes one `/obs` request per patient row to the same server, at most maxResults rows per group. The test setup loads the `Intl.DurationFormat` polyfill the app shell loads | ee47d7c |
+| **Pointer must move (1c A).** Chrome sends mousemove when rows shift under a pointer that hasn't moved. A row is now picked only when the pointer's position changes, and a resting pointer never selects anything. The review found a hole in this, replaced in 580c73f below | efed4e9 |
+| **Patient rows (1c B).** Rows look like the patient search app's result. `PatientPhoto` showed the photo or a locally generated initials avatar, later replaced by a local initials tile in 6b71333 below. Beside the bold name are a gender icon and label. The second line is `age()` · `formatDate(birthdate)` · `<identifier type>: <id>`. Results gain an optional `patient: { uuid, gender }`. The custom rep adds `identifierType:(display)`. The test setup loads the `Intl.DurationFormat` polyfill the app shell loads | ee47d7c |
 | **Header width (1d).** The desktop field fills the header between the location picker and the icons, from 18rem up to 48rem. The rules match only `top-nav-actions-slot` when it holds the omnibar, and the slot's other entries get `flex-shrink: 0`. They sit in `@supports selector(:has(*))`, and a browser without `:has` keeps the old fixed width. The tablet sheet and triggers are unchanged. This is untested visually | a99366a |
 
 Tests that failed before their fix:
@@ -241,6 +241,24 @@ Tests that failed before their fix:
   - "still lists recent patients when one of them can no longer be fetched"
 
 The effect-error test turns happy-dom's error capturing back on. React's development build rethrows effect errors inside an event listener. With capturing off, as vitest sets it, the throw escapes the commit before the boundary sees it. In a browser, and in production React, the boundary catches it.
+
+### Review fixes (hotfix 1e)
+
+The Cursor security and code recheck of hotfix 1 requested changes. One commit each.
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 | Blocking, wrong patient. The pointer guard compared each option mousemove with the last *option* mousemove. A pointer that left the rows, stopped over the footer, and then had a row shift under it produced an event with coordinates different from that stale record, so the row was selected without movement and Enter could open another patient's chart | A row is picked only when the event's own `movementX` or `movementY` is nonzero. Rows shifting under a still pointer report none, and a missing value counts as none, so this fails closed with no position tracking. The new test runs the reported sequence. The hover-while-stale test now sends real movement, because with zero movement it no longer exercised the stale guard | 580c73f |
+| 2 | The boundary logged the raw error, which can quote the query or patient details | It logs `Omnibar provider <extension name> failed with <Error name>`, nothing from the error. `index.ts` passes extension names because component names are minified. React 18 still logs every error a boundary catches, in production too, and a boundary can't prevent that | 9476b99 |
+| 3 | `PatientPhoto` turns the photo link into `new URL(imageSrc, origin).pathname`, so a `//host/...` path loads an image from another site | Result rows no longer use `PatientPhoto`. They draw a local tile with the patient's initials on Carbon teal-60. That also removes one `/obs` request per row. The test checks the initials, no image, no `PatientPhoto` and no `/obs` request | 6b71333 |
+| 4 | The 18-48rem field rule matched the omnibar in any slot | Nested under the `top-nav-actions-slot` selector. Checked in the built CSS | e285512 |
+
+Tests that failed before their fix:
+
+- 1: "is selected only by a pointer the browser reports moving". The old code selected John from a mousemove with no movement.
+- 2: both "throws … as a failed group" cases, on the message check and the log line.
+- 3: "lists patients … as the patient search app shows them", on the missing initials.
+- 4: no unit test. Unit tests can't measure layout, so I checked the built CSS instead.
 
 - Tests: 67 before, 76 after. 73 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
