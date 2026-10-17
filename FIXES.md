@@ -114,3 +114,18 @@ Each behavioural test above failed against the code before its fix. I checked th
 - Tests: 41 before, 54 after. 51 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
 - `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the asset size limit on the two shared fallbacks above.
+
+## Round 3
+
+Two findings from the re-reviews. One commit each.
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 | `executeTarget` checked the parsed URL, but `navigate()` interpolates the path again, keeps a leading `//`, and cuts the first copy of the origin out of the string. `<origin>//evil.example/phish`, `<origin>/\evil.example/phish` and `<origin>/<origin>//evil.example` all passed the check and then left the site | `executeTarget` also checks the string `navigate()` will act on, using `navigate()`'s own interpolation and origin cut, and requires the same origin and no credentials there too. The three URLs are added to the refusal tests, built from `window.location.origin`. `${openmrsSpaBase}/home` still navigates | 52a4fae |
+| 2 | Recording a visit wrote malformed `patientsVisited` entries back ahead of the 10-item cut, so junk persisted and pushed real recents out | Reading and writing parse the property the same way, keeping only canonical UUIDs. The test starts from nine junk entries and two real ones, chooses one, and expects only the two real UUIDs to be saved | df9804b |
+
+Both tests failed against the code before their fix.
+
+- Tests: 54 before, 58 after. 55 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
+- `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as in round 2.
