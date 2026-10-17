@@ -207,3 +207,41 @@ Each new test failed against the code before its fix.
 ## Round 7
 
 - The clear button emptied the field but kept the selected key. In a chart, arrowing to another patient and clicking clear left their key selected, so Enter opened them when they came back as a recent. Typing and the clear button now share one query update that clears the key (24f59b2). The new test fails before the fix. Tests: 66 before, 67 after.
+
+## Hotfix 1
+
+A live blocker on the 3.8.0-rc.2 sandbox, plus Paul's follow-ups from testing it. One commit each.
+
+| Change | Commit |
+| --- | --- |
+| **Crash in global scope.** Typing on the home page threw `Cannot read properties of undefined (reading 'patientUuid')` from chart lookup, and the framework raised an error toast. The slot's render function returned `null` for out-of-scope providers. `ExtensionSlot` renders `children(extension) ?? <Extension state={slotState} />`, the same line in framework 10.0.0 and 11.0.0, so a `null` still mounts the extension. With children given, the slot state is undefined, so the provider got no props. Providers are now filtered with `select`, and the render function always returns an `<Extension>` with the shell's state. The tests' slot mock now falls through the same way | aa136eb |
+| **Provider errors contained.** Every provider the omnibar registers is wrapped in `withProviderBoundary`. A throw while rendering or in an effect is logged to the console and shown as the provider's "Couldn't load results" group, with no toast. A new query retries. Without query, context and report, the wrapper renders nothing. It is exported for other modules' providers | c6e432a |
+| **Backspace leaves the pill alone (1b).** Backspace and Delete only edit the text. The pill's button is the only way out of the chart's scope. It is a native button in the tab order, labelled "Remove <patient> context", and it puts focus back in the field. This replaces the old rule that Backspace on an empty field widens the search, including the round 1 key-repeat fix (6a578be) | 9d7bfb0 |
+| **Pointer must move (1c A).** Chrome sends mousemove when rows shift under a pointer that hasn't moved. A row is now picked only when the pointer's position changes, and a resting pointer never selects anything | efed4e9 |
+| **Patient rows (1c B).** Rows look like the patient search app's result. `PatientPhoto` shows the photo or a locally generated initials avatar. Beside the bold name are a gender icon and label. The second line is `age()` · `formatDate(birthdate)` · `<identifier type>: <id>`. Results gain an optional `patient: { uuid, gender }`. The custom rep adds `identifierType:(display)`. `PatientPhoto` makes one `/obs` request per patient row to the same server, at most maxResults rows per group. The test setup loads the `Intl.DurationFormat` polyfill the app shell loads | ee47d7c |
+| **Header width (1d).** The desktop field fills the header between the location picker and the icons, from 18rem up to 48rem. The rules match only `top-nav-actions-slot` when it holds the omnibar, and the slot's other entries get `flex-shrink: 0`. They sit in `@supports selector(:has(*))`, and a browser without `:has` keeps the old fixed width. The tablet sheet and triggers are unchanged. This is untested visually | a99366a |
+
+Tests that failed before their fix:
+
+- Crash:
+  - "never mounts a provider outside the scopes it declares"
+  - "forgets the highlight when the search is narrowed back to the chart". With the faithful slot mock, it failed with the same `TypeError`.
+- Boundary, run against a pass-through wrapper:
+  - "shows a provider that throws while rendering as a failed group"
+  - "shows a provider that throws in an effect as a failed group"
+  - "renders nothing for a provider mounted without the omnibar props"
+- 1b:
+  - "keeps the chart scope when Backspace is pressed in the empty field"
+  - "removes the chart context with the pill button and Enter"
+  - "removes the chart context with the pill button and Space"
+  - The Delete and held-Backspace cases already passed, since the old code ignored both.
+- 1c:
+  - "is selected only by a pointer that moves"
+  - "lists patients from the patient search provider as the patient search app shows them"
+  - "still lists recent patients when one of them can no longer be fetched"
+
+The effect-error test turns happy-dom's error capturing back on. React's development build rethrows effect errors inside an event listener. With capturing off, as vitest sets it, the throw escapes the commit before the boundary sees it. In a browser, and in production React, the boundary catches it.
+
+- Tests: 67 before, 76 after. 73 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
+- `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as before.
