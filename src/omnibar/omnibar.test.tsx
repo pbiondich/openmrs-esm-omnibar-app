@@ -11,6 +11,7 @@ import {
   launchWorkspace2,
   navigate,
   openmrsFetch,
+  PatientPhoto,
   showToast,
   useAssignedExtensions,
   useConfig,
@@ -725,8 +726,10 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(landedOn()).toBe('/someone%20else');
   });
 
-  it('lists patients from the patient search provider', async () => {
+  it('lists patients from the patient search provider as the patient search app shows them', async () => {
     const user = userEvent.setup();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T12:00:00Z'));
     mockOpenmrsFetch.mockImplementation((url: string) =>
       url.includes('/patient?')
         ? Promise.resolve({
@@ -734,8 +737,11 @@ describe('Omnibar with providers mounted through the slot', () => {
               results: [
                 {
                   uuid: 'jane-uuid',
-                  identifiers: [{ identifier: '100GEJ', preferred: true }],
-                  person: { display: 'Jane Doe', gender: 'F', age: 34, dead: false },
+                  identifiers: [
+                    { identifier: 'OLD-7', preferred: false, identifierType: { display: 'Old ID' } },
+                    { identifier: '100GEJ', preferred: true, identifierType: { display: 'OpenMRS ID' } },
+                  ],
+                  person: { display: 'Jane Doe', gender: 'F', birthdate: '1990-03-15T00:00:00.000+0000', dead: false },
                 },
               ],
             },
@@ -748,7 +754,11 @@ describe('Omnibar with providers mounted through the slot', () => {
     await user.type(screen.getByRole('combobox'), 'jane');
 
     const jane = await screen.findByRole('option', { name: /jane doe/i });
-    expect(jane).toHaveTextContent('100GEJ, Female, 34 yrs');
+    vi.useRealTimers();
+    // The photo is decoration: the mock renders "Patient Photo", and none of it reaches the name.
+    expect(jane).toHaveAccessibleName('Jane Doe Female 36 yrs · 15-Mar-1990 · OpenMRS ID: 100GEJ');
+    // PatientPhoto loads the photo from this server, or draws an avatar locally, from the patient's uuid.
+    expect(vi.mocked(PatientPhoto)).toHaveBeenCalledWith({ patientUuid: 'jane-uuid', patientName: 'Jane Doe' }, {});
     expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining('/patient?q=jane'));
 
     await user.keyboard('{Enter}');
@@ -1123,7 +1133,7 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     await user.click(screen.getByRole('combobox'));
 
-    expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAccessibleName('Jane Doe Female 100GEJ');
   });
 
   it('fetches only patient UUIDs from the recently visited list', async () => {

@@ -7,4 +7,9 @@ window.openmrsBase = '/openmrs';
 window.spaBase = '/spa';
 window.getOpenmrsSpaBase = () => '/openmrs/spa/';
 
+// The app shell loads this polyfill before any app runs; the framework's age() needs it.
+if (!('DurationFormat' in Intl)) {
+  await import('@formatjs/intl-durationformat/lib/polyfill');
+}
+
 afterEach(cleanup);

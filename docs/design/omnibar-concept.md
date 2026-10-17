@@ -90,7 +90,13 @@ type OmnibarTarget =
   | { type: 'navigate'; to: string }
   | { type: 'workspace'; workspaceName: string; workspaceProps?: object; windowProps?: object; groupProps?: object };
 
-interface OmnibarResult { id: string; title: string; subtitle?: string; target: OmnibarTarget }
+interface OmnibarResult {
+  id: string;
+  title: string;
+  subtitle?: string;
+  patient?: { uuid: string; gender?: string }; // shows the photo or avatar, and the gender, as patient search does
+  target: OmnibarTarget;
+}
 
 interface OmnibarAnswer { text: string; streaming: boolean; sources: Array<{ label: string; target: OmnibarTarget }> }
 

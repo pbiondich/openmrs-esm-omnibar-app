@@ -190,11 +190,35 @@
 
 .option {
   display: flex;
-  flex-direction: column;
-  gap: layout.$spacing-01;
+  align-items: center;
+  gap: layout.$spacing-04;
   padding: layout.$spacing-03 layout.$spacing-05;
   border-inline-start: 3px solid transparent;
   cursor: pointer;
+}
+
+.optionText {
+  display: flex;
+  flex-direction: column;
+  gap: layout.$spacing-01;
+  min-width: 0;
+}
+
+.patientPhoto {
+  flex-shrink: 0;
+}
+
+.gender {
+  display: inline-flex;
+  align-items: center;
+  gap: layout.$spacing-02;
+  margin-inline-start: layout.$spacing-03;
+  font-weight: 400;
+  color: themes.$text-secondary;
+}
+
+.genderIcon {
+  display: inline-flex;
 }
 
 .optionSelected {

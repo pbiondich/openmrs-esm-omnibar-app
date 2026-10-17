@@ -68,6 +68,12 @@ export interface OmnibarResult {
   id: string;
   title: string;
   subtitle?: string;
+  /**
+   * Set when the result is a patient. The row then shows their photo, or a generated avatar from the
+   * same server, and their gender beside the name, as the patient search app does. The gender is the
+   * OpenMRS code (M, F, O or U).
+   */
+  patient?: { uuid: string; gender?: string };
   target: OmnibarTarget;
 }
 

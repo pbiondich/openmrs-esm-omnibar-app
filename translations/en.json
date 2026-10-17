@@ -1,5 +1,4 @@
 {
-  "ageYears": "{{age}} yrs",
   "allPatientResults": "All patient results for “{{query}}”",
   "backToChart": "Search only {{name}}’s chart",
   "clearSearch": "Clear search",
@@ -10,6 +9,7 @@
   "deceased": "Deceased",
   "female": "Female",
   "goTo": "Go to",
+  "identifierWithType": "{{type}}: {{identifier}}",
   "inThisChart": "In this chart",
   "keyboardHints": "↑ ↓ to move, Enter to open, Esc to close",
   "male": "Male",

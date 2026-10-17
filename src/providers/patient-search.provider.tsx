@@ -1,7 +1,16 @@
 import { useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import { useTranslation } from 'react-i18next';
-import { interpolateUrl, openmrsFetch, restBaseUrl, useConfig, useSession } from '@openmrs/esm-framework';
+import {
+  age,
+  formatDate,
+  interpolateUrl,
+  openmrsFetch,
+  parseDate,
+  restBaseUrl,
+  useConfig,
+  useSession,
+} from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import {
   OMNIBAR_SELECTED_EVENT,
@@ -18,12 +27,13 @@ import {
 
 export const providerId = 'omnibar-patient-search-provider';
 
-const representation = 'custom:(uuid,identifiers:(identifier,preferred),person:(display,gender,age,birthdate,dead))';
+const representation =
+  'custom:(uuid,identifiers:(identifier,preferred,identifierType:(display)),person:(display,gender,birthdate,dead))';
 
 interface SearchedPatient {
   uuid: string;
-  identifiers: Array<{ identifier: string; preferred: boolean }>;
-  person: { display: string; gender: string; age: number | null; dead: boolean };
+  identifiers: Array<{ identifier: string; preferred: boolean; identifierType?: { display: string } }>;
+  person: { display: string; gender: string; birthdate: string | null; dead: boolean };
 }
 
 interface UserProperties {
@@ -104,25 +114,27 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
   );
 
   useEffect(() => {
-    const genders: Record<string, string> = {
-      M: t('male', 'Male'),
-      F: t('female', 'Female'),
-      O: t('other', 'Other'),
-      U: t('unknown', 'Unknown'),
-    };
+    // Laid out as the patient search app shows a patient: age, birthdate, then the identifier with its type.
     const toResult = (patient: SearchedPatient): OmnibarResult => {
-      const identifier =
-        patient.identifiers.find((id) => id.preferred)?.identifier ?? patient.identifiers[0]?.identifier;
+      const { birthdate, dead } = patient.person;
+      const identifier = patient.identifiers.find((id) => id.preferred) ?? patient.identifiers[0];
       const details = [
-        identifier,
-        genders[patient.person.gender] ?? patient.person.gender,
-        patient.person.age != null ? t('ageYears', '{{age}} yrs', { age: patient.person.age }) : null,
-        patient.person.dead ? t('deceased', 'Deceased') : null,
+        birthdate ? age(birthdate) : null,
+        birthdate ? formatDate(parseDate(birthdate), { time: false }) : null,
+        identifier?.identifierType
+          ? t('identifierWithType', '{{type}}: {{identifier}}', {
+              type: identifier.identifierType.display,
+              identifier: identifier.identifier,
+              interpolation: { escapeValue: false },
+            })
+          : identifier?.identifier,
+        dead ? t('deceased', 'Deceased') : null,
       ].filter(Boolean);
       return {
         id: `patient:${patient.uuid}`,
         title: patient.person.display,
-        subtitle: details.join(', '),
+        subtitle: details.join(' · '),
+        patient: { uuid: patient.uuid, gender: patient.person.gender },
         target: { type: 'navigate', to: interpolateUrl(patientChartUrl, { patientUuid: patient.uuid }) },
       };
     };
