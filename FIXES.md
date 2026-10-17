@@ -203,3 +203,7 @@ Each new test failed against the code before its fix.
 - Tests: 62 before, 66 after. 63 are in `src/omnibar/omnibar.test.tsx` and 3 in `examples/chartsearch-answer.provider.test.tsx`. The round 5 "other patients" tests now use a provider with no flag.
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`.
 - `corepack yarn build`: `Rspack compiled with 1 warning`. The warning is the size limit on the same two shared fallbacks as before.
+
+## Round 7
+
+- The clear button emptied the field but kept the selected key. In a chart, arrowing to another patient and clicking clear left their key selected, so Enter opened them when they came back as a recent. Typing and the clear button now share one query update that clears the key (24f59b2). The new test fails before the fix. Tests: 66 before, 67 after.
