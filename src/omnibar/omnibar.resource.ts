@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { launchWorkspace2, navigate } from '@openmrs/esm-framework';
 import {
   OMNIBAR_SELECTED_EVENT,
@@ -118,11 +118,19 @@ function isTypingInField(target: EventTarget | null): boolean {
   return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
 }
 
-/** Ctrl/Cmd+K anywhere, or "/" when the user isn't already typing in a field. */
-export function useOmnibarShortcut(onTrigger: () => void) {
+/**
+ * Ctrl/Cmd+K, or "/", unless the user is typing in some other field, where Ctrl/Cmd+K often means
+ * "insert link". A keystroke already handled elsewhere is left alone, which also means that when
+ * two omnibars are mounted only the first one responds.
+ */
+export function useOmnibarShortcut(onTrigger: () => void, ownInput: RefObject<HTMLInputElement>) {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      const isModK = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
+      if (event.defaultPrevented) {
+        return;
+      }
+      const inOtherField = event.target !== ownInput.current && isTypingInField(event.target);
+      const isModK = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && !inOtherField;
       const isSlash = event.key === '/' && !event.metaKey && !event.ctrlKey && !isTypingInField(event.target);
       if (isModK || isSlash) {
         event.preventDefault();
@@ -131,5 +139,5 @@ export function useOmnibarShortcut(onTrigger: () => void) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onTrigger]);
+  }, [onTrigger, ownInput]);
 }

@@ -187,6 +187,41 @@ describe('Omnibar', () => {
     expect(input).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it.each([
+    ['a text field', <input key="field" aria-label="Note title" />],
+    ['a textarea', <textarea key="field" aria-label="Note body" />],
+    ['a rich-text editor', <div key="field" contentEditable aria-label="Note body" role="textbox" />],
+  ])('leaves Ctrl+K alone while the user is typing in %s', async (_, field) => {
+    const user = userEvent.setup();
+    render(
+      <>
+        {field}
+        <Omnibar />
+      </>,
+    );
+
+    await user.click(screen.getByRole('textbox', { name: /note/i }));
+    await user.keyboard('{Control>}k{/Control}');
+
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('textbox', { name: /note/i })).toHaveFocus();
+  });
+
+  it('opens only one omnibar when two are mounted', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Omnibar />
+        <Omnibar />
+      </>,
+    );
+
+    await user.keyboard('{Control>}k{/Control}');
+
+    const expanded = screen.getAllByRole('combobox').map((input) => input.getAttribute('aria-expanded'));
+    expect(expanded.sort()).toEqual(['false', 'true']);
+  });
+
   it('starts collapsed to an icon when appearance is "icon", and collapses again when closed', async () => {
     const user = userEvent.setup();
     mockUseConfig.mockReturnValue({

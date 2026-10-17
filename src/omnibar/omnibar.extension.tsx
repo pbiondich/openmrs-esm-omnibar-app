@@ -89,7 +89,7 @@ const Omnibar: React.FC = () => {
     clear();
   }, [clear]);
 
-  useOmnibarShortcut(openBar);
+  useOmnibarShortcut(openBar, inputRef);
   const containerRef = useOnClickOutside<HTMLDivElement>(closeBar, open && desktop);
 
   const choose = useCallback(
