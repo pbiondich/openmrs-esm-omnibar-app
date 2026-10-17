@@ -1,20 +1,128 @@
 # esm-omnibar-app
 
-An extensible omnibar for OpenMRS 3 (O3). The top-nav patient search becomes a visible field, summoned anywhere with Ctrl K (⌘K on Mac) or `/`, that finds patients, pages and chart values. Other apps, such as ChartSearch AI, add results by registering a provider extension in `omnibar-providers-slot`.
+A contextually-aware “omnibar” for OpenMRS 3: where users can simply ask the EMR for what they want. One always-visible field, summoned from anywhere with Ctrl K (⌘K on Mac) or `/`.
 
-The shell knows nothing clinical. Every capability is a provider, an ordinary O3 extension that receives the query and scope and calls `report()`. This repo ships three providers (patient search, chart lookup, destinations) and an example ChartSearch answer provider in `examples/`.
+**Status:** prototype. It type-checks, lints, builds and passes its unit tests, but has **not yet been run against a live O3 instance**.
 
-- Design: [docs/design/omnibar-concept.md](docs/design/omnibar-concept.md)
-- Prototype source as originally written: [docs/design/omnibar-source-listing.md](docs/design/omnibar-source-listing.md)
-- Provider contract: [src/omnibar/types.ts](src/omnibar/types.ts)
+<!-- Add a short screen recording here once you get around to it :) -->
 
-## Status
+## Background and justification
 
-Prototype, built against `@openmrs/esm-framework` 11.0.0, the version O3 3.8.0-rc.2 ships. It type-checks, lints, builds and passes its unit tests, but has **not yet been run against a live O3 instance**. Open questions (concept search speed on CIEL, destination translation, tablet sheet on real devices) are listed in the design doc.
+Today the O3 user experience is mouse- and application-oriented. You find a patient, then click through the app to get what you want. That's hardly unique to OpenMRS: most EMRs have spent decades building sophisticated interfaces that try to anticipate how users will want to reach their data, and every new need becomes another screen, tab or menu.
 
-## Trying it
+In the age of AI, I think it's worth stepping back and reconsidering what an EMR is and how it should work.
 
-Add `@openmrs/esm-omnibar-app` to a distro's SPA build, then remove the old search icon (`patient-search-icon` from `@openmrs/esm-patient-search-app`). The omnibar doesn't hide it itself, so without this config both appear in the header. Slot config belongs to the module that renders the slot, here the navigation app:
+My gut tells me that we should build the next generation of OpenMRS UX around a simple presumption:
+
+**A user can simply ask the EMR for what they want, rather than navigate an interface to find it.**
+
+There are very few places in OpenMRS today to ask an open-ended question. The most natural pattern for that kind of interaction is a prompt box: a browser address bar, an LLM chat prompt. OpenMRS has one, but it's hidden behind a magnifier icon and only used to look up patients.
+
+I propose we unbridle that prompt. Let's borrow the omnibar that browsers adopted years ago, let users simply ask for what they're after, and use contextual clues to interpret those requests intelligently. The most important clue is where the user is. Inside a patient's record, the most likely questions are about that patient: "cd4" means their latest CD4 count, and "when did she start ART?" means her history. Outside a patient record, the same box is more likely being used to find a patient ("Mary Achieng") or to ask a question about a population ("patients over 40 on ART").
+
+Asking doesn't mean everything goes through a language model. Many requests can be answered directly and deterministically, for example from the concept dictionary's names and synonyms, and anything generated has to show the records it came from. The omnibar is deliberately not a chatbot, and nothing typed into it changes the record.
+
+This is a prototype of an O3 omnibar. :)
+
+## User experience examples
+
+To perhaps make the omnibar concept more concrete for you, I'll lay out a couple of hypothetical examples of how a pervasive prompt could have a number of really helpful functions, all within the same prompt!
+
+Each scenario is marked with where it stands: **Prototype** means the code exists in this repo (still unverified against a live server), **Example** means a provider sketch exists for another team to adapt, and **Planned** means it's designed but not built.
+
+### Outside a patient record
+
+| The user types | What they get | Status |
+| --- | --- | --- |
+| nothing yet | Recently viewed patients. | Prototype |
+| `Mary Achieng` or an ID | Matching patients, plus a link to the full search page. | Prototype |
+| "how do I do x feature?" | An answer from a knowledge base. | Planned |
+| `patients over 40 on ART` | Ideally, a numeric answer to the cohort query.  Hitting return opens the Cohort Builder pre-filled with the age and drug criteria, with the criteria spelled out before anything runs. | Planned |
+
+### Inside a patient record
+
+A chip with the patient's name sits in the field, so it's always clear whose record the question is about.
+
+| The user types | What they get | Status |
+| --- | --- | --- |
+| `when did she start ART?` | A streamed answer from something like ChartSearch, perhaps with links to the encounters and observations it drew on. An answer that cites nothing is hidden. | Example |
+| `cd4`, `hb`, `weight` | Latest values and dates for each matching concept, in the user's language. Choosing one from the list opens the results viewer; pressing Enter on the query itself brings up a detail display of everything that matched. | Prototype |
+| a name or ID | Other patients, listed below anything from this chart. | Prototype |
+
+### Everywhere
+
+The field is visible in the header on desktop. For now, on tablet and phone it's a field-shaped button that opens a full-screen search (this still feels too buried to me atm tbh!).  Implementations that prefer today's collapsed magnifier can keep it with one line of config. Arrow keys move through results, Enter opens one, Escape closes.
+
+## Technical specification
+
+### Design rules
+
+These rules are what make it safe to let many teams contribute to one search box. Changing any of them should be a deliberate, discussed decision, not a side effect of a feature.
+
+1. **Results describe destinations; they don't act.** A result's target is a URL or a workspace launch. There is no `onSelect` callback, so the normal way to build a provider has no path to write to the record. Anything that changes data opens a form or workspace, where the usual checks apply.
+2. **The shell owns the scope.** Providers receive the patient; they can't choose it. Changing charts clears everything on screen, so a query never runs silently against the wrong patient.
+3. **Lanes, not a merged ranking.** Results group into `record`, `navigate` and `answer` lanes, then by each provider's declared order. Scores from different providers aren't comparable, so the shell doesn't pretend they are. Answers render below the list and outside arrow-key order, so a streaming answer never moves the highlighted result.
+4. **Stale results are dropped.** Every report carries the query it answers, so a slow reply to `cd` can't overwrite results for `cd4`.
+5. **Answers must cite records.** A finished answer with no sources is hidden, with a note saying why.
+
+Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is still arbitrary code.
+
+### Architecture
+
+The omnibar shell knows nothing clinical. Every capability is a **provider**: an ordinary O3 extension, registered in `omnibar-providers-slot`, that renders nothing. While the panel is open, the shell mounts the providers that declare the current scope and passes each one three props: the debounced `query`, the `context` (scope, patient, locale) and a `report` function. The provider calls `report` whenever it has something to say.
+
+Because providers are extensions, they get lazy loading, privilege gating, feature flags, display expressions, config and translations from the existing framework, and can use SWR and their app's existing hooks. Nothing new is asked of esm-framework.
+
+### The provider contract
+
+The full contract is in [`src/omnibar/types.ts`](src/omnibar/types.ts). The core of it:
+
+```ts
+type OmnibarScope = 'global' | 'patient';
+type OmnibarLane = 'navigate' | 'record' | 'answer';
+
+interface OmnibarContext { scope: OmnibarScope; patientUuid?: string; locale: string }
+
+type OmnibarTarget =
+  | { type: 'navigate'; to: string }
+  | { type: 'workspace'; workspaceName: string; workspaceProps?: object; windowProps?: object; groupProps?: object };
+
+interface OmnibarResult { id: string; title: string; subtitle?: string; target: OmnibarTarget }
+
+interface OmnibarAnswer { text: string; streaming: boolean; sources: Array<{ label: string; target: OmnibarTarget }> }
+
+interface OmnibarReport {
+  query: string; // reports for any other query are dropped
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  title: string; // group heading, translated by the provider
+  results?: Array<OmnibarResult>;
+  answer?: OmnibarAnswer; // answer lane only
+  errorMessage?: string;
+}
+
+interface OmnibarProviderProps { query: string; context: OmnibarContext; report: (r: OmnibarReport) => void }
+```
+
+After a selection the shell fires `openmrs:omnibar-selected` on `window` with the provider and result ids, for bookkeeping such as recently viewed patients.
+
+### Built-in providers
+
+| Provider | Lane | Scopes | Data source |
+| --- | --- | --- | --- |
+| Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property |
+| Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation?code=…&_sort=-date` |
+| Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
+| ChartSearch (in `examples/`) | answer | patient | ChartSearch API; the endpoint in the example is a placeholder |
+
+Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch example lives in `examples/` because it belongs in the ChartSearch module, not here.
+
+The full design, including how O3's current search works and why each decision was made, is in [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
+
+## How to use
+
+### Trying it in a distribution
+
+Add `@openmrs/esm-omnibar-app` to the distribution's SPA build, then remove the old search icon. Slot config belongs to the module that renders the slot, which here is the navigation app:
 
 ```json
 {
@@ -26,9 +134,22 @@ Add `@openmrs/esm-omnibar-app` to a distro's SPA build, then remove the old sear
 }
 ```
 
-Framework 10.x and 11.0.0 merge `extensionSlots` config from all modules by slot name, and the last one read wins (11.0.0 merges only `configure` blocks). If the distro already configures `top-nav-actions-slot` anywhere, add the `remove` entry to that block instead of adding a second one.
+The patient search app keeps working; its `/search` page is where "All patient results" goes.
 
-Then check the default destination paths against the distro and add keywords in `@openmrs/esm-omnibar-app` config. To keep today's collapsed magnifier instead of a visible field:
+Destinations are config, because every distribution has different apps and different words for them. Check the default paths against your build and add the words your staff use:
+
+```json
+{
+  "@openmrs/esm-omnibar-app": {
+    "destinations": [
+      { "label": "Service queues", "path": "${openmrsSpaBase}home/service-queues", "keywords": ["triage", "waiting"] },
+      { "label": "Lab orders", "path": "${openmrsSpaBase}home/laboratory", "keywords": ["lab", "tests"], "privilege": "Get Orders" }
+    ]
+  }
+}
+```
+
+To keep today's collapsed magnifier instead of a visible field:
 
 ```json
 {
@@ -36,13 +157,82 @@ Then check the default destination paths against the distro and add keywords in 
 }
 ```
 
-## Development
+In either mode, the control that starts a search carries `data-tutorial-target="search-patient-icon"`, so existing onboarding tutorials still point at the right thing.
 
-```bash
+### Writing a provider
+
+Any app can add results by registering one extension. Here is a lab-orders provider from another module:
+
+```tsx
+const LabOrdersProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
+  const { t } = useTranslation();
+  const { data, isLoading } = useActiveLabOrders(context.patientUuid, query);
+
+  useEffect(() => {
+    report({
+      query,
+      title: t('labOrders', 'Lab orders'),
+      status: isLoading ? 'loading' : 'ready',
+      results: data?.map((order) => ({
+        id: order.uuid,
+        title: order.display,
+        target: { type: 'navigate', to: `\${openmrsSpaBase}patient/${context.patientUuid}/chart/Orders` },
+      })),
+    });
+  }, [query, context, data, isLoading, report, t]);
+
+  return null;
+};
+```
+
+It registers in its own `routes.json`, where `meta` declares the lane, the scopes it runs in and its order:
+
+```json
+{
+  "name": "lab-orders-omnibar-provider",
+  "component": "labOrdersOmnibarProvider",
+  "slot": "omnibar-providers-slot",
+  "privileges": ["Get Orders"],
+  "meta": { "lane": "record", "scopes": ["patient"], "order": 20 }
+}
+```
+
+See [`examples/chartsearch-answer.provider.tsx`](examples/chartsearch-answer.provider.tsx) for a streaming answer provider.
+
+### Developing
+
+```sh
 yarn install
-yarn start          # dev server against an O3 backend
-yarn verify         # lint, typecheck, tests with coverage
+yarn start                                           # dev server, against dev3.openmrs.org by default
+yarn start --backend http://localhost:8080/openmrs   # or against a local backend
+yarn verify                                          # lint, type-check, tests with coverage
 yarn build
 ```
 
-Build tooling comes from [openmrs-esm-template-app](https://github.com/openmrs/openmrs-esm-template-app).
+Build tooling comes from [openmrs-esm-template-app](https://github.com/openmrs/openmrs-esm-template-app). The Playwright scaffolding in `e2e/` comes from the template too; there are no omnibar end-to-end tests yet.
+
+Before opening a pull request, check your change against the design rules above.
+
+## Roadmap and open questions
+
+The aim is to prove this outside core and then bring it to the OpenMRS community:
+
+1. Run the prototype in a dev distribution and fix what the live system shows.
+2. Take it to the patient-management squad, with patient search as the first provider and the `appearance` option ready.
+3. Add a dedicated centre slot to the navbar in esm-primary-navigation-app, since `top-nav-actions-slot` is crowded.
+4. Make ChartSearch the first external provider, to prove the contract handles streaming and sources.
+5. Add cohort questions, which needs the Cohort Builder to accept a query definition by URL.
+6. Move the slot and types into esm-framework through an RFC once the contract settles.
+
+Open questions:
+
+- [ ] Is REST `/concept?q=` fast enough for type-ahead on a full CIEL dictionary, and does it match synonyms and locale names as assumed?
+- [ ] Does FHIR `Observation?code=<concept uuids>&_sort=-date` reliably return the latest value per concept?
+- [ ] Should destinations come from config, or be derived from routes.json pages with people-facing labels added? How should their labels be translated?
+- [ ] Can the results viewer accept a deep link to a specific test, so chart lookup lands on the value?
+- [ ] How does CIEL represent drug groupings such as antiretrovirals, and can that seed drug groups for cohort questions?
+- [ ] Does the tablet sheet work on real devices?
+
+## License
+
+[MPL 2.0](LICENSE)
