@@ -85,10 +85,13 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
   const recentUuids = useRecentPatientUuids(showRecentPatients, maxResults);
   const recents = useSWR<Array<SearchedPatient>>(
     showingRecents && recentUuids.length ? ['omnibar-recent-patients', ...recentUuids] : null,
-    () =>
-      Promise.all(
-        recentUuids.map((uuid) => fetcher<SearchedPatient>(`${restBaseUrl}/patient/${uuid}?v=${representation}`)),
-      ),
+    // One patient that can't be fetched (merged, purged, or out of reach) shouldn't hide the rest.
+    async () =>
+      (
+        await Promise.allSettled(
+          recentUuids.map((uuid) => fetcher<SearchedPatient>(`${restBaseUrl}/patient/${uuid}?v=${representation}`)),
+        )
+      ).flatMap((result) => (result.status === 'fulfilled' ? [result.value] : [])),
   );
 
   useEffect(() => {

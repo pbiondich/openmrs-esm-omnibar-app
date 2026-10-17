@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type FetchResponse,
+  type Session,
   getDefaultsFromConfigSchema,
   interpolateUrl,
   launchWorkspace2,
@@ -14,6 +15,7 @@ import {
   useConfig,
   useDebounce,
   useLayoutType,
+  useSession,
 } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import ChartLookupProvider from '../providers/chart-lookup.provider';
@@ -520,6 +522,26 @@ describe('Omnibar with providers mounted through the slot', () => {
     await user.click(await screen.findByRole('option', { name: /all patient results/i }));
 
     expect(landedOn()).toBe('/openmrs/spa/search?query=jane');
+  });
+
+  it('still lists recent patients when one of them can no longer be fetched', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useSession).mockReturnValue({ authenticated: true, sessionId: 's', user: { uuid: 'user-uuid' } } as Session);
+    mockOpenmrsFetch.mockImplementation((url: string) => {
+      if (url.includes('/user/user-uuid')) {
+        return Promise.resolve({ data: { userProperties: { patientsVisited: 'purged-uuid,jane-uuid' } } } as FetchResponse);
+      }
+      if (url.includes('/patient/jane-uuid')) {
+        return Promise.resolve({ data: jane } as FetchResponse);
+      }
+      return Promise.reject(new Error('Not found'));
+    });
+    mountProviders([{ name: 'patients', meta: recordLane, component: PatientSearchProvider }]);
+    renderWithFreshCache(<Omnibar />);
+
+    await user.click(screen.getByRole('combobox'));
+
+    expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
   });
 
   it('says nothing matches when no patient does', async () => {
