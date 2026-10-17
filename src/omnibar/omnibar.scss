@@ -31,18 +31,18 @@ $omnibar-max-width: 48rem;
       display: flex;
       flex: 1 1 auto;
       justify-content: flex-end;
+
+      > .omnibar:not(.sheet) {
+        flex: 1 1 auto;
+        width: auto;
+        min-width: $omnibar-min-width;
+        max-width: $omnibar-max-width;
+      }
     }
 
     > :global(:not([data-extension-id='omnibar'])) {
       flex-shrink: 0;
     }
-  }
-
-  :global([data-extension-id='omnibar']) > .omnibar:not(.sheet) {
-    flex: 1 1 auto;
-    width: auto;
-    min-width: $omnibar-min-width;
-    max-width: $omnibar-max-width;
   }
 }
 
