@@ -217,6 +217,13 @@ describe('Omnibar', () => {
     ['a text field', <input key="field" aria-label="Note title" />],
     ['a textarea', <textarea key="field" aria-label="Note body" />],
     ['a rich-text editor', <div key="field" contentEditable aria-label="Note body" role="textbox" />],
+    [
+      'a select',
+      <select key="field" aria-label="Note type">
+        <option>Visit note</option>
+        <option>Progress note</option>
+      </select>,
+    ],
   ])('leaves Ctrl+K alone while the user is typing in %s', async (_, field) => {
     const user = userEvent.setup();
     render(
@@ -226,11 +233,11 @@ describe('Omnibar', () => {
       </>,
     );
 
-    await user.click(screen.getByRole('textbox', { name: /note/i }));
+    await user.click(screen.getByLabelText(/note/i));
     await user.keyboard('{Control>}k{/Control}');
 
-    expect(screen.getByRole('combobox')).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('textbox', { name: /note/i })).toHaveFocus();
+    expect(screen.getByRole('combobox', { name: /search/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByLabelText(/note/i)).toHaveFocus();
   });
 
   it('opens only one omnibar when two are mounted', async () => {
