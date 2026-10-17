@@ -904,6 +904,25 @@ describe('Omnibar with providers mounted through the slot', () => {
       window.history.pushState({}, '', '/');
     });
 
+    it('is selected only by a pointer that moves, not by rows shifting under a still one', async () => {
+      const user = userEvent.setup();
+      window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+      mountProviders([{ name: 'others', meta: recordLane, component: OtherPatients }]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'doe');
+      const selection = () => screen.getAllByRole('option').map((option) => option.getAttribute('aria-selected'));
+
+      fireEvent.mouseMove(screen.getByRole('option', { name: 'Jane Doe' }), { clientX: 40, clientY: 80 });
+      fireEvent.mouseMove(screen.getByRole('option', { name: 'John Doe' }), { clientX: 40, clientY: 80 });
+      expect(selection()).toEqual(['false', 'false']);
+      await user.keyboard('{Enter}');
+      expect(navigate).not.toHaveBeenCalled();
+
+      fireEvent.mouseMove(screen.getByRole('option', { name: 'John Doe' }), { clientX: 40, clientY: 84 });
+      expect(selection()).toEqual(['false', 'true']);
+      window.history.pushState({}, '', '/');
+    });
+
     it('takes the default highlight as usual outside a chart', async () => {
       const user = userEvent.setup();
       mountProviders([{ name: 'others', meta: recordLane, component: OtherPatients }]);
@@ -1053,7 +1072,7 @@ describe('Omnibar with providers mounted through the slot', () => {
       const conceptsArrive = openChart([{ uuid: 'cd4-uuid', display: 'CD4 count', datatype: { display: 'Numeric' } }]);
 
       await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'cd4');
-      expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+      expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'false');
       await user.keyboard('{Enter}');
       expect(navigate).not.toHaveBeenCalled();
 

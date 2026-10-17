@@ -163,6 +163,18 @@ const Omnibar: React.FC = () => {
     [closeBar, resultsAreCurrent],
   );
 
+  // Chrome sends mousemove when rows shift under a pointer that hasn't moved, so a row is picked only
+  // by a pointer whose position changed since the last event. The first event only records it.
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
+  const pointAt = (event: React.MouseEvent, key: string) => {
+    const last = lastPointer.current;
+    lastPointer.current = { x: event.clientX, y: event.clientY };
+    const moved = last !== null && (last.x !== event.clientX || last.y !== event.clientY);
+    if (moved && resultsAreCurrent && selected?.key !== key) {
+      setSelectedKey(key);
+    }
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const count = selectable.length;
     switch (event.key) {
@@ -402,7 +414,7 @@ const Omnibar: React.FC = () => {
                           aria-selected={isSelected}
                           aria-disabled={!resultsAreCurrent}
                           className={classNames(styles.option, { [styles.optionSelected]: isSelected })}
-                          onMouseMove={() => resultsAreCurrent && !isSelected && setSelectedKey(key)}
+                          onMouseMove={(event) => pointAt(event, key)}
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => choose({ ...result, providerId: group.providerId, key })}
                         >
