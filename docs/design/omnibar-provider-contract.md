@@ -144,7 +144,8 @@ When two mounted providers share a `dedupeKey` and both report a result with the
 - the host keeps the copy from the provider that ranks first: lane, then order, whichever reported first
 - the other copy is dropped, and a group left with nothing isn't drawn
 - results without a `dedupeId`, and providers with another key or none, are never touched
-- selection follows: if the highlighted row is dropped, the highlight moves to the first row that may be the default, and the arrows and Enter skip the dropped row
+- the highlight follows the record: if the highlighted row is dropped, the highlight moves to the copy that is kept. If no copy is left on screen, nothing is highlighted and Enter does nothing until the user picks a row. A default highlight (one the user didn't arrow or point to) moves only onto a copy that may itself be the default
+- the arrows and Enter skip the dropped row
 
 ## Errors
 

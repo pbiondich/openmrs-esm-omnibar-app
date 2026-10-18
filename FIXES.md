@@ -568,3 +568,14 @@ Checked in a stand-in header (fixed logo and location picker, the slot with two 
 - No unit tests. The change is CSS only, and the tests don't render real layout. Tests: 346 before and after.
 - `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the same asset size warning as before.
 - Not checked on o3 itself.
+
+### Review round 1 (Grok): SHOULD-FIX
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| Enter could open the wrong row after a dedupe drop. When the highlighted row was dropped as a copy, the highlight fell back to the first row that may be the default. If the user had arrowed to a later duplicate and the higher-ranked provider then reported several rows, Enter opened the winner's first row | The highlight remembers the `dedupeKey` and `dedupeId` of its row, and whether the user chose it. When its key is gone, it moves to the row that shows the same record under the same key. If there is none, nothing is highlighted and Enter does nothing. A default highlight moves only onto a copy that may itself be the default, so in a chart it never lands on a row from a provider without `defaultInChart` | e51cbfa (test), 967214b, e0fbf53 (guard test) |
+
+- Tests: 346 before, 349 after.
+- Failed first, on e51cbfa: `Tests  2 failed`. After the user arrowed to "projected weight", the highlight went to "height 170 cm", the first of the winner's three rows. With no copy left, it went to "chest pain note".
+- The guard test passed before the fix too, because the old fallback found no default row in that case. Without the guard it fails, since the highlight follows onto the never-default row.
+- `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning` (the same asset size warning).
