@@ -2550,6 +2550,157 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Visits`);
       });
 
+      describe('while the chart values are still on their way', () => {
+        const ward = () => screen.getByRole('option', { name: /^Ward/ });
+        // The query store's answer to "admission" waits until the test lets it through, or forever.
+        const openChartWaitingOnQueryStore = (groups: Array<object> | 'never') => {
+          window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+          let answer: () => void;
+          const answered = new Promise<FetchResponse>((resolve) => {
+            answer = () => resolve({ data: { status: 'indexed', groups } } as FetchResponse);
+          });
+          mockOpenmrsFetch.mockImplementation((url: string) => {
+            if (url.includes('/querystore/patient/')) {
+              return groups === 'never' ? new Promise(() => {}) : answered;
+            }
+            if (url.includes('/patient?')) {
+              return Promise.resolve({ data: { results: [] } } as FetchResponse);
+            }
+            return new Promise(() => {});
+          });
+          mountProviders([
+            shipped('omnibar-patient-search-provider', PatientSearchProvider),
+            shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+            shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+            shipped('omnibar-destinations-provider', DestinationsProvider),
+          ]);
+          renderWithFreshCache(<Omnibar />);
+          return () => act(async () => answer());
+        };
+
+        it('opens the chart record on the first Enter, though the destination answered first', async () => {
+          const user = userEvent.setup();
+          const queryStoreAnswers = openChartWaitingOnQueryStore([admission]);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByRole('option', { name: /^Ward/ });
+          expect(ward()).toHaveAttribute('aria-selected', 'false');
+          await user.keyboard('{Enter}');
+          expect(navigate).not.toHaveBeenCalled();
+
+          await queryStoreAnswers();
+          expect(await screen.findByRole('option', { name: /Admission: Ward 3/ })).toHaveAttribute(
+            'aria-selected',
+            'true',
+          );
+          expect(ward()).toHaveAttribute('aria-selected', 'false');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Visits`);
+        });
+
+        it('gives the destination the highlight once the chart values come back empty', async () => {
+          const user = userEvent.setup();
+          const queryStoreAnswers = openChartWaitingOnQueryStore([]);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByRole('option', { name: /^Ward/ });
+          await queryStoreAnswers();
+
+          await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'));
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe('/openmrs/spa/ward');
+        });
+
+        it('stops waiting for chart values that never come, and gives the destination the highlight', async () => {
+          const user = userEvent.setup();
+          openChartWaitingOnQueryStore('never');
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByRole('option', { name: /^Ward/ });
+          expect(ward()).toHaveAttribute('aria-selected', 'false');
+
+          await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'), { timeout: 3000 });
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe('/openmrs/spa/ward');
+        });
+
+        it('leaves a row the user arrowed to alone when the chart values arrive', async () => {
+          const user = userEvent.setup();
+          const queryStoreAnswers = openChartWaitingOnQueryStore([admission]);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByRole('option', { name: /^Ward/ });
+          await user.keyboard('{ArrowDown}');
+          expect(ward()).toHaveAttribute('aria-selected', 'true');
+
+          await queryStoreAnswers();
+          expect(await screen.findByRole('option', { name: /Admission: Ward 3/ })).toHaveAttribute(
+            'aria-selected',
+            'false',
+          );
+          expect(ward()).toHaveAttribute('aria-selected', 'true');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe('/openmrs/spa/ward');
+        });
+
+        it('waits for chart lookup the same way under the REST source', async () => {
+          const user = userEvent.setup();
+          mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig);
+          window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+          let conceptsArrive: () => void;
+          const concepts = new Promise<FetchResponse>((resolve) => {
+            conceptsArrive = () =>
+              resolve({
+                data: {
+                  results: [{ uuid: 'adm-wt-uuid', display: 'Admission weight', datatype: { display: 'Numeric' } }],
+                },
+              } as FetchResponse);
+          });
+          mockOpenmrsFetch.mockImplementation((url: string) => {
+            if (url.includes('/concept?')) {
+              return concepts;
+            }
+            if (url.includes('/Observation')) {
+              return Promise.resolve({
+                data: {
+                  entry: [
+                    {
+                      resource: {
+                        code: { coding: [{ code: 'adm-wt-uuid' }] },
+                        valueQuantity: { value: 70, unit: 'kg' },
+                      },
+                    },
+                  ],
+                },
+              } as FetchResponse);
+            }
+            if (url.includes('/patient?')) {
+              return Promise.resolve({ data: { results: [] } } as FetchResponse);
+            }
+            return new Promise(() => {});
+          });
+          mountProviders([
+            shipped('omnibar-patient-search-provider', PatientSearchProvider),
+            shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+            shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+            shipped('omnibar-destinations-provider', DestinationsProvider),
+          ]);
+          renderWithFreshCache(<Omnibar />);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByRole('option', { name: /^Ward/ });
+          expect(ward()).toHaveAttribute('aria-selected', 'false');
+
+          await act(async () => conceptsArrive());
+          expect(await screen.findByRole('option', { name: /Admission weight: 70 kg/ })).toHaveAttribute(
+            'aria-selected',
+            'true',
+          );
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+        });
+      });
+
       it("keeps chart lookup's copy of a value both find, and its highlight, whichever reports first", async () => {
         const user = userEvent.setup();
         window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Results`);
