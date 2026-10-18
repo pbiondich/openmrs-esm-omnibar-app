@@ -84,7 +84,12 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
         includeDead: String(includeDead),
       })}`
     : null;
-  const search = useSWR<{ results: Array<SearchedPatient> }>(searchUrl, fetcher, { keepPreviousData: false });
+  // An ID is always searched again, never answered from the cache alone within SWR's deduping window,
+  // so a rescan sees a patient given the same ID since.
+  const search = useSWR<{ results: Array<SearchedPatient> }>(searchUrl, fetcher, {
+    keepPreviousData: false,
+    ...(hints?.looksLikeIdentifier && { dedupingInterval: 0 }),
+  });
 
   const recentUuids = useRecentPatientUuids(showRecentPatients, maxResults);
   const recents = useSWR<Array<SearchedPatient>>(
