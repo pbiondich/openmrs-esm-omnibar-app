@@ -89,7 +89,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 const Omnibar: React.FC = () => {
   const { t } = useTranslation();
   const desktop = isDesktop(useLayoutType());
-  const { appearance, patientSearch } = useConfig<OmnibarConfig>();
+  const { appearance } = useConfig<OmnibarConfig>();
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -129,11 +129,10 @@ const Omnibar: React.FC = () => {
           neverDefault: context.scope === 'patient' && !meta.defaultInChart,
           // Inside a chart, the one patient an ID finds may still be the default, so Enter opens a
           // scanned wristband's patient. Only the host's own patient search, whose rows the host vouches
-          // for, and only when its limit leaves room to show a second patient with the same ID.
+          // for; it asks for at least two patients for an ID, so a second one with the same ID shows.
           defaultsToSolePatient:
             context.scope === 'patient' &&
             hints.looksLikeIdentifier &&
-            patientSearch.maxResults > 1 &&
             extension.name === builtInPatientSearch.name &&
             extension.moduleName === builtInPatientSearch.moduleName,
           dedupeKey: meta.dedupeKey,
@@ -141,7 +140,7 @@ const Omnibar: React.FC = () => {
       }
     }
     return info;
-  }, [assigned, context.scope, hints, patientSearch.maxResults]);
+  }, [assigned, context.scope, hints]);
 
   // Reports from a mount that belongs to another chart or scope are dropped, so this is worked out
   // before the providers are given their `report`. The providers are unmounted while the bar is
