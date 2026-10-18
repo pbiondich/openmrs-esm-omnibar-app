@@ -2508,6 +2508,7 @@ describe('Omnibar with providers mounted through the slot', () => {
           patientsAfterMs = 0,
           more = [],
           cache = new Map(),
+          swr = { dedupingInterval: 0 },
         }: {
           source: 'rest' | 'querystore';
           path?: string;
@@ -2516,6 +2517,7 @@ describe('Omnibar with providers mounted through the slot', () => {
           patientsAfterMs?: number;
           more?: Parameters<typeof mountProviders>[0];
           cache?: Map<string, unknown>;
+          swr?: object;
         },
       ) => {
         const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
@@ -2554,7 +2556,7 @@ describe('Omnibar with providers mounted through the slot', () => {
           ...more,
         ]);
         render(
-          <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+          <SWRConfig value={{ provider: () => cache, ...swr }}>
             <Omnibar />
           </SWRConfig>,
         );
@@ -2719,8 +2721,9 @@ describe('Omnibar with providers mounted through the slot', () => {
       });
 
       it('never highlights the patient from a cached answer while the search runs again', async () => {
+        // SWR's own deduping, so a rescan within its 2 seconds would be answered from the cache alone.
         const cache = new Map();
-        const { user } = await search(scanned, [john], { source: 'querystore', cache });
+        const { user } = await search(scanned, [john], { source: 'querystore', cache, swr: {} });
         expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
         await user.keyboard('{Escape}');
 
