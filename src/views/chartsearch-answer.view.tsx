@@ -89,12 +89,16 @@ function reducer(state: AnswerState, action: Action): AnswerState {
             references: parseReferences(payload.references) ?? state.references,
             statements: parseStatements(payload),
             disclaimer:
-              typeof payload.disclaimer === 'string' ? payload.disclaimer.slice(0, maxDisclaimerCharacters) : null,
+              typeof payload.disclaimer === 'string'
+                ? Array.from(payload.disclaimer).slice(0, maxDisclaimerCharacters).join('')
+                : null,
           };
         }
         case 'grounded': {
           // Sent after `done` when ChartSearch verifies citations later: it replaces the references and
-          // the statements `done` couldn't make yet.
+          // the statements `done` couldn't make yet. It comes on the same stream, before it ends, so it
+          // always finds the answer here; the page shows verdicts only once the stream has ended, so a
+          // stream that ends early leaves citations marked unverified, never wrongly verified.
           const payload = parseJson(data);
           if (!payload || state.phase !== 'answered') {
             return state;

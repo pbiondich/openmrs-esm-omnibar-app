@@ -215,6 +215,18 @@ describe('the Query results page', () => {
       expect(seen.at(-1).submitted).toBe(false);
     });
 
+    it('says so under StrictMode, whose effects run twice', () => {
+      const seen: Array<OmnibarViewProps> = [];
+      register([{ name: 'values', meta: { scopes: ['patient'] }, component: reports('ready', 'Values', seen) }]);
+      markSubmitted(humprey, 'cd4');
+      render(
+        <React.StrictMode>
+          <QueryResultsPage patientUuid={humprey} patient={patient} />
+        </React.StrictMode>,
+      );
+      expect(seen.at(-1).submitted).toBe(true);
+    });
+
     it.each([
       ['nothing was submitted', () => {}],
       ['another query was', () => markSubmitted(humprey, 'weight')],

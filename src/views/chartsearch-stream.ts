@@ -128,7 +128,7 @@ export async function streamChartSearch(
       parser.push(decoder.decode(value, { stream: true }));
     }
   } finally {
-    reader.releaseLock?.();
+    reader.releaseLock();
   }
 }
 

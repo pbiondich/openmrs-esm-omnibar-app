@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { InlineLoading } from '@carbon/react';
 import {
@@ -128,11 +128,18 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
 
   // Whether this query was submitted just now, read once per generation: the mark is used up as it's
   // read, so a later render, or the page reopened, sees a page nobody asked for again.
-  const submissions = useRef<{ generation: string; submitted: boolean } | null>(null);
-  if (submissions.current?.generation !== generation) {
-    submissions.current = { generation, submitted: Boolean(query) && takeSubmission(patientUuid, query) };
-  }
-  const submitted = submissions.current.submitted;
+  // It's read in a layout effect, not while rendering, so rendering stays pure; the views mounted in
+  // the same commit get it before the browser paints. The ref keeps the answer for the generation, so
+  // an effect run twice (React's development checks) doesn't read the used-up mark as "not asked".
+  const taken = useRef<{ generation: string; submitted: boolean } | null>(null);
+  const [submission, setSubmission] = useState<{ generation: string; submitted: boolean } | null>(null);
+  useLayoutEffect(() => {
+    if (taken.current?.generation !== generation) {
+      taken.current = { generation, submitted: Boolean(query) && takeSubmission(patientUuid, query) };
+    }
+    setSubmission(taken.current);
+  }, [generation, patientUuid, query]);
+  const submitted = submission?.generation === generation && submission.submitted;
 
   const context = useMemo<OmnibarContext>(
     () => ({ scope: 'patient', patientUuid, locale: i18n.language, workspaceGroup }),
