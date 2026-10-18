@@ -503,3 +503,17 @@ No omnibar override. The live value is what ChartSearch's input and the prefill 
 - Failed first, on d569eeb with the old provider: 17 tests. With a live limit of 500, a 501-character question was offered. With 2000, a 2000-character question was not. A limit of 500 that loaded after the row showed left an 800-character row in place. All 14 `maxQuestionLengthFrom` cases failed because it didn't exist. The invalid-value, not-loaded and unregistered cases passed before and after, since they expect the old 1000 rule.
 - `corepack yarn test`, `corepack yarn typescript` and `corepack yarn lint` pass.
 - Not tested live. In particular, that ChartSearch's config has loaded by the time its chart group is open on the 3.8.0-rc.2 sandbox. If it hasn't, the row uses 1000 until it does.
+
+### Review fixes (one round): APPROVE WITH NITS
+
+| # | Nit | Fix | Commit |
+| --- | --- | --- | --- |
+| 2 | The prefill patch clamps `initialQuestion.trim()`, but the row compared the untrimmed query | Compare `query.trim().length`. The shell already trims before providers see the query, so the test renders the provider directly with a 1000-character question padded with spaces | d4a02d7 (test), 31a5b1d |
+| 3 | `getConfig` was stubbed only in the ChartSearch `beforeEach` | A default `getConfig` that resolves ChartSearch's 1000 is in the top-level framework mock, and the `beforeEach` line is gone. The review expected `mockReset` to leave `getConfig` returning `undefined`. Under vitest 4 it keeps the original implementation and returns a Promise, so there was no crash to reproduce. Before this change it resolved the defaults of whichever schema the config mock last saw. Swapping the stub to a 5-character limit fails 8 tests, so the stub is the one in use | 5c8cd52 |
+| 1 | Mounts before ChartSearch's `startupApp` leave `getConfig` subscriptions | One sentence in the hook comment: they clear when ChartSearch's config loads | ad9a434 |
+
+Nit 4 is left: the fixed 300 ms wait in the negative case.
+
+- Tests: 192 before, 193 after (112 in `src/omnibar/omnibar.test.tsx`, 50 in `src/providers/chartsearch-question.test.ts`, 31 in `src/providers/chart-lookup-search.test.ts`).
+- Failed first, on d4a02d7 with the old comparison: the padded question was reported `idle`, not `ready`. `Tests  1 failed | 192 passed (193)`.
+- `corepack yarn test`, `corepack yarn typescript` and `corepack yarn lint` pass.
