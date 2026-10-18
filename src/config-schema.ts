@@ -120,7 +120,7 @@ export const configSchema = {
         path: '${openmrsSpaBase}/home/service-queues',
         keywords: ['queue', 'triage', 'waiting'],
       },
-      { label: 'Patient lists', path: '${openmrsSpaBase}/home/patient-lists', keywords: ['cohort', 'list'] },
+      { label: 'Patient lists', path: '${openmrsSpaBase}/home/patient-lists', keywords: ['list'] },
       { label: 'Ward', path: '${openmrsSpaBase}/ward', keywords: ['inpatient', 'admit', 'admission', 'beds'] },
       { label: 'Bed management', path: '${openmrsSpaBase}/bed-management', keywords: ['beds', 'bed'] },
     ],
