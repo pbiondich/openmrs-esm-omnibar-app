@@ -5,11 +5,14 @@ import {
   OMNIBAR_CONTRACT_VERSION,
   OMNIBAR_SELECTED_EVENT,
   type OmnibarLane,
+  type OmnibarPatient,
   type OmnibarProviderMeta,
   type OmnibarReport,
+  type OmnibarReportDetail,
   type OmnibarResult,
   type OmnibarScope,
   type OmnibarSelectedDetail,
+  type OmnibarSource,
   type OmnibarTarget,
 } from './types';
 
@@ -41,6 +44,99 @@ export interface ProviderInfo {
 }
 
 const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 2 };
+
+/** The most results one group shows. Any more are dropped. */
+export const maxResultsPerGroup = 50;
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+const textOrNothing = (value: unknown) => (typeof value === 'string' ? value : undefined);
+
+function isKnownTarget(target: unknown): target is OmnibarTarget {
+  return (
+    isObject(target) &&
+    ((target.type === 'navigate' && typeof target.to === 'string') ||
+      (target.type === 'workspace' && typeof target.workspaceName === 'string'))
+  );
+}
+
+function cleanPatient(patient: unknown): OmnibarPatient | undefined {
+  if (!isObject(patient) || typeof patient.uuid !== 'string') {
+    return undefined;
+  }
+  const identifiers = Array.isArray(patient.identifiers)
+    ? patient.identifiers.filter(
+        (identifier): identifier is NonNullable<OmnibarPatient['identifiers']>[number] =>
+          isObject(identifier) && typeof identifier.identifier === 'string',
+      )
+    : undefined;
+  return {
+    uuid: patient.uuid,
+    gender: textOrNothing(patient.gender),
+    birthdate: textOrNothing(patient.birthdate),
+    identifiers,
+  };
+}
+
+function cleanResult(result: unknown): OmnibarResult | null {
+  if (!isObject(result) || typeof result.id !== 'string' || typeof result.title !== 'string') {
+    return null;
+  }
+  if (!isKnownTarget(result.target)) {
+    return null;
+  }
+  return {
+    id: result.id,
+    title: result.title,
+    subtitle: textOrNothing(result.subtitle),
+    patient: cleanPatient(result.patient),
+    target: result.target,
+    dedupeId: textOrNothing(result.dedupeId),
+  };
+}
+
+/**
+ * A provider's report in the shape the bar draws, or null to ignore it. A provider is trusted code,
+ * but a mistake in one must not break the bar outside its error boundary: a report without a text
+ * query and heading, or whose results aren't a list, is ignored; a result without a text id and
+ * title, or with a target the bar doesn't know, is dropped; a group keeps its first 50 results; and
+ * an answer with no list of sources has none.
+ */
+export function cleanReport(report: unknown): OmnibarReport | null {
+  if (!isObject(report) || typeof report.query !== 'string' || typeof report.title !== 'string') {
+    return null;
+  }
+  const { results, answer, detail } = report;
+  if (results !== undefined && !Array.isArray(results)) {
+    return null;
+  }
+  return {
+    query: report.query,
+    status: report.status as OmnibarReport['status'],
+    title: report.title,
+    results: Array.isArray(results)
+      ? results
+          .map(cleanResult)
+          .filter((result): result is OmnibarResult => result !== null)
+          .slice(0, maxResultsPerGroup)
+      : undefined,
+    answer: isObject(answer)
+      ? {
+          text: textOrNothing(answer.text) ?? '',
+          streaming: Boolean(answer.streaming),
+          sources: Array.isArray(answer.sources)
+            ? answer.sources.filter(
+                (source): source is OmnibarSource =>
+                  isObject(source) && typeof source.label === 'string' && isKnownTarget(source.target),
+              )
+            : [],
+        }
+      : undefined,
+    detail:
+      isObject(detail) && typeof detail.state === 'string'
+        ? { state: detail.state as OmnibarReportDetail['state'], note: textOrNothing(detail.note) }
+        : undefined,
+  };
+}
 
 /** A failed or unavailable group shows only its heading and one line, so its results are dropped. */
 export function isCollapsed(report: OmnibarReport): boolean {
@@ -135,8 +231,9 @@ export function useResultCollector(
     if (cached?.generation === generation) {
       return cached.reporter;
     }
-    const reporter = (report: OmnibarReport) => {
-      if (generationOf() !== generation || report.query !== queryRef.current) {
+    const reporter = (sent: OmnibarReport) => {
+      const report = cleanReport(sent);
+      if (!report || generationOf() !== generation || report.query !== queryRef.current) {
         return;
       }
       setReports((previous) => ({ ...previous, [providerId]: report }));

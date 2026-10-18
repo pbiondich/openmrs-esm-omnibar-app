@@ -47,8 +47,8 @@ export const providersSlot = 'omnibar-providers-slot';
 const maxNoteLength = 200;
 
 /** A provider's note, cut to 200 characters so a server's message in it can't fill the panel. */
-function capNote(note: string | undefined): string | undefined {
-  if (!note) {
+function capNote(note: unknown): string | undefined {
+  if (!note || typeof note !== 'string') {
     return undefined;
   }
   const characters = Array.from(note);

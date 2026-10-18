@@ -15,6 +15,8 @@ interface PhotoObs {
 
 type PageLocation = Pick<URL, 'origin' | 'protocol' | 'hostname' | 'port'>;
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // The path the server writes for a complex obs value: <openmrsBase>/ws/rest/v1/obs/<uuid>/value.
 function isPhotoValuePath(pathname: string): boolean {
   const obsPath = `${window.openmrsBase.replace(/\/+$/, '')}${restBaseUrl}/obs/`;
@@ -68,14 +70,16 @@ export function usePatientPhotoUrl(patientUuid: string) {
   const { patientPhotoConceptUuid } = useConfig<{ patientPhotoConceptUuid?: string | null }>({
     externalModuleName: '@openmrs/esm-styleguide',
   });
-  const url = patientPhotoConceptUuid
-    ? `${restBaseUrl}/obs?${new URLSearchParams({
-        patient: patientUuid,
-        concept: patientPhotoConceptUuid,
-        v: 'full',
-        limit: '1',
-      })}`
-    : null;
+  // The uuid comes from a provider, so only a real one is put in a credentialed request.
+  const url =
+    patientPhotoConceptUuid && uuidPattern.test(patientUuid)
+      ? `${restBaseUrl}/obs?${new URLSearchParams({
+          patient: patientUuid,
+          concept: patientPhotoConceptUuid,
+          v: 'full',
+          limit: '1',
+        })}`
+      : null;
   // The app shell shares one SWR cache, and this entry holds a URL, not the FetchResponse others would
   // expect under the bare request URL.
   const { data, mutate } = useSWRImmutable(url ? ['omnibar/patient-photo', url] : null, fetchPhotoUrl);

@@ -166,8 +166,8 @@ describe('PatientRow photo', () => {
           <PatientRow name="Mogan Zavai Kamwara" patient={{ uuid }} />
         </SWRConfig>,
       );
-      await act(async () => {});
 
+      // With a real uuid, the lookup starts as the row mounts.
       expect(photoRequests()).toHaveLength(0);
       expectGeneratedTile(avatars()[0]);
     },
