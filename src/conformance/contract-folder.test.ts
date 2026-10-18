@@ -42,6 +42,11 @@ describe('the contract folder', () => {
     expect(contract.OMNIBAR_SELECTED_EVENT).toBe('openmrs:omnibar-selected');
   });
 
+  it('exports the Query results slot and the view boundary', () => {
+    expect(contract.OMNIBAR_QUERY_RESULTS_SLOT).toBe('omnibar-query-results-slot');
+    expect(contract.withViewBoundary).toEqual(expect.any(Function));
+  });
+
   it('is contract version 1', () => {
     expect(contract.OMNIBAR_CONTRACT_VERSION).toBe(1);
   });

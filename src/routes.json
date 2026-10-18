@@ -47,6 +47,19 @@
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Observations"],
       "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true }
+    },
+    {
+      "name": "omnibar-query-results-dashboard",
+      "component": "queryResultsDashboardLink",
+      "slot": "patient-chart-dashboard-slot",
+      "order": 100,
+      "meta": { "slot": "omnibar-query-results-dashboard-slot", "path": "query-results", "title": "Query results" }
+    },
+    {
+      "name": "omnibar-query-results-page",
+      "component": "queryResultsPage",
+      "slot": "omnibar-query-results-dashboard-slot",
+      "meta": { "fullWidth": true }
     }
   ]
 }

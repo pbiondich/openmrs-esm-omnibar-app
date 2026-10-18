@@ -26,8 +26,11 @@ import {
   OMNIBAR_SELECTED_EVENT,
   type OmnibarProviderMeta,
   type OmnibarProviderProps,
+  type OmnibarViewProps,
 } from '../omnibar-contract';
 import { extensionName, type SavedList, savedListsProvider } from './external-app/saved-lists.provider';
+import { savedListsView, viewExtensionName } from './external-app/saved-lists.view';
+import QueryResultsPage from '../query-results/query-results.page';
 
 // Most of these tests describe Enter opening the highlighted row, which inside a chart is now the
 // "open-highlight" behaviour. The tests of Enter submitting to Query results set "submit" themselves.
@@ -244,5 +247,81 @@ describe('a provider from another app, built only on the copied contract folder'
     expect(warn.mock.calls[0].join(' ')).toContain(extensionName);
     expect(warn.mock.calls[0].join(' ')).not.toContain('hiv');
     warn.mockRestore();
+  });
+});
+
+describe('a Query results view from another app, built only on the copied contract folder', () => {
+  const humprey = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+  const registerView = (view: React.ComponentType<OmnibarViewProps>, meta: Record<string, unknown> = {}) =>
+    register([
+      {
+        name: viewExtensionName,
+        moduleName: '@openmrs/esm-saved-lists-app',
+        meta: { scopes: ['patient'], order: 40, contract: 1, ...meta } as unknown as OmnibarProviderMeta,
+        component: view as unknown as React.ComponentType<OmnibarProviderProps>,
+      },
+    ]);
+
+  beforeEach(() => {
+    vi.mocked(useConfig<OmnibarConfig>).mockReturnValue(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig);
+    window.history.pushState({}, '', `/openmrs/spa/patient/${humprey}/chart/query-results?q=hiv`);
+  });
+  afterEach(() => window.history.pushState({}, '', '/'));
+
+  it('imports nothing from the omnibar but the contract folder', () => {
+    const file = join(dirname(fileURLToPath(import.meta.url)), 'external-app/saved-lists.view.tsx');
+    const imports = [...readFileSync(file, 'utf8').matchAll(/from\s+['"]([^'"]+)['"]/g)].map(([, from]) => from);
+    expect(imports.sort()).toEqual(['../../omnibar-contract', './saved-lists.provider', 'react', 'react-i18next']);
+  });
+
+  it('is mounted on the page with the query and the chart’s patient, and shows its section', async () => {
+    const search = vi.fn(async () => [{ uuid: 'hiv-clinic', name: 'HIV clinic follow-up' }]);
+    registerView(savedListsView(search));
+    render(<QueryResultsPage patientUuid={humprey} />);
+
+    expect(await screen.findByText('HIV clinic follow-up')).toBeInTheDocument();
+    expect(search).toHaveBeenCalledWith('hiv', humprey);
+  });
+
+  it('counts toward the page’s empty state when it finds nothing', async () => {
+    registerView(savedListsView(async () => []));
+    render(<QueryResultsPage patientUuid={humprey} patient={{ name: [{ given: ['Humprey'] }] }} />);
+
+    expect(await screen.findByText('Nothing in Humprey’s chart matches “hiv”.')).toBeInTheDocument();
+  });
+
+  it('keeps a view that throws to its own section', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // As in the omnibar's boundary tests: React's development build rethrows inside an event listener
+    // before handing the error to the boundary, and a browser reports that and carries on.
+    const settings = (window as unknown as { happyDOM: { settings: { disableErrorCapturing: boolean } } }).happyDOM
+      .settings;
+    settings.disableErrorCapturing = false;
+    const ignore = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener('error', ignore);
+    const Throws = savedListsView(() => {
+      throw new Error('quoting the record');
+    });
+    registerView(Throws);
+    render(<QueryResultsPage patientUuid={humprey} />);
+
+    expect(await screen.findByText('This section couldn’t be shown.')).toBeInTheDocument();
+    expect(screen.queryByText(/quoting the record/)).not.toBeInTheDocument();
+    window.removeEventListener('error', ignore);
+    settings.disableErrorCapturing = true;
+  });
+
+  it('renders nothing when mounted without the host’s props', () => {
+    const View = savedListsView(async () => []);
+    const { container } = render(<View />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('is not mounted by a host that speaks an older contract than the one it declares', () => {
+    const search = vi.fn(async () => []);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    registerView(savedListsView(search), { contract: OMNIBAR_CONTRACT_VERSION + 1 });
+    render(<QueryResultsPage patientUuid={humprey} />);
+    expect(search).not.toHaveBeenCalled();
   });
 });
