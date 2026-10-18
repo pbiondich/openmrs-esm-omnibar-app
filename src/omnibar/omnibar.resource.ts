@@ -255,10 +255,14 @@ const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url
 
 /**
  * The only place a result turns into an action. Resolves false when a workspace launch is refused
- * because its required group is no longer open for that patient, or because its workspace props
- * name another patient, and true otherwise.
+ * because its required group is no longer open for that patient, or because its workspace, window
+ * or group props name another patient than that group's or, inside a chart, the chart's. True otherwise.
  */
-export async function executeTarget(target: OmnibarTarget): Promise<boolean> {
+export async function executeTarget(
+  target: OmnibarTarget,
+  /** The chart's patient, in patient scope only. */
+  chartPatientUuid?: string,
+): Promise<boolean> {
   switch (target.type) {
     case 'navigate': {
       // A result only moves the user around this site. Another origin, however the URL spells it
@@ -276,15 +280,16 @@ export async function executeTarget(target: OmnibarTarget): Promise<boolean> {
       return true;
     }
     case 'workspace': {
-      // The group check vouches for one patient, so props that name another one are refused too.
+      // The group check vouches for one patient and the chart for another, so props that name anyone
+      // else are refused, whichever of the three bags names them.
       const required = target.requiresOpenGroup;
-      const propsPatientUuid = (target.workspaceProps as { patientUuid?: unknown } | undefined)?.patientUuid;
+      const vouchedFor = [required?.patientUuid, chartPatientUuid].filter(
+        (uuid): uuid is string => typeof uuid === 'string',
+      );
       if (
-        required &&
-        (!workspaceGroupIsOpen(getWorkspace2Store().getState(), required.workspaceName, required.patientUuid) ||
-          (typeof propsPatientUuid === 'string' &&
-            typeof required.patientUuid === 'string' &&
-            propsPatientUuid !== required.patientUuid))
+        (required &&
+          !workspaceGroupIsOpen(getWorkspace2Store().getState(), required.workspaceName, required.patientUuid)) ||
+        vouchedFor.some((uuid) => targetNamesOtherPatient(target, uuid))
       ) {
         return false;
       }

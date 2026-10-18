@@ -129,11 +129,12 @@ const Omnibar: React.FC = () => {
   // Reports from a mount that belongs to another chart or scope are dropped, so this is worked out
   // before the providers are given their `report`.
   const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
+  const scopePatientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
   const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(
     debouncedQuery,
     providerInfo,
     contextKey,
-    context.scope === 'patient' ? context.patientUuid : undefined,
+    scopePatientUuid,
   );
 
   // Out-of-scope providers are dropped with `select`, never by returning null from the slot's render
@@ -245,10 +246,11 @@ const Omnibar: React.FC = () => {
   const containerRef = useOnClickOutside<HTMLDivElement>(closeBar, open && desktop);
 
   // A workspace whose chart group closed, or opened for another patient, after its row was drawn is
-  // refused. The bar has closed by then, so a snackbar says why nothing opened.
+  // refused, as is one whose props name another patient than the chart's. The bar has closed by then,
+  // so a snackbar says why nothing opened.
   const runTarget = useCallback(
     async (target: OmnibarTarget) => {
-      if (!(await executeTarget(target))) {
+      if (!(await executeTarget(target, scopePatientUuid))) {
         showSnackbar({
           kind: 'warning',
           title: t('sidePanelNotOpened', 'Couldn’t open the side panel'),
@@ -259,7 +261,7 @@ const Omnibar: React.FC = () => {
         });
       }
     },
-    [t],
+    [t, scopePatientUuid],
   );
 
   // The results on screen may still be for an earlier query, e.g. recents while a scanner types an
