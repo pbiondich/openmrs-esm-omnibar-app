@@ -59,9 +59,11 @@ has had a chance to define its schema.
 
 ## Why the value is still read
 
-`validateStructure` only logs. It does not remove keys. After `load()`, the
-module's `startupApp` runs `defineConfigSchema` (`esm-routes/src/loaders/load-lifecycles.ts:41`,
-`:94-96`), which replaces the schema object and sets `moduleLoaded`. The
+`validateStructure` only logs. It does not remove keys. Inside `load()`, the
+bundle is imported (`esm-routes/src/loaders/load-lifecycles.ts:41`), its
+`startupApp` is called (`:94`) and then `registerModuleLoad` runs (`:96`). The
+module's `startupApp` calls `defineConfigSchema`, which replaces the schema
+object and sets `moduleLoaded` (`module-config.ts:375-376`). The
 extension config cache compares the module schema by identity
 (`module-config.ts:641-649`), so the config is derived again against the real
 schema, with the provided value and no error. `logError` shows each message
@@ -117,6 +119,8 @@ module that never defines a schema would keep the unvalidated config after
 unknown key in it would never be reported.
 
 The stale comment at `:278-279` is reworded to match.
+
+A PR to esm-core would also need a `.changeset` entry, which the patch does not include.
 
 Registering after `load()` instead was not chosen. #1856 registers early on
 purpose (`render.ts:409-412`), and the fix belongs where the schema is
