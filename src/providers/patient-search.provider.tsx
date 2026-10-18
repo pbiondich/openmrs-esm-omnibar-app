@@ -1,7 +1,14 @@
 import { useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import { useTranslation } from 'react-i18next';
-import { interpolateUrl, openmrsFetch, restBaseUrl, useConfig, useSession } from '@openmrs/esm-framework';
+import {
+  createErrorHandler,
+  interpolateUrl,
+  openmrsFetch,
+  restBaseUrl,
+  useConfig,
+  useSession,
+} from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import {
   OMNIBAR_SELECTED_EVENT,
@@ -9,6 +16,7 @@ import {
   type OmnibarResult,
   type OmnibarSelectedDetail,
 } from '../omnibar/types';
+import { isUuid, parseVisited, recordVisit } from './patients-visited';
 
 /**
  * Patient search, extracted from esm-patient-search-app as the omnibar's first provider. It uses
@@ -33,11 +41,6 @@ interface UserProperties {
 
 const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((response) => response.data);
 
-// patientsVisited is a free-text user property and the selection event can come from any script, so
-// only canonical UUIDs from either make it into a REST path.
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const parseVisited = (patientsVisited = '') => patientsVisited.split(',').filter((uuid) => uuidPattern.test(uuid));
-
 function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
   const { user } = useSession();
   const url =
@@ -48,22 +51,15 @@ function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
     [data, maxRecent],
   );
 
-  // Record a patient picked from the omnibar, the same way the patient search app does.
+  // Record a patient picked from the omnibar in the property the patient search app uses too.
   useEffect(() => {
     if (!url || !data) return;
     const onSelected = (event: Event) => {
       const { providerId: from, resultId } = (event as CustomEvent<OmnibarSelectedDetail>).detail;
       if (from !== providerId || !resultId.startsWith('patient:')) return;
       const patientUuid = resultId.slice('patient:'.length);
-      if (!uuidPattern.test(patientUuid)) return;
-      const visited = parseVisited(data.userProperties?.patientsVisited);
-      const updated = Array.from(new Set([patientUuid, ...visited])).slice(0, 10);
-      const userProperties = { ...data.userProperties, patientsVisited: updated.join(',') };
-      void openmrsFetch(`${restBaseUrl}/user/${encodeURIComponent(user.uuid)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: { userProperties },
-      }).then(() => mutate());
+      if (!isUuid(patientUuid)) return;
+      recordVisit(user.uuid, patientUuid).then(() => mutate(), createErrorHandler());
     };
     window.addEventListener(OMNIBAR_SELECTED_EVENT, onSelected);
     return () => window.removeEventListener(OMNIBAR_SELECTED_EVENT, onSelected);
