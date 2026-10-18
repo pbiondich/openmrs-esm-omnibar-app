@@ -457,7 +457,7 @@ If the chart's workspace group closed, or opened for another patient, between dr
 | Change | Commit |
 | --- | --- |
 | Failing tests first. A capturing listener on `window` changes the group after the row is drawn and before the omnibar handles the click or Enter. This runs for a closed group and for a group opened for another patient | cc02fdc, 2be4e93 (formatting) |
-| `executeTarget` resolves false when it refuses a launch, and true otherwise. The omnibar then shows a warning snackbar with i18n strings `sidePanelNotOpened` and `sidePanelNotOpenedSubtitle`, also added to `translations/en.json`: "Couldn’t open the side panel. This chart’s side panel closed before it could open. Search again to retry." Source links use the same path | db25aa7 |
+| `executeTarget` resolves false when it refuses a launch, and true otherwise. The omnibar then shows a warning snackbar with i18n strings `sidePanelNotOpened` and `sidePanelNotOpenedSubtitle`, also added to `translations/en.json`: "Couldn’t open the side panel. The side panel was closed or opened for another patient. Open it again on this chart, then search again." (copy from the review round below). Source links use the same path | db25aa7, f405e2d |
 | README and `docs/design/omnibar-context-rules.md` describe the snackbar | 9aa0300 |
 
 Why a snackbar and not a reopen: `launchWorkspaceGroup2(groupName, groupProps)` is public, but the patient chart owns the group and its props (patient and visit context). Once the group closes, the store no longer holds those props. Reopening with only `{ patientUuid }` would leave the chart's other workspaces without their props, and the chart's own next launch would see different props and prompt to close the group. `launchWorkspace2` with null group props would open the group with no patient, which fix round 1 ruled out. The omnibar never launches for a different patient: the group check still runs before any launch.
@@ -468,3 +468,20 @@ The copy says "side panel", not "chat". `requiresOpenGroup` belongs to the shell
 - Failed first, on cc02fdc with the old `omnibar.resource.ts` and `omnibar.extension.tsx`: `Tests  5 failed | 167 passed (172)`. `executeTarget` resolved `undefined`, not `true`. In all four pick cases the selection event fired, the bar closed and nothing launched, but `showSnackbar` was called 0 times. The no-snackbar test for an open group passed before and after.
 - `corepack yarn test`: 172 passed. `corepack yarn typescript` and `corepack yarn lint` exit 0.
 - Not tested live. The race depends on the group closing in the moment between a render and a pick, and in tests it is forced through a capturing listener. The snackbar has not been seen on a real chart.
+
+### Review round 1 (Claude): APPROVE WITH NITS
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| should: "Search again to retry." was a dead end. The row appears only while the panel is open for this patient, so searching again showed nothing | The subtitle now reads "The side panel was closed or opened for another patient. Open it again on this chart, then search again." It stays generic and covers both cases. `en.json` regenerated with `yarn extract-translations` after dropping the stale key, because the parser keeps an existing value | 48b4b25 (test), f405e2d |
+| nit: the `runTarget` comment mentioned only a closed group | It now says "closed, or opened for another patient" | f405e2d |
+| nit: "This chart’s side panel closed" was wrong when the panel was open for another patient | Fixed by the new copy | f405e2d |
+| nit: the race tests removed the selection listener only on the happy path, and the `once` capture listener stayed if it never fired | Both go through a `listen` helper, and an `afterEach` removes them | 48b4b25 |
+| README and `docs/design/omnibar-context-rules.md` describe the new copy | | 416ace8 |
+
+Not fixed, as the reviewer asked (pre-existing): `void runTarget(...)` still leaves a rejection from `executeTarget` unhandled with no feedback. That covers the off-origin throw and a rejected `launchWorkspace2`. `runTarget` is the place to add a `.catch` with an error snackbar later.
+
+- Tests: 172 before and after. The round changed expectations and cleanup, and added no tests.
+- Failed first, on 48b4b25 with the f405e2d copy not yet in: `Tests  4 failed | 101 passed (105)` in `src/omnibar/omnibar.test.tsx`. All four race cases got the old subtitle. The cleanup change can't fail first, because it only affects tests that already fail.
+- `corepack yarn test`: 172 passed. `corepack yarn typescript` and `corepack yarn lint` exit 0.
+- Not tested live.
