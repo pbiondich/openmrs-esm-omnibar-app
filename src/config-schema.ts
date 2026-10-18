@@ -1,7 +1,26 @@
 import { Type, validator, validators } from '@openmrs/esm-framework';
 
-// Program uuids are site content and no RefApp demo uuids were confirmed, so distros add their own.
-const COHORT_PROGRAMS_DEFAULT = [];
+// The RefApp demo programs (Initializer configuration/programs). Program uuids are site content, so other
+// distros replace these. "art" is both an HIV program alias here and an ARV drug alias: the parser tells
+// them apart by grammar ("enrolled in ART" / "in ART program" vs "on ART"), never by guessing.
+const COHORT_PROGRAMS_DEFAULT = [
+  {
+    uuid: '64f950e6-1b07-4ac0-8e7e-f3e148f3463f',
+    label: 'HIV Care and Treatment',
+    aliases: ['hiv', 'hiv care', 'art', 'hiv care and treatment'],
+  },
+  { uuid: 'd1b6cd43-8ac7-4cdd-8fb4-fe51635c82b4', label: 'PMTCT', aliases: ['pmtct'] },
+  {
+    uuid: 'ac1bbc45-8c35-49ff-a574-9553ff789527',
+    label: 'HIV Preventative Services (PEP/PrEP)',
+    aliases: ['prep', 'pep', 'hiv prevention'],
+  },
+  {
+    uuid: '7a72a724-8994-4d33-962e-f65d8ca4ae67',
+    label: 'Outpatient Diabetes Education Program',
+    aliases: ['diabetes', 'diabetes education'],
+  },
+];
 
 // Drug uuids are site content. The ARV ones are the formulary rows on the RefApp demo server; elsewhere
 // they match nothing until a distro replaces them. The demo has no TLD Drug, so "on TLD" stays silent.

@@ -60,8 +60,8 @@ describe('cohort providers in routes.json', () => {
   it.each([
     ['omnibar-cohort-criteria-provider', ['Get Patients', 'Run Reports']],
     ['omnibar-cohort-builder-provider', ['Get Patients', 'Run Reports']],
-    ['omnibar-saved-cohorts-provider', ['Get Patient Cohorts']],
-    ['omnibar-saved-queries-provider', ['View Reports']],
+    ['omnibar-saved-cohorts-provider', ['Get Patient Cohorts', 'Get Patients']],
+    ['omnibar-saved-queries-provider', ['View Reports', 'Run Reports', 'Get Patients']],
   ])('declares %s for global scope only, with the privileges its backend checks', (name, privileges) => {
     const extension = routes.extensions.find((e) => e.name === name);
     expect(extension.slot).toBe('omnibar-providers-slot');

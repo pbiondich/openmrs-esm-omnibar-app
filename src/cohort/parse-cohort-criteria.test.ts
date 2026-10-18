@@ -236,9 +236,49 @@ describe('parseCohortCriteria', () => {
       expect(definitionUrl(definition)).not.toBeNull();
     });
 
-    it('stays silent for TLD, which has no Drug on the demo, and for programs, which ship empty', () => {
+    it('stays silent for TLD, which has no Drug on the demo', () => {
       expect(parseCohortCriteria('on TLD', { ...cohortBuilder, drugCriteriaEnabled: true })).toBeNull();
-      expect(parseCohortCriteria('enrolled in HIV program', cohortBuilder)).toBeNull();
+    });
+
+    const hivCare = '64f950e6-1b07-4ac0-8e7e-f3e148f3463f';
+    const pmtct = 'd1b6cd43-8ac7-4cdd-8fb4-fe51635c82b4';
+    const prevention = 'ac1bbc45-8c35-49ff-a574-9553ff789527';
+    const diabetes = '7a72a724-8994-4d33-962e-f65d8ca4ae67';
+
+    it.each<[string, Array<CohortCriterion>]>([
+      ['in HIV program', [enrollment(hivCare)]],
+      ['enrolled in PMTCT', [enrollment(pmtct)]],
+      ['women in the diabetes program', [demographics('female'), enrollment(diabetes)]],
+      ['enrolled in HIV prevention', [enrollment(prevention)]],
+      ['in the PrEP program', [enrollment(prevention)]],
+      ['enrolled in hiv care and treatment', [enrollment(hivCare)]],
+    ])('finds the demo program in %j', (text, criteria) => {
+      expect(parseCohortCriteria(text, cohortBuilder).criteria).toEqual(criteria);
+    });
+
+    it.each(['in TB program', 'women with diabetes', 'diabetes'])('offers nothing for %j', (text) => {
+      expect(parseCohortCriteria(text, cohortBuilder)).toBeNull();
+    });
+
+    it('reads ART as the HIV program after "enrolled in" or before "program", and as drugs after "on"', () => {
+      const drugsOn = { ...cohortBuilder, drugCriteriaEnabled: true };
+      for (const config of [cohortBuilder, drugsOn]) {
+        expect(parseCohortCriteria('enrolled in ART', config).criteria).toEqual([enrollment(hivCare)]);
+        expect(parseCohortCriteria('in the ART program', config).criteria).toEqual([enrollment(hivCare)]);
+      }
+      expect(parseCohortCriteria('on ART', cohortBuilder)).toBeNull();
+      expect(parseCohortCriteria('on ART', drugsOn).criteria).toEqual([
+        expect.objectContaining({ type: 'drugOrder', activeOnOrAfter: 'today' }),
+      ]);
+    });
+
+    it('never gives one alias to two programs or to two drug groups', () => {
+      for (const items of [cohortBuilder.programs, cohortBuilder.drugGroups]) {
+        const names = items.flatMap((item) => [
+          ...new Set([item.label, ...item.aliases].map((name) => name.toLowerCase())),
+        ]);
+        expect(new Set(names).size).toBe(names.length);
+      }
     });
   });
 });
