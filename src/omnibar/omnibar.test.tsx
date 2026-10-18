@@ -333,8 +333,9 @@ describe('executeTarget', () => {
     `${window.location.origin}//evil.example/phish`,
     `${window.location.origin}/\\evil.example/phish`,
     `${window.location.origin}/${window.location.origin}//evil.example`,
-  ])('refuses to follow %s', async (to) => {
-    await expect(executeTarget({ type: 'navigate', to })).rejects.toThrow();
+    'http://[',
+  ])('refuses to follow %s, and says so by resolving false', async (to) => {
+    expect(await executeTarget({ type: 'navigate', to })).toBe(false);
     expect(navigate).not.toHaveBeenCalled();
   });
 });
@@ -729,6 +730,58 @@ describe('Omnibar with providers mounted through the slot', () => {
     window.removeEventListener('error', ignore);
     settings.disableErrorCapturing = true;
     consoleError.mockRestore();
+  });
+
+  describe('when a picked result cannot be opened', () => {
+    const offersRow = (target: OmnibarTarget): React.FC<OmnibarProviderProps> =>
+      function OffersRow({ query, report }) {
+        useEffect(
+          () =>
+            report({
+              query,
+              title: 'Rows',
+              status: 'ready',
+              results: query ? [{ id: 'row', title: 'The row', target }] : [],
+            }),
+          [query, report],
+        );
+        return null;
+      };
+
+    it('warns in a snackbar when a link leads off this site', async () => {
+      const user = userEvent.setup();
+      mountProviders([
+        { name: 'rows', meta: recordLane, component: offersRow({ type: 'navigate', to: 'https://evil.example/home' }) },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'row');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' })));
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('warns in a snackbar when the workspace fails to launch', async () => {
+      const user = userEvent.setup();
+      vi.mocked(launchWorkspace2).mockRejectedValue(new Error('Jane Doe 100GEJ'));
+      mountProviders([
+        { name: 'rows', meta: recordLane, component: offersRow({ type: 'workspace', workspaceName: 'notes' }) },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'row');
+      await user.click(screen.getByRole('option', { name: 'The row' }));
+
+      await waitFor(() =>
+        expect(showSnackbar).toHaveBeenCalledWith({
+          kind: 'warning',
+          title: 'Couldn’t open the side panel',
+          subtitle:
+            'The side panel was closed or opened for another patient. Open it again on this chart, then search again.',
+        }),
+      );
+    });
   });
 
   it('renders nothing for a provider mounted without the omnibar props', () => {
