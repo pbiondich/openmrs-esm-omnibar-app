@@ -355,3 +355,11 @@ The pronoun nit is fixed above, because it put a wrong value in the default row.
 - NIT `src/providers/chart-lookup-search.ts`: the word fallback searches the first two remaining words, not the most useful ones. "when did she start ART?" searches "start ART", then "start" and "ART". A longer question can miss its concept word.
 - NIT `src/providers/chart-lookup-search.ts`: a set's members take the set's place in the hit list, so a set that ranks first can fill `maxConcepts` ahead of a direct hit that ranks later.
 - NIT `src/providers/chart-lookup.provider.tsx`: the concept representation returns every member of each matched set, with no limit on members. A query that matches a large CIEL set returns a larger response per debounced search.
+
+### Hotfix 3 review (one quick pass, Grok): APPROVE WITH NITS
+
+Logged, not fixed (quick-hotfix rule: one review, blockers only):
+- NIT `src/providers/chart-lookup-search.ts:93`: the word fallback keeps the first two leftover words, so `when did she start ART?` searches `start` before `ART`, and a later concept word can drop (`pulse weight height`). Prefer the longest leftover word, or don't let a fallback word take the default when the phrase missed.
+- NIT `src/providers/chart-lookup-search.ts:100,105`: set members go in where the set ranked, before the `maxConcepts` slice, so a top-ranked set can fill the cap and hide a direct hit (`show vitals` covers five of ten Vital signs members). Cap members per set, or rank direct hits first.
+- NIT `src/providers/chart-lookup.provider.tsx:35`: `setMembers` has no member cap, so a large set makes one big (same-origin, still single) response.
+- NIT `src/providers/chart-lookup-search.ts:21-81`: `view` isn't in `FILLER_WORDS`, though the brief and this file list it.
