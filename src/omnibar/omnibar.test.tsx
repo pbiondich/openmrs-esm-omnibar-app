@@ -35,7 +35,13 @@ import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.p
 import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
-import { executeTarget, getProviderOrder, type ProviderInfo, useResultCollector } from './omnibar.resource';
+import {
+  cleanReport,
+  executeTarget,
+  getProviderOrder,
+  type ProviderInfo,
+  useResultCollector,
+} from './omnibar.resource';
 import { withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
 import {
@@ -286,6 +292,15 @@ describe('useResultCollector', () => {
       ]);
       expect(result.current.listGroups.map((group) => group.providerId)).toEqual(['index', 'rest']);
     });
+  });
+
+  it('reads at most 200 results of a report, and leaves the cut to 50 until after dedupe', () => {
+    const report = ready(
+      'q',
+      'Many',
+      Array.from({ length: 300 }, (_, index) => `row ${index}`),
+    );
+    expect(cleanReport(report).results).toHaveLength(200);
   });
 
   it('ignores reports from providers that are not active in the current scope', () => {
@@ -3197,6 +3212,81 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
         await user.keyboard('{Enter}');
         expect(landedOn()).toBe('/weight');
+      });
+    });
+
+    describe('a provider with more than 50 rows', () => {
+      const row = (id: string, extra: Partial<OmnibarResult> = {}): OmnibarResult => ({
+        id,
+        title: id,
+        target: { type: 'navigate', to: `/${id.replace(/ /g, '-')}` },
+        ...extra,
+      });
+      const fifty = Array.from({ length: 50 }, (_, index) => row(`row ${index}`));
+
+      afterEach(() => window.history.pushState({}, '', '/'));
+
+      it("keeps the chart's own copy of a value that comes after its first 50 rows over another patient's", async () => {
+        const user = userEvent.setup();
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const reportsRows = (title: string, rows: Array<OmnibarResult>): React.FC<OmnibarProviderProps> =>
+          function ReportsRows({ query, report }) {
+            useEffect(() => report({ query, title, status: 'ready', results: query ? rows : [] }), [query, report]);
+            return null;
+          };
+        mountProviders([
+          {
+            name: 'chart',
+            meta: { ...recordLane, scopes: ['patient'], defaultInChart: true, dedupeKey: 'chart-values' },
+            component: reportsRows('In this chart', [...fifty, row('weight 70 kg', { dedupeId: 'obs:1' })]),
+          },
+          {
+            name: 'elsewhere',
+            meta: { ...recordLane, scopes: ['patient'], order: 20, defaultInChart: true, dedupeKey: 'chart-values' },
+            component: reportsRows('Elsewhere', [
+              row('weight elsewhere', {
+                dedupeId: 'obs:1',
+                target: { type: 'navigate', to: '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/' },
+              }),
+            ]),
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.queryByRole('option', { name: 'weight elsewhere' })).not.toBeInTheDocument();
+        expect(within(screen.getByRole('group', { name: 'In this chart' })).getAllByRole('option')).toHaveLength(50);
+      });
+
+      it('clears a highlight the user arrowed to when its row falls past the first 50, so Enter opens nothing', async () => {
+        const user = userEvent.setup();
+        const mounted = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'rows',
+            meta: recordLane,
+            component: function Recorder(props: OmnibarProviderProps) {
+              mounted.set(props.query, props);
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+        const reportRows = (rows: Array<OmnibarResult>) =>
+          act(() => mounted.get('rows').report({ query: 'rows', title: 'Rows', status: 'ready', results: rows }));
+
+        await user.type(screen.getByRole('combobox'), 'rows');
+        reportRows(fifty);
+        await user.keyboard('{ArrowUp}');
+        expect(screen.getByRole('option', { name: 'row 49' })).toHaveAttribute('aria-selected', 'true');
+
+        reportRows([row('new row'), ...fifty]);
+
+        expect(screen.queryByRole('option', { name: 'row 49' })).not.toBeInTheDocument();
+        expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-activedescendant');
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
       });
     });
 
