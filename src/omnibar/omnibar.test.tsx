@@ -302,6 +302,14 @@ describe('scope and ordering', () => {
     expect(getPatientUuidFromPath('/openmrs/spa/home')).toBeUndefined();
   });
 
+  it('reads the chart patient from the path the way the router does', () => {
+    const uuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+    expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid.replace(/-/g, '%2D')}/chart/Results`)).toBe(uuid);
+    expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid.toUpperCase()}/chart`)).toBe(uuid.toUpperCase());
+    expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid}x/chart`)).toBeUndefined();
+    expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid.replace(/-/g, '%2F')}/chart`)).toBeUndefined();
+  });
+
   it('uses patientScopeOrder inside a chart', () => {
     expect(getProviderOrder({ order: 10, patientScopeOrder: 30 }, 'global')).toBe(10);
     expect(getProviderOrder({ order: 10, patientScopeOrder: 30 }, 'patient')).toBe(30);
@@ -1178,10 +1186,12 @@ describe('Omnibar with providers mounted through the slot', () => {
 
         expect(await executeTarget(target(chartPatientUuid), chartPatientUuid)).toBe(true);
         expect(await executeTarget(target(chartPatientUuid.toUpperCase()), chartPatientUuid)).toBe(true);
+        // Read the way the router reads a path segment, an encoded copy is still this patient.
+        expect(await executeTarget(target(chartPatientUuid.replace(/-/g, '%2D')), chartPatientUuid)).toBe(true);
         expect(await executeTarget(target(42), chartPatientUuid)).toBe(true);
         // Outside a chart there is no patient to hold it to.
         expect(await executeTarget(target(otherPatientUuid))).toBe(true);
-        expect(launchWorkspace2).toHaveBeenCalledTimes(4);
+        expect(launchWorkspace2).toHaveBeenCalledTimes(5);
       },
     );
 
@@ -3119,6 +3129,38 @@ describe('Omnibar with providers mounted through the slot', () => {
           expect(launchWorkspace2).not.toHaveBeenCalled();
         },
       );
+
+      it.each([
+        [
+          'their uuid with its hyphens percent-encoded',
+          `/openmrs/spa/patient/${otherPatient.replace(/-/g, '%2D')}/chart/`,
+        ],
+        ['their uuid as 32 hex digits', `/openmrs/spa/patient/${otherPatient.replace(/-/g, '')}/chart/`],
+        ['a placeholder that was never filled', '${openmrsSpaBase}/patient/${patientUuid}/chart'],
+        [
+          'their chart in the query string',
+          `/openmrs/spa/home?next=%2Fopenmrs%2Fspa%2Fpatient%2F${otherPatient}%2Fchart`,
+        ],
+        ['their chart in the hash', `/openmrs/spa/home#/patient/${otherPatient}/chart`],
+      ])('never makes a link the default, so Enter opens nothing, when it names them by %s', async (_, to) => {
+        const user = userEvent.setup();
+        mountProviders([
+          {
+            name: 'chart',
+            meta: inChart,
+            component: reportsRows('In this chart', [
+              { id: 'theirs', title: 'Their weight', target: { type: 'navigate', to } },
+            ]),
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.getByRole('option', { name: 'Their weight' })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
 
       it("keeps the chart's own copy of a value over a higher-ranked copy that names another patient", async () => {
         const user = userEvent.setup();
