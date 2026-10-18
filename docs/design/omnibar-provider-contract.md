@@ -68,7 +68,7 @@ Privileges are the framework's job: the host never checks them. Implementers tur
 | `scopes` | `Array<'global' \| 'patient'>` | yes | Mounted only in these scopes. `['global']` keeps a provider out of charts |
 | `order` | `number` | no | Lower first, within the lane. Default 100. See the [order registry](#order-registry) |
 | `patientScopeOrder` | `number` | no | A different order inside a chart |
-| `defaultInChart` | `boolean` | no | Inside a chart, only these results can take the default highlight. Leave it unset for anything that lists *other* patients. It is a claim the host enforces: a result that names another patient never takes the default highlight in a chart, whatever the provider declares |
+| `defaultInChart` | `boolean` | no | Inside a chart, only these results can take the default highlight. Leave it unset for anything that lists *other* patients. It is a claim the host enforces: a result that names another patient never takes the default highlight in a chart, whatever the provider declares. A provider that shares a `dedupeKey` with one that sets it may set it too only under the rule in [dedupe](#dedupe) |
 | `contract` | `number` | no, *new in v1* | The contract major version the provider was built against. Missing means 1. Declare it anyway |
 | `skipIdentifierQueries` | `boolean` | no, *new in v1* | Not mounted while the query [looks like an identifier](#hints), so a scanned MRN never reaches its server. Its group disappears for that query. Patient search must not set it |
 | `dedupeKey` | `string` | no, *new in v1* | Providers that may find the same record share a key. See [dedupe](#dedupe) and the [key registry](#dedupe-keys) |
@@ -161,7 +161,7 @@ After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT
 When two mounted providers share a `dedupeKey` and both report a result with the same `dedupeId`:
 
 - the host ranks the copies by lane, then order, and keeps the first one that may take the default highlight. Failing that, it keeps the first that names no other patient than the chart's, and failing that, the first of all. When the copies arrive doesn't matter, except between two providers with the same lane and order. So inside a chart a provider without `defaultInChart` can't push out the chart's own row by ranking above it, and a row that names another patient never pushes out one that stays on this patient
-- the kept copy's target is what Enter and a click run. So `chart-values` with `defaultInChart` should be one provider, chart lookup, and other providers with that key should leave `defaultInChart` unset
+- the kept copy's target is what Enter and a click run. So among `chart-values` providers, chart lookup keeps the copy. Another provider with that key may set `defaultInChart` only if it ranks after chart lookup (the same lane, a higher order) and every target it reports stays on the open chart. Then chart lookup's copy still wins whenever both found the record, since a copy with the same preference never replaces one ranked before it, and the other provider takes the default only for rows chart lookup didn't find. The query store chart search (order 15) is that case. Otherwise leave `defaultInChart` unset
 - the other copy is dropped, and a group left with nothing isn't drawn
 - results without a `dedupeId`, and providers with another key or none, are never touched
 - the highlight follows the record: if the highlighted row is dropped, the highlight moves to the copy that is kept. If no copy is left on screen, or the only one names another patient, nothing is highlighted and Enter does nothing until the user picks a row. A default highlight (one the user didn't arrow or point to) moves only onto a copy that may itself be the default
@@ -193,7 +193,7 @@ The host ranks by lane, then by `order`. Now that several apps pick numbers, thi
 
 | Key | `dedupeId` | Providers |
 | --- | --- | --- |
-| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, the one with `defaultInChart`), querystore chart search (order 15) |
+| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search (order 15, `defaultInChart`, allowed because it ranks after chart lookup and stays on the open chart) |
 
 ## Copying the contract folder
 
