@@ -3159,6 +3159,57 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(reports).toBeLessThan(50);
     });
 
+    it('strips direction controls from what providers send, and lets each line find its own direction', async () => {
+      const user = userEvent.setup();
+      const controls = '\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\u200E\u200F';
+      const to = { type: 'navigate' as const, to: '/somewhere' };
+      const Spoofing: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => {
+          report({
+            query,
+            title: `In this chart${controls}`,
+            status: 'ready',
+            detail: { state: 'projecting', note: `\u202EIndexing${controls}` },
+            results: query
+              ? [
+                  { id: 'weight', title: 'Weight \u202Egk 07', subtitle: `\u2066Latest${controls}`, target: to },
+                  { id: 'jane', title: `Jane\u202E Doe`, patient: { uuid: 'not-a-uuid' }, target: to },
+                ]
+              : [],
+          });
+        }, [query, report]);
+        return null;
+      };
+      const Answering: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => {
+          report({
+            query,
+            title: `Answer${controls}`,
+            status: 'ready',
+            answer: {
+              text: `\u202Bthe answer${controls}`,
+              streaming: false,
+              sources: [{ label: '\u202Esource', target: to }],
+            },
+          });
+        }, [query, report]);
+        return null;
+      };
+      mountProviders([
+        { name: 'spoofing', meta: recordLane, component: Spoofing },
+        { name: 'answering', meta: { lane: 'answer', scopes: ['global', 'patient'] }, component: Answering },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'weight');
+
+      expect(document.body).not.toHaveTextContent(/[\u202A-\u202E\u2066-\u2069\u200E\u200F]/);
+      for (const line of ['In this chart', 'Indexing', 'Weight gk 07', 'Latest', 'Jane Doe', 'Answer', 'the answer']) {
+        expect(screen.getByText(line)).toHaveAttribute('dir', 'auto');
+      }
+      expect(screen.getByRole('button', { name: 'source' })).toBeInTheDocument();
+    });
+
     describe('a provider that sends a bad report', () => {
       const sends = (bad: object): React.FC<OmnibarProviderProps> =>
         function Bad({ query, report }) {
