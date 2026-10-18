@@ -65,23 +65,31 @@ function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
   return uuids;
 }
 
-const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
+const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, report, hints }) => {
   const { t } = useTranslation();
   const config = useConfig<OmnibarConfig>();
   const { minSearchCharacters, maxResults, showRecentPatients, includeDead, patientChartUrl } = config.patientSearch;
 
   const isSearching = query.length >= minSearchCharacters;
+  // For an ID, at least two, so a second patient given the same ID always shows: inside a chart the
+  // one patient an ID finds can be the default.
+  const limit = hints?.looksLikeIdentifier ? Math.max(maxResults, 2) : maxResults;
   const showingRecents = !query && showRecentPatients;
 
   const searchUrl = isSearching
     ? `${restBaseUrl}/patient?${new URLSearchParams({
         q: query,
         v: representation,
-        limit: String(maxResults),
+        limit: String(limit),
         includeDead: String(includeDead),
       })}`
     : null;
-  const search = useSWR<{ results: Array<SearchedPatient> }>(searchUrl, fetcher, { keepPreviousData: false });
+  // An ID is always searched again, never answered from the cache alone within SWR's deduping window,
+  // so a rescan sees a patient given the same ID since.
+  const search = useSWR<{ results: Array<SearchedPatient> }>(searchUrl, fetcher, {
+    keepPreviousData: false,
+    ...(hints?.looksLikeIdentifier && { dedupingInterval: 0 }),
+  });
 
   const recentUuids = useRecentPatientUuids(showRecentPatients, maxResults);
   const recents = useSWR<Array<SearchedPatient>>(
@@ -152,10 +160,13 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
       });
     }
 
+    // For an ID, rows from the cache stay `loading` until the search runs again: inside a chart the one
+    // patient an ID finds can be the default, and a patient given the same ID since must not be missed.
+    const revalidatingId = Boolean(hints?.looksLikeIdentifier) && search.isValidating;
     report({
       query,
       title: context.scope === 'patient' ? t('otherPatients', 'Other patients') : t('patients', 'Patients'),
-      status: search.isLoading ? 'loading' : 'ready',
+      status: search.isLoading || revalidatingId ? 'loading' : 'ready',
       results,
     });
   }, [
@@ -166,6 +177,8 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
     search.data,
     search.error,
     search.isLoading,
+    search.isValidating,
+    hints?.looksLikeIdentifier,
     recents.data,
     recents.isLoading,
     patientChartUrl,

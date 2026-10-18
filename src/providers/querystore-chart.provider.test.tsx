@@ -11,6 +11,7 @@ import {
   useSession,
   userHasAccess,
 } from '@openmrs/esm-framework';
+import { isVersionSatisfied } from '@openmrs/esm-utils';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import { type OmnibarContext, type OmnibarProviderMeta, type OmnibarReport } from '../omnibar-contract';
 import routes from '../routes.json';
@@ -943,5 +944,18 @@ describe('QuerystoreChartProvider registration', () => {
     expect(metaOf('omnibar-querystore-chart-provider').dedupeKey).toBe(
       metaOf('omnibar-chart-lookup-provider').dedupeKey,
     );
+  });
+
+  // The framework compares with prereleases included, so ">=1.0.0" rejects 1.0.0-SNAPSHOT, and the
+  // version mismatch popup that follows takes keyboard focus from the bar.
+  it.each(['1.0.0-SNAPSHOT', '1.0.0', '1.2.0-SNAPSHOT'])(
+    'accepts query store %s as its optional backend, as the framework checks it',
+    (installed) => {
+      expect(isVersionSatisfied(routes.optionalBackendDependencies.querystore, installed)).toBe(true);
+    },
+  );
+
+  it('still flags a query store older than 1.0.0', () => {
+    expect(isVersionSatisfied(routes.optionalBackendDependencies.querystore, '0.9.0')).toBe(false);
   });
 });

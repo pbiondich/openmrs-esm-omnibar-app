@@ -69,11 +69,20 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **Contributor and agent conventions live in AGENTS.md, not the README.** `CLAUDE.md` imports `AGENTS.md`. The README is for people learning what the omnibar is and how to use it.
 *Why:* the README was serving three audiences at once, and agents need the conventions in a place they read automatically.
 
+**Inside a chart, a scanned ID that finds one patient opens them on Enter.** For an ID-shaped query, the one patient the built-in patient search finds may take the default highlight, whether it's this chart's patient or another one, if they hold exactly that identifier and no one else is on screen. A name, a partial ID, two or more patients, and other providers' patient rows stay fail-closed. It still waits for chart values, at most 1.5 s. A scanner's own Enter usually arrives before the query settles, so it's the next Enter that opens the patient.
+*Why:* scanning a wristband from inside a chart showed the patient but left Enter doing nothing, which is the one case where the fail-closed rule cost more than it protected. An ID that matches exactly one patient is as deliberate as arrowing to them. It's narrow on purpose and keyed to the host's own provider, so no provider can claim it.
+
 **Program material lives in this repo.** Decisions go here, briefs given to agents in [briefs/](briefs/), and verification and benchmark summaries in [results/](results/). Raw outputs, logs and anything not fit for a public repo go in the gitignored `scratch/` folder.
 *Why:* one folder per workspace, decisions next to the code they explain, and a public record of the reasoning when this goes to the community.
 
 **Provisionally, Enter inside a chart submits the query to Query results.** Unless the user has arrowed or pointed to a row, in which case Enter opens that row. The default highlight stays as a visual cue. A config option, `queryResults.enterBehavior`, can restore today's "Enter opens the highlight", so both can be tried on o3.pgb.md before this is settled.
 *Why:* it's the only option where "press Enter to see everything" is always true. The alternatives were a separate key for Query results, or opening the highlight only on an exact match. Paul isn't sure yet, so this is a starting point to try, not a final call.
+
+**The query store's patient endpoints follow three rules.** The patient is always in the URL path (`/querystore/patient/{uuid}/...`). There is no cross-patient clinical search over REST. And there is no full-chart endpoint over REST: `getPatientChart` stays in-process, for ChartSearch.
+*Why:* a patient in the path makes every call auditable as "this user looked at this patient". Free-text search across every patient's chart from a global prompt is a separate privacy conversation, not a convenience. And a full-chart response is exfiltration-sized, with no use in the UI. (A name-and-ID patient lookup through the query store wasn't ruled out, since it carries the same privacy profile as today's patient search.)
+
+**Query store work stays on Paul's fork, on two branches with different jobs.** `prototype/omnibar-endpoints` holds the endpoint work, and is the candidate to propose upstream once round 2 of the benchmark is in. `prototype/omnibar-endpoints-o3` is the same work plus benchmark-only commits, and is what o3.pgb.md runs; it must never be merged into any `main`.
+*Why:* the query store belongs to other maintainers, so changes stay as local variants until Paul proposes them. The benchmark endpoint is a measuring instrument, not product.
 
 ### From building the first Query results prototype
 
@@ -91,6 +100,9 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 
 **Query history is kept for the logged-in user, never with the session id.** Each entry is the query text under the patient's uuid, in `sessionStorage`, owned by the user's uuid. It clears when the framework's session store goes unauthenticated (its `logout()` calls `clearCurrentUser`) or another user logs in, and a history owned by someone else is never read.
 *Why:* there's no logout event in the framework, but the session store is the signal every logout path goes through. The session id would also separate two logins by the same user, but it is as good as the session cookie, which script can't read, so it mustn't be copied where script can. The gap that leaves: a user who logs out and back in without the page seeing the logged-out state in between (another tab, for instance) keeps their own history, never anyone else's.
+
+**An ID-shaped query keeps Enter opening the highlight, even with Enter submitting.** Inside a chart, a query that looks like an identifier is never sent to Query results; Enter opens the patient the scanned-ID default picked, or does nothing yet, as on main.
+*Why:* a scanner types the ID and its own Enter at once, before anything has answered. Submitting would take the clinician to a Query results page for a wristband number instead of to the patient.
 
 **The left-nav link to Query results drops the query.** Following it shows this session's earlier queries and how to search, not the last result.
 *Why:* the link is a dashboard link like any other, and a page whose contents change with each query shouldn't silently replay one.

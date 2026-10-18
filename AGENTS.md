@@ -28,9 +28,10 @@ The omnibar keeps these built-in providers as defaults for now: patient search w
 - **Unavailable servers fail quietly.** When a provider can't reach its server, it reports `status: 'error'` with `detail: { state: 'unavailable' }`, as decided by `isServerUnreachable`. Its group shrinks to its heading and "Unavailable right now". Never show a server's message.
 - **Dedupe.** Providers that can find the same record share a `meta.dedupeKey`, and their results carry a `dedupeId` such as `obs:<uuid>`. Register new keys in the [key registry](docs/design/omnibar-provider-contract.md#dedupe-keys) and new orders in the [order registry](docs/design/omnibar-provider-contract.md#order-registry).
 - **Errors.** Wrap every provider in `withProviderBoundary(Provider, extensionName)` in `index.ts`.
-- **Default highlight.** Inside a chart, only providers with `meta.defaultInChart` can take the default highlight. Leave it unset for anything that lists other patients. Another provider sharing `chart-values` may set it only if it ranks after chart lookup (same lane, higher order) and every target stays on the open chart, so chart lookup's copy still wins dedupe; the query store provider (order 15) is that case. Inside a chart, a row doesn't take the default while such a record provider that ranks before it hasn't answered (still loading, or still indexing with nothing found and no note), for at most 1.5 s or 10 s while indexing. A default highlight then moves up to chart values that arrive later, and steps aside again while such a provider is back to not having answered; a row the user arrowed or pointed to never moves (see [the default highlight](docs/design/omnibar-provider-contract.md#the-default-highlight)). Suggestion rows are never the default.
-- **Fail closed on other patients.** Inside a chart, a result that names another patient, or that the host can't vouch for, never takes the default highlight and never wins dedupe over this patient's copy. A workspace launch for another patient is refused. A `navigate` target to another origin, or one with credentials, `javascript:` or `data:`, is refused with a snackbar. See [what the host guards against](docs/design/omnibar-provider-contract.md#what-the-host-guards-against).
+- **Default highlight.** Inside a chart, only providers with `meta.defaultInChart` can take the default highlight. Leave it unset for anything that lists other patients. Another provider sharing `chart-values` may set it only if it ranks after chart lookup (same lane, higher order) and every target stays on the open chart, so chart lookup's copy still wins dedupe; the query store provider (order 15) is that case. Inside a chart, a row doesn't take the default while such a record provider that ranks before it hasn't answered (still loading, or still indexing with nothing found and no note), for at most 1.5 s or 10 s while indexing. A default highlight then moves up to chart values that arrive later, and steps aside again while such a provider is back to not having answered; a row the user arrowed or pointed to never moves (see [the default highlight](docs/design/omnibar-provider-contract.md#the-default-highlight)). Suggestion rows are never the default. One exception, owned by the host: for an ID-shaped query (`hints.looksLikeIdentifier`), the one patient the built-in patient search finds may be the default inside a chart, if they hold exactly that identifier and no one else is on screen, so Enter opens a scanned wristband's patient. It still waits for chart values. Two or more patients, a partial ID, or any non-ID query give no default, and a default highlight never moves up onto another patient's row (see [the default highlight](docs/design/omnibar-provider-contract.md#the-default-highlight) for every condition).
+- **Fail closed on other patients.** Inside a chart, a result that names another patient, or that the host can't vouch for, never takes the default highlight and never wins dedupe over this patient's copy. The only exception is the wristband case above: the built-in patient search's one patient row for an ID-shaped query, which the host vouches for itself. No provider can claim it. A workspace launch for another patient is refused. A `navigate` target to another origin, or one with credentials, `javascript:` or `data:`, is refused with a snackbar. See [what the host guards against](docs/design/omnibar-provider-contract.md#what-the-host-guards-against).
 - **Results describe destinations; they don't act.** There is no `onSelect`, and nothing typed into the bar writes to the record or calls a model. A model runs only when the user asks: Send in the tool that owns it, or Enter on a question inside a chart, which opens Query results and asks ChartSearch there, as the bar's hint says. A reloaded or reopened Query results page never asks again by itself.
+- **Enter inside a chart.** Enter sends what was typed to Query results, unless the user arrowed or pointed to a row since their last keystroke, or the query looks like an identifier. An ID-shaped query keeps Enter opening the highlight, so a scanned wristband still opens its patient (`queryResults.enterBehavior: 'open-highlight'` restores that for every query).
 
 ## Layout rule: the header field fills the gap
 
@@ -45,6 +46,7 @@ O3 runs in clinics with poor or no internet, so a change must not add a CDN, web
 - **This repo** is the owner's own, and changes land here through PRs.
 - **Cohort Builder, the query store and ChartSearch** belong to other maintainers. Changes to them stay as **local variants** on the owner's personal forks and are built into the test server as local tests. **Don't open PRs on upstream `openmrs/*` repos, or push to them,** until the owner has tried the change and agreed. The patches in [`docs/upstream/`](docs/upstream/) are proposals, not merged work.
 - Never merge someone else's PR, and never push to `main` without the owner's OK.
+- **On the query store fork,** `prototype/omnibar-endpoints` holds the endpoint work, the candidate to propose upstream. `prototype/omnibar-endpoints-o3` adds benchmark-only commits for o3.pgb.md and must **never** be merged into any `main`. See [`docs/decisions.md`](docs/decisions.md).
 
 ## Review policy
 
@@ -57,6 +59,15 @@ O3 runs in clinics with poor or no internet, so a change must not add a CDN, web
 - Agents **commit locally on a feature branch and don't push** unless the owner asks for that push. Never force-push, and never rewrite pushed history.
 - Write commit messages as one plain sentence that says what changed and why. Keep test commits next to the change they cover, as the history does.
 - Never commit secrets, `.env` files, hostnames, IP addresses or personal data. [`example.env`](example.env) shows the shape.
+- **Docs-only changes go through a PR too,** like code. Raw outputs, logs and anything not fit for a public repo go in the gitignored `scratch/` folder instead.
+
+## Working in parallel
+
+Several agents often work on this repo at once, from different tools.
+
+- **Give each session its own branch in its own git worktree,** so no two sessions share a checkout: `git worktree add -b <branch> ../openmrs-esm-omnibar-app-<topic> origin/main`. Remove the worktree and its local branch once the PR merges.
+- **Bring `main` into a pushed branch with a merge, never a rebase.**
+- **Before starting, read [`docs/decisions.md`](docs/decisions.md) and the [briefs index](docs/briefs/README.md),** so you don't reopen a settled question or duplicate work in flight. When you finish a brief, update its status there.
 
 ## Verify, build and test
 
@@ -66,6 +77,8 @@ yarn verify   # lint, type-check, and the vitest suite with coverage (turbo)
 yarn build    # rspack production build into dist/
 yarn test     # vitest only, while iterating
 ```
+
+If plain `yarn` isn't on the PATH (Homebrew's Node ships without corepack), use the copy the repo pins: `node .yarn/releases/yarn-4.10.3.cjs <command>`.
 
 `yarn verify` and `yarn build` must both pass before a change is offered for review or deploy. The one expected build warning is the asset size limit. When you change the contract folder, keep `src/conformance/` passing, and expect the copies in other apps to need updating.
 
