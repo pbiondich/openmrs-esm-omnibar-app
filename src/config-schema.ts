@@ -182,7 +182,9 @@ export const configSchema = {
         path: '${openmrsSpaBase}/home/service-queues',
         keywords: ['queue', 'triage', 'waiting'],
       },
-      { label: 'Patient lists', path: '${openmrsSpaBase}/home/patient-lists', keywords: ['cohort', 'list'] },
+      // Not "cohort": the Cohort Builder row answers that, and a destination ready before patient search
+      // would keep the highlight above a patient like Cohen.
+      { label: 'Patient lists', path: '${openmrsSpaBase}/home/patient-lists', keywords: ['list'] },
       { label: 'Ward', path: '${openmrsSpaBase}/ward', keywords: ['inpatient', 'admit', 'admission', 'beds'] },
       { label: 'Bed management', path: '${openmrsSpaBase}/bed-management', keywords: ['beds', 'bed'] },
     ],

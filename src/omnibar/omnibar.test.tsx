@@ -1322,13 +1322,29 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(landedOn()).toBe(`/openmrs/spa/patient/${match.uuid}/chart/`);
     });
 
+    it('opens the Cohort Builder for "cohort", with Patient lists still found by "list"', async () => {
+      const user = userEvent.setup();
+      mockOpenmrsFetch.mockImplementation(() => Promise.resolve({ data: { results: [] } } as FetchResponse));
+      renderWithFreshCache(<Omnibar />);
+      const combobox = screen.getByRole('combobox');
+
+      await user.type(combobox, 'cohort');
+      const builder = await screen.findByRole('option', { name: /^Cohort Builder/ });
+      expect(screen.getAllByRole('option')[0]).toBe(builder);
+      expect(builder).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByRole('option', { name: 'Patient lists' })).not.toBeInTheDocument();
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe('/openmrs/spa/cohort-builder');
+
+      await user.click(screen.getByRole('combobox'));
+      await user.clear(screen.getByRole('combobox'));
+      await user.type(screen.getByRole('combobox'), 'list');
+      expect(await screen.findByRole('option', { name: 'Patient lists' })).toBeInTheDocument();
+    });
+
     it('keeps Enter on the patient search while a name starts like "cohort"', async () => {
       const user = userEvent.setup();
       const cohen = patient('7f8e9d0c-3b4a-4f5e-9d0c-9b8a7f6e5d4c', 'Cohen Abraham', '1000AB');
-      // Without destinations: the shipped "Patient lists" destination has the keyword "cohort", and any
-      // destination that matches a prefix takes the highlight the same way. That predates these providers.
-      const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
-      mockUseConfig.mockReturnValue({ ...defaults, destinations: [] });
       mockOpenmrsFetch.mockImplementation((url: string) =>
         Promise.resolve({ data: { results: url.includes('/patient?') ? [cohen] : [] } } as FetchResponse),
       );
