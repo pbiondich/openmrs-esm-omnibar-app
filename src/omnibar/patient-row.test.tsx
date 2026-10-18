@@ -157,6 +157,22 @@ describe('PatientRow photo', () => {
     expect(cache.has(photoRequests()[0])).toBe(false);
   });
 
+  it.each(['../../session', 'not-a-uuid', `${patientUuid}/../../session`, `${patientUuid}x`])(
+    'looks up no photo for a patient whose uuid is not a UUID (%s)',
+    async (uuid) => {
+      servePhotoLink(valuePath);
+      render(
+        <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+          <PatientRow name="Mogan Zavai Kamwara" patient={{ uuid }} />
+        </SWRConfig>,
+      );
+      await act(async () => {});
+
+      expect(photoRequests()).toHaveLength(0);
+      expectGeneratedTile(avatars()[0]);
+    },
+  );
+
   it('looks up nothing when no photo concept is configured', async () => {
     configurePhotoConcept(null);
     servePhotoLink(valuePath);

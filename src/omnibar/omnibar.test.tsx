@@ -3068,6 +3068,113 @@ describe('Omnibar with providers mounted through the slot', () => {
       });
     });
 
+    describe('a provider that sends a bad report', () => {
+      const sends = (bad: object): React.FC<OmnibarProviderProps> =>
+        function Bad({ query, report }) {
+          useEffect(() => {
+            if (query) report({ query, ...bad } as OmnibarReport);
+          }, [query, report]);
+          return null;
+        };
+      const mountBeside = (component: React.FC<OmnibarProviderProps>, meta: OmnibarProviderMeta = recordLane) => {
+        mountProviders([
+          { name: 'destinations', meta: navigateLane, component: DestinationsProvider },
+          { name: 'bad', meta: { ...meta, order: 15 }, component },
+        ]);
+        render(<Omnibar />);
+      };
+      const toRow = (id: string) => ({ id, title: id, target: { type: 'navigate', to: `/${id}` } });
+
+      it.each([
+        ['results that are an object', { title: 'Bad', status: 'ready', results: { id: 'x' } }],
+        ['results that are a string', { title: 'Bad', status: 'ready', results: 'x' }],
+        ['a heading that is not text', { title: { text: 'Bad' }, status: 'ready', results: [toRow('row')] }],
+        ['a note that is a number', { title: 'Bad', status: 'error', detail: { state: 'unavailable', note: 42 } }],
+        [
+          'a note that is an object',
+          {
+            title: 'Bad',
+            status: 'ready',
+            detail: { state: 'projecting', note: { text: 'x' } },
+            results: [toRow('row')],
+          },
+        ],
+      ])('keeps the bar and the other providers working when one sends %s', async (_, bad) => {
+        const user = userEvent.setup();
+        mountBeside(sends(bad));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        await user.click(screen.getByRole('option', { name: 'Ward' }));
+        expect(landedOn()).toBe('/openmrs/spa/ward');
+      });
+
+      it('draws the quiet line of its own for a note that is not text', async () => {
+        const user = userEvent.setup();
+        mountBeside(sends({ title: 'Bad', status: 'error', detail: { state: 'unavailable', note: 42 } }));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Unavailable right now')).toBeInTheDocument();
+      });
+
+      it('drops results with no text id, no text title or no target it knows, and shows the rest', async () => {
+        const user = userEvent.setup();
+        mountBeside(
+          sends({
+            title: 'Mixed',
+            status: 'ready',
+            results: [
+              null,
+              'row',
+              { ...toRow('numeric id'), id: 7 },
+              { ...toRow('object title'), title: { text: 'x' } },
+              { id: 'no target', title: 'no target' },
+              { ...toRow('on select'), target: { type: 'onSelect' } },
+              { ...toRow('link that is not text'), target: { type: 'navigate', to: 5 } },
+              { ...toRow('workspace with no name'), target: { type: 'workspace' } },
+              toRow('good row'),
+            ],
+          }),
+        );
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['good row', 'Ward']);
+      });
+
+      it('shows at most 50 results from one provider', async () => {
+        const user = userEvent.setup();
+        mountBeside(
+          sends({
+            title: 'Many',
+            status: 'ready',
+            results: Array.from({ length: 60 }, (_, index) => toRow(`row ${index}`)),
+          }),
+        );
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        const many = within(screen.getByRole('group', { name: 'Many' })).getAllByRole('option');
+        expect(many).toHaveLength(50);
+        expect(many.at(-1)).toHaveTextContent('row 49');
+      });
+
+      it('hides an answer that sends no sources at all, as one with none', async () => {
+        const user = userEvent.setup();
+        mountBeside(sends({ title: 'Answer', status: 'ready', answer: { text: 'Made up', streaming: false } }), {
+          lane: 'answer',
+          scopes: ['global', 'patient'],
+        });
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('This answer is hidden because it didn’t cite any records.')).toBeInTheDocument();
+        expect(screen.queryByText('Made up')).not.toBeInTheDocument();
+        expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
+      });
+    });
+
     describe('a group that reports its state', () => {
       const withDetail =
         (detail: OmnibarReport['detail'], status: OmnibarReport['status'] = 'ready'): React.FC<OmnibarProviderProps> =>
