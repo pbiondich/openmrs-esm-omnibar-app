@@ -858,3 +858,31 @@ Every new guard was checked by removing it: each removal fails its own test, and
 - Failed first: 3f9717b 1 (1.0.0-SNAPSHOT); 90fcdd0 6 of the in-chart tests, every one that expects a highlight, while the guards passed; e336a0d 7 (both partial IDs, the cached rescan, the other provider, the page pin, `maxResults` 1 and the off-site link). The second-patient and later-chart-value tests passed before a280d3a and stay as guards.
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 600 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
 - Not tested live. A real scanner and the duplicate-ID cases have not been tried on a server.
+
+### Review round 2 (Claude code, Claude security): APPROVE WITH NITS, no blockers
+
+Both reviewers confirmed every round 1 fix. Findings:
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| nit (security): any word of the query could match an identifier, such as "Moyo" in "Moyo 4273MO-2" | Only the whole query or an ID-shaped word of it (`looksLikeIdentifier`) counts. Test | bb297cf (test), 989da7d |
+| nit (security): the host read `patientSearch.maxResults` from its own config, while a slot-level override could still give the provider a limit of 1 | Patient search asks for at least two patients for an ID, whatever its limit. Test on the `limit` it sends, for an ID and for a name | bb297cf, 989da7d |
+| nit (code): after that, the host's `maxResults > 1` check only blocked the default for no reason | Dropped. The limit test now expects the default with a limit of 1. Grok's r1 said the check could stay; it was dropped because the provider's own request is what guarantees a second match shows | f993fa3 (test), d691a3d |
+| nit (code): SWR reports a cached answer as `ready` for one frame before revalidating | Said in the contract. An Enter would have to land in that frame, right after the 200 ms debounce | d691a3d |
+| nit (code): "never moves onto it" was true only for another patient | Contract reworded (and again in Grok r1 below) | d691a3d, 3726e1f |
+| nit (code): a trailing "?" or a scanner's `*…*` framing blocks the match | Not fixed: it fails closed, and the contract says so | d691a3d |
+| nit (security): the cross-provider check can't see answer-lane groups, patients a link names in a way the host doesn't parse (such as `?patientId=`), or a provider that hasn't reported yet | Not fixed: these are limits of what the host can see, and the reviewer recommended accepting them. A slow third-party patient provider can still show a second patient after Enter has opened the first | none |
+
+### Grok r1: CHANGES REQUESTED, no blocker
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| should: the ID-shaped-word and at-least-two changes were uncommitted when Grok read the branch, and the contract said "or a word of it" | 989da7d had committed them; the contract says "an ID-shaped word" since d691a3d | 989da7d, d691a3d |
+| should: a repeated ID inside SWR's 2 s deduping window is answered from the cache alone, without `isValidating`, so a rescan after closing the bar defaulted to a stale single match. The rescan test hid it by setting `dedupingInterval: 0` | Patient search sets `dedupingInterval: 0` for an ID-shaped query. The rescan test now runs with SWR's own deduping, and failed first | 8cb4c64 (test), 54a9324 |
+| nit: the contract said a default page never moves onto the wristband row, but the code moves it when that row is the chart's own patient | Docs only: the contract now says it moves up only for the chart's own patient | 3726e1f |
+
+No further reviewer round of our own, as asked; Grok re-checks.
+
+- Tests: 600 after round 1, 603 now (574 before the branch).
+- Failed first: bb297cf 2; f993fa3 1; 8cb4c64 1.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 603 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
