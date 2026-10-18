@@ -318,22 +318,23 @@ export function getProviderOrder(
   return scope === 'patient' ? (meta?.patientScopeOrder ?? base) : base;
 }
 
-const providersOnNewerContracts = new Set<string>();
+const providersOnOtherContracts = new Set<string>();
 
 /**
- * True when this host speaks the contract the provider was built against. A provider built for a
- * newer major version is never mounted, and the console names it once per page load. Only the
- * extension name and versions are logged, never anything typed.
+ * True when this host speaks the contract the provider was built against: a whole number from 1 to
+ * the version this host speaks, missing meaning 1. Any other provider is never mounted, and the
+ * console names it once per page load. Only the extension name and the version this host speaks are
+ * logged, never the provider's value or anything typed.
  */
 export function speaksContractOf(extensionName: string, meta: Pick<OmnibarProviderMeta, 'contract'>): boolean {
-  const contract = meta.contract ?? 1;
-  if (typeof contract === 'number' && Math.floor(contract) <= OMNIBAR_CONTRACT_VERSION) {
+  const contract: unknown = meta.contract ?? 1;
+  if (Number.isInteger(contract) && (contract as number) >= 1 && (contract as number) <= OMNIBAR_CONTRACT_VERSION) {
     return true;
   }
-  if (!providersOnNewerContracts.has(extensionName)) {
-    providersOnNewerContracts.add(extensionName);
+  if (!providersOnOtherContracts.has(extensionName)) {
+    providersOnOtherContracts.add(extensionName);
     console.warn(
-      `Omnibar provider ${extensionName} needs contract ${String(contract)}; this omnibar speaks ${OMNIBAR_CONTRACT_VERSION}`,
+      `Omnibar provider ${extensionName} was not mounted: its contract isn't one this omnibar speaks (${OMNIBAR_CONTRACT_VERSION})`,
     );
   }
   return false;
