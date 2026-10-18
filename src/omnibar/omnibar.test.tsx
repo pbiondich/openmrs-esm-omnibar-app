@@ -701,6 +701,36 @@ describe('Omnibar with providers mounted through the slot', () => {
     consoleError.mockRestore();
   });
 
+  it.each([
+    ['an error named after what was typed', Object.assign(new Error('failed'), { name: 'Jane Doe 100GEJ' })],
+    ['a thrown string', 'Jane Doe 100GEJ'],
+    ['a thrown object', { name: 'Jane Doe 100GEJ' }],
+  ])('names only the fixed word Error in its console line for %s', async (_, thrown) => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const settings = (window as unknown as { happyDOM: { settings: { disableErrorCapturing: boolean } } }).happyDOM
+      .settings;
+    settings.disableErrorCapturing = false;
+    const ignore = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener('error', ignore);
+    const Broken: React.FC<OmnibarProviderProps> = () => {
+      throw thrown;
+    };
+    mountProviders([{ name: 'broken', meta: recordLane, component: withProviderBoundary(Broken, 'broken') }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'ward');
+
+    const boundaryLines = consoleError.mock.calls
+      .map(([line]) => String(line))
+      .filter((line) => line.startsWith('Omnibar'));
+    expect(boundaryLines.length).toBeGreaterThan(0);
+    expect(new Set(boundaryLines)).toEqual(new Set(['Omnibar provider broken failed with Error']));
+    window.removeEventListener('error', ignore);
+    settings.disableErrorCapturing = true;
+    consoleError.mockRestore();
+  });
+
   it('renders nothing for a provider mounted without the omnibar props', () => {
     const provider = vi.fn(() => null);
     const Bounded = withProviderBoundary(provider);
@@ -2563,6 +2593,43 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0].join(' ')).toContain('from-the-future');
       expect(warn.mock.calls.flat().join(' ')).not.toMatch(/100GEJ|jane/);
+      warn.mockRestore();
+    });
+
+    it('mounts only a provider whose contract is a whole number this host speaks, and never logs the value', async () => {
+      const user = userEvent.setup();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const unspoken = {
+        negative: -1,
+        zero: 0,
+        fraction: 1.9,
+        text: '1',
+        words: 'Jane Doe 100GEJ',
+        'not-a-number': NaN,
+        endless: Infinity,
+        object: { major: 1 },
+        newer: 2,
+      };
+      const mounted: Array<OmnibarProviderProps> = [];
+      mountProviders(
+        Object.entries(unspoken).map(([name, contract]) => ({
+          name: `contract-${name}`,
+          meta: { ...recordLane, contract } as unknown as OmnibarProviderMeta,
+          component: recordProps(mounted),
+        })),
+      );
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'ward');
+
+      expect(mounted).toEqual([]);
+      const lines = warn.mock.calls.map((call) => call.join(' '));
+      expect(lines).toHaveLength(Object.keys(unspoken).length);
+      for (const name of Object.keys(unspoken)) {
+        expect(lines.some((line) => line.includes(`contract-${name} `))).toBe(true);
+      }
+      const withoutNames = lines.map((line) => line.replace(/contract-[\w-]+/, ''));
+      expect(withoutNames.join('\n')).not.toMatch(/-1|1\.9|Jane Doe|NaN|Infinity|major|object|needs contract/i);
       warn.mockRestore();
     });
 
