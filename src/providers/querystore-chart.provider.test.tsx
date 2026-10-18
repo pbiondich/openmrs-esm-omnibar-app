@@ -1,11 +1,12 @@
 import React from 'react';
 import { SWRConfig } from 'swr';
-import { render, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type FetchResponse, getDefaultsFromConfigSchema, openmrsFetch, useConfig } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import { type OmnibarContext, type OmnibarProviderMeta, type OmnibarReport } from '../omnibar-contract';
 import routes from '../routes.json';
+import { POLL_DELAYS_MS } from '../querystore/bounded-poll';
 import ChartLookupProvider from './chart-lookup.provider';
 import QuerystoreChartProvider from './querystore-chart.provider';
 
@@ -318,6 +319,67 @@ describe('QuerystoreChartProvider', () => {
         ),
       );
       expect(report.mock.calls.at(-1)[0].results).toHaveLength(1);
+    });
+  });
+
+  describe.each([
+    ['search', 'cd4'],
+    ['recent', ''],
+  ])('re-checking on the %s path', (_, query) => {
+    // Each next re-check is scheduled by an effect once the last has answered, so advance one delay per act.
+    const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('re-checks a chart still indexing a bounded number of times, then stops with a quiet note', async () => {
+      mockOpenmrsFetch.mockResolvedValue({
+        data: { status: 'not_indexed', groups: [makeGroup()], hits: [makeGroup().latest] },
+      } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+      await advance(0);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'ready', detail: { state: 'projecting' } }),
+      );
+
+      for (const [i, delay] of POLL_DELAYS_MS.entries()) {
+        await advance(delay);
+        expect(mockOpenmrsFetch).toHaveBeenCalledTimes(i + 2);
+      }
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status: 'ready',
+          detail: { state: 'projecting', note: 'This chart isn’t fully indexed yet; results may be incomplete' },
+        }),
+      );
+      expect(report.mock.calls.at(-1)[0].results).toHaveLength(1);
+
+      await advance(10 * 60 * 1000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1 + POLL_DELAYS_MS.length);
+      // Only the first fetch, with nothing to show yet, was ever loading.
+      expect(report.mock.calls.filter(([r]) => r.status === 'loading')).toHaveLength(1);
+      expect(report.mock.calls[0][0].status).toBe('loading');
+    });
+
+    it('stops re-checking once the chart is indexed, and drops the line', async () => {
+      mockOpenmrsFetch
+        .mockResolvedValueOnce({ data: { status: 'projecting', groups: [], hits: [] } } as FetchResponse)
+        .mockResolvedValue({
+          data: { status: 'indexed', groups: [makeGroup()], hits: [makeGroup().latest] },
+        } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+      await advance(0);
+      await advance(POLL_DELAYS_MS[0]);
+
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2);
+      expect(report.mock.calls.at(-1)[0]).toMatchObject({ status: 'ready', results: [expect.anything()] });
+      expect(report.mock.calls.at(-1)[0].detail).toBeUndefined();
+
+      await advance(10 * 60 * 1000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2);
     });
   });
 
