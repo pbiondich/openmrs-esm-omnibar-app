@@ -1,6 +1,9 @@
-import { getConfig, openmrsFetch, restBaseUrl } from '@openmrs/esm-framework';
+import { getConfig, getCurrentUser, openmrsFetch, restBaseUrl, userHasAccess } from '@openmrs/esm-framework';
 import { getPatientUuidFromPath } from '../omnibar/use-omnibar-context';
 import type { OmnibarConfig } from '../config-schema';
+
+/** The privilege the query store provider is mounted with. A user without it has no reason to warm a chart. */
+const warmPrivilege = 'Get Observations';
 
 /**
  * Retry-After in milliseconds: 5 seconds when it's missing, an HTTP date or not a positive number of
@@ -56,8 +59,10 @@ export function setupWarmOnChartOpen(moduleName: string): () => void {
     clearTimeout(retry);
 
     getConfig<OmnibarConfig>(moduleName)
-      .then((config) => {
+      .then(async (config) => {
         if (config.chartLookup.source === 'rest') return;
+        const session = await getCurrentUser();
+        if (!session?.user || !userHasAccess(warmPrivilege, session.user)) return;
         // Fire-and-forget apart from the one 503 retry: other errors are swallowed. Warm is idempotent.
         warm(uuid, 1);
       })
