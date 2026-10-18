@@ -1,11 +1,22 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getRegisteredWorkspace2Names, useConfig, usePatient, useSession, userHasAccess } from '@openmrs/esm-framework';
+import {
+  getRegisteredWorkspace2Names,
+  useConfig,
+  usePatient,
+  useSession,
+  useStore,
+  userHasAccess,
+} from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
+import { getWorkspace2Store, workspaceGroupIsOpen, type Workspace2Snapshot } from '../omnibar/workspace-group';
 import { looksLikeChartSearchQuestion } from './chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
+/** ChartSearch's default `maxQuestionLength`. A longer query cannot be sent from that input. */
+const maxQuestionLength = 1000;
+const workspace2Store = getWorkspace2Store();
 
 interface ChartSearchWorkspaceProps {
   patientUuid: string;
@@ -24,11 +35,21 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
   }, [patient]);
 
   const workspaceName = chartSearchSuggestion.workspaceName.trim();
+  const chartGroupIsOpen = useStore(
+    workspace2Store,
+    useCallback(
+      (state: Workspace2Snapshot) =>
+        Boolean(patientUuid) && workspaceGroupIsOpen(state, workspaceName, patientUuid ?? ''),
+      [patientUuid, workspaceName],
+    ),
+  );
   const offered =
     chartSearchSuggestion.enabled &&
     Boolean(patientUuid) &&
+    query.length <= maxQuestionLength &&
     Boolean(user && userHasAccess(privilege, user)) &&
     Boolean(workspaceName && getRegisteredWorkspace2Names().includes(workspaceName)) &&
+    chartGroupIsOpen &&
     looksLikeChartSearchQuestion(query, chartSearchSuggestion.minWords);
 
   useEffect(() => {
@@ -45,7 +66,7 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
       status: 'ready',
       results: [
         {
-          id: `ask-chartsearch:${query}`,
+          id: 'ask-chartsearch',
           title: t('askChartSearch', 'Ask ChartSearch: "{{query}}"', {
             query,
             interpolation: { escapeValue: false },
@@ -58,6 +79,7 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
             type: 'workspace',
             workspaceName,
             workspaceProps: { patientUuid, initialQuestion: query } satisfies ChartSearchWorkspaceProps,
+            requiresOpenGroup: { workspaceName, patientUuid },
           },
         },
       ],

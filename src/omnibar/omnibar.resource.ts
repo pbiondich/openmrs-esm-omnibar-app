@@ -1,5 +1,6 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { interpolateUrl, launchWorkspace2, navigate } from '@openmrs/esm-framework';
+import { getWorkspace2Store, workspaceGroupIsOpen } from './workspace-group';
 import {
   OMNIBAR_SELECTED_EVENT,
   type OmnibarLane,
@@ -115,7 +116,14 @@ export async function executeTarget(target: OmnibarTarget): Promise<void> {
       navigate({ to });
       return;
     }
-    case 'workspace':
+    case 'workspace': {
+      const required = target.requiresOpenGroup;
+      if (
+        required &&
+        !workspaceGroupIsOpen(getWorkspace2Store().getState(), required.workspaceName, required.patientUuid)
+      ) {
+        return;
+      }
       await launchWorkspace2(
         target.workspaceName,
         target.workspaceProps ?? null,
@@ -123,6 +131,7 @@ export async function executeTarget(target: OmnibarTarget): Promise<void> {
         target.groupProps ?? null,
       );
       return;
+    }
   }
 }
 

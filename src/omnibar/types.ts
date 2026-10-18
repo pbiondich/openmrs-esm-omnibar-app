@@ -61,6 +61,14 @@ export type OmnibarTarget =
       workspaceProps?: object;
       windowProps?: object;
       groupProps?: object;
+      /**
+       * When set, the launch is refused unless this workspace's window group is already open
+       * for this patient. Null group props stay null so an existing group is left alone.
+       */
+      requiresOpenGroup?: {
+        workspaceName: string;
+        patientUuid: string;
+      };
     };
 
 export interface OmnibarResult {

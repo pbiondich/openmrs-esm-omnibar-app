@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type FetchResponse,
   type Session,
+  getGlobalStore,
   getRegisteredWorkspace2Names,
   getDefaultsFromConfigSchema,
   interpolateUrl,
@@ -501,8 +502,21 @@ describe('Omnibar with providers mounted through the slot', () => {
       component: ChartSearchSuggestionProvider,
     };
 
+    const openChartGroup = (patientUuid: string | null, groupName = 'patient-chart') => {
+      getGlobalStore('workspace2').setState({
+        registeredWorkspacesByName: {
+          'ai-chat-workspace': { window: 'ai-chat' },
+        },
+        registeredWindowsByName: {
+          'ai-chat': { group: 'patient-chart' },
+        },
+        openedGroup: patientUuid ? { groupName, props: { patientUuid } } : null,
+      });
+    };
+
     beforeEach(() => {
       window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
+      openChartGroup(chartPatientUuid);
       mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
       vi.mocked(useSession).mockReturnValue({
         authenticated: true,
@@ -544,6 +558,8 @@ describe('Omnibar with providers mounted through the slot', () => {
     ])('makes no ChartSearch request while typing and launches only after %s', async (_, pick) => {
       const user = userEvent.setup();
       const fetch = vi.spyOn(window, 'fetch').mockResolvedValue(new Response('{}'));
+      const selected = vi.fn();
+      window.addEventListener(OMNIBAR_SELECTED_EVENT, selected);
       mountProviders([provider]);
       render(<Omnibar />);
 
@@ -566,8 +582,13 @@ describe('Omnibar with providers mounted through the slot', () => {
         null,
         null,
       );
+      expect(selected.mock.calls[0][0].detail).toEqual({
+        providerId: providerName,
+        resultId: 'ask-chartsearch',
+      });
       expect(mockOpenmrsFetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
       expect(fetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+      window.removeEventListener(OMNIBAR_SELECTED_EVENT, selected);
     });
 
     it('keeps a real chart result as the default above the suggestion', async () => {
@@ -633,45 +654,120 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
     });
 
-    it('shows an ID-matched patient without a ChartSearch suggestion', async () => {
+    it.each([
+      ['no open group', null],
+      ['another group', 'other-group'],
+      ['a different patient', 'patient-chart'],
+    ] as const)('hides the row when the chart group is %s', async (label, groupName) => {
       const user = userEvent.setup();
-      const matchedPatient = {
-        uuid: '5b3c6f0e-8d2a-4c1e-9f7b-2a6d4e8c1b90',
-        identifiers: [
-          {
-            identifier: '100GEJ',
-            identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' },
-          },
-        ],
-        person: { display: 'Jane Doe', gender: 'F', birthdate: null, dead: false },
-      };
-      mockOpenmrsFetch.mockImplementation((url: string) => {
-        if (url.includes('/patient?')) {
-          return Promise.resolve({ data: { results: [matchedPatient] } } as FetchResponse);
-        }
-        if (url.includes('/user/user-uuid')) {
-          return Promise.resolve({ data: { userProperties: {} } } as FetchResponse);
-        }
-        return new Promise(() => {});
-      });
-      const patientRoute = routes.extensions.find(
-        (extension) => extension.name === 'omnibar-patient-search-provider',
-      ) as { meta: OmnibarProviderMeta };
-      mountProviders([
-        {
-          name: 'omnibar-patient-search-provider',
-          meta: patientRoute.meta,
-          component: PatientSearchProvider,
-        },
-        provider,
-      ]);
-      renderWithFreshCache(<Omnibar />);
-
-      await user.type(screen.getByRole('combobox'), '100GEJ');
-
-      expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+      if (label === 'a different patient') {
+        openChartGroup('0c1d2e3f-4a5b-4c6d-8e7f-901234567890', groupName);
+      } else if (groupName) {
+        openChartGroup(chartPatientUuid, groupName);
+      } else {
+        openChartGroup(null);
+      }
+      mountProviders([provider]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
       expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
     });
+
+    it('does not launch after the chart group closes', async () => {
+      const user = userEvent.setup();
+      mountProviders([provider]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'true');
+
+      act(() => {
+        openChartGroup(null);
+      });
+
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+      await user.keyboard('{Enter}');
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('refuses a workspace launch when the required chart group is no longer open', async () => {
+      openChartGroup(chartPatientUuid);
+      const target = {
+        type: 'workspace' as const,
+        workspaceName: 'ai-chat-workspace',
+        workspaceProps: { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+      };
+      await executeTarget(target);
+      expect(launchWorkspace2).toHaveBeenCalledWith(
+        'ai-chat-workspace',
+        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        null,
+        null,
+      );
+
+      vi.mocked(launchWorkspace2).mockClear();
+      openChartGroup(null);
+      await executeTarget(target);
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('hides the row when the question is longer than ChartSearch accepts', async () => {
+      mountProviders([provider]);
+      render(<Omnibar />);
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: `what ${'a'.repeat(996)}` } });
+      await waitFor(
+        () => {
+          expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+        },
+        { timeout: 1000 },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    it.each(['100GEJ', '1234567'])(
+      'shows an ID-matched patient for %s without a ChartSearch suggestion',
+      async (identifier) => {
+        const user = userEvent.setup();
+        const matchedPatient = {
+          uuid: '5b3c6f0e-8d2a-4c1e-9f7b-2a6d4e8c1b90',
+          identifiers: [
+            {
+              identifier,
+              identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' },
+            },
+          ],
+          person: { display: 'Jane Doe', gender: 'F', birthdate: null, dead: false },
+        };
+        mockOpenmrsFetch.mockImplementation((url: string) => {
+          if (url.includes('/patient?')) {
+            return Promise.resolve({ data: { results: [matchedPatient] } } as FetchResponse);
+          }
+          if (url.includes('/user/user-uuid')) {
+            return Promise.resolve({ data: { userProperties: {} } } as FetchResponse);
+          }
+          return new Promise(() => {});
+        });
+        const patientRoute = routes.extensions.find(
+          (extension) => extension.name === 'omnibar-patient-search-provider',
+        ) as { meta: OmnibarProviderMeta };
+        mountProviders([
+          {
+            name: 'omnibar-patient-search-provider',
+            meta: patientRoute.meta,
+            component: PatientSearchProvider,
+          },
+          provider,
+        ]);
+        renderWithFreshCache(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), identifier);
+
+        expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+      },
+    );
 
     it('does not launch a suggestion left over from an earlier query', async () => {
       const user = userEvent.setup();
@@ -698,6 +794,7 @@ describe('Omnibar with providers mounted through the slot', () => {
 
       const ask = async (patientUuid: string) => {
         act(() => {
+          openChartGroup(patientUuid);
           window.history.pushState({}, '', `/openmrs/spa/patient/${patientUuid}/chart/Patient%20Summary`);
           window.dispatchEvent(new PopStateEvent('popstate'));
         });
