@@ -153,6 +153,76 @@ describe('useResultCollector', () => {
     expect(result.current.answerGroups.map((g) => g.providerId)).toEqual(['answers']);
   });
 
+  describe('with providers that share a dedupe key', () => {
+    const sharing = {
+      rest: { lane: 'record' as const, order: 10, dedupeKey: 'chart-values' },
+      projection: { lane: 'record' as const, order: 15, dedupeKey: 'chart-values' },
+      unkeyed: { lane: 'record' as const, order: 20 },
+      otherKey: { lane: 'record' as const, order: 30, dedupeKey: 'notes' },
+      late: { lane: 'navigate' as const, order: 5, dedupeKey: 'chart-values' },
+    };
+    const withDedupeIds = (query: string, title: string, results: Array<[string, string?]>): OmnibarReport => ({
+      query,
+      title,
+      status: 'ready',
+      results: results.map(([id, dedupeId]) => ({
+        id,
+        title: id,
+        dedupeId,
+        target: { type: 'navigate', to: `/${id}` },
+      })),
+    });
+
+    it('keeps only the copy from the provider that ranks first, whichever reports first', () => {
+      const { result } = renderHook(() => useResultCollector('weight', sharing));
+
+      act(() => {
+        result.current.getReporter('late')(withDedupeIds('weight', 'Later lane', [['late-weight', 'obs:1']]));
+        result.current.getReporter('otherKey')(withDedupeIds('weight', 'Notes', [['note-weight', 'obs:1']]));
+        result.current.getReporter('unkeyed')(withDedupeIds('weight', 'Unkeyed', [['unkeyed-weight', 'obs:1']]));
+        result.current.getReporter('projection')(
+          withDedupeIds('weight', 'Found in the record', [
+            ['projected-weight', 'obs:1'],
+            ['narrative', 'obs:3'],
+            ['plain'],
+          ]),
+        );
+        result.current.getReporter('rest')(
+          withDedupeIds('weight', 'In this chart', [
+            ['weight', 'obs:1'],
+            ['height', 'obs:2'],
+          ]),
+        );
+      });
+
+      expect(result.current.selectable.map((r) => r.key)).toEqual([
+        'rest:weight',
+        'rest:height',
+        'projection:narrative',
+        'projection:plain',
+        'unkeyed:unkeyed-weight',
+        'otherKey:note-weight',
+      ]);
+      expect(result.current.listGroups.map((group) => group.providerId)).toEqual([
+        'rest',
+        'projection',
+        'unkeyed',
+        'otherKey',
+      ]);
+    });
+
+    it('drops a group whose every result was a copy', () => {
+      const { result } = renderHook(() => useResultCollector('weight', sharing));
+
+      act(() => {
+        result.current.getReporter('projection')(withDedupeIds('weight', 'Found in the record', [['copy', 'obs:1']]));
+        result.current.getReporter('rest')(withDedupeIds('weight', 'In this chart', [['weight', 'obs:1']]));
+      });
+
+      expect(result.current.listGroups.map((group) => group.providerId)).toEqual(['rest']);
+    });
+  });
+
   it('ignores reports from providers that are not active in the current scope', () => {
     const { result } = renderHook(() => useResultCollector('q', { pages: providers.pages }));
     act(() => result.current.getReporter('patients')(ready('q', 'Patients', ['jane'])));
@@ -2266,6 +2336,162 @@ describe('Omnibar with providers mounted through the slot', () => {
         routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
       expect(metaOf('omnibar-chartsearch-suggestion-provider').skipIdentifierQueries).toBe(true);
       expect(metaOf('omnibar-patient-search-provider').skipIdentifierQueries).toBeUndefined();
+    });
+
+    describe('two providers sharing a dedupe key', () => {
+      const chartValues: OmnibarProviderMeta = { ...recordLane, order: 10, dedupeKey: 'chart-values' };
+      const foundInRecord: OmnibarProviderMeta = { ...recordLane, order: 15, dedupeKey: 'chart-values' };
+      const result = (id: string, dedupeId: string) => ({
+        id,
+        title: id,
+        dedupeId,
+        target: { type: 'navigate' as const, to: `/${id}` },
+      });
+
+      afterEach(() => window.history.pushState({}, '', '/'));
+
+      it('moves the highlight to the copy that is kept, and Enter and the arrows still work', async () => {
+        const user = userEvent.setup();
+        const slow = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'rest',
+            meta: chartValues,
+            component: (props) => {
+              slow.set(props.query, props);
+              return null;
+            },
+          },
+          {
+            name: 'projection',
+            meta: foundInRecord,
+            component: ({ query, report }) => {
+              useEffect(
+                () =>
+                  report({
+                    query,
+                    title: 'Found in the record',
+                    status: 'ready',
+                    results: query ? [result('projected weight', 'obs:1'), result('chest pain note', 'obs:2')] : [],
+                  }),
+                [query, report],
+              );
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+        expect(screen.getByRole('option', { name: 'projected weight' })).toHaveAttribute('aria-selected', 'true');
+
+        act(() =>
+          slow.get('weight').report({
+            query: 'weight',
+            title: 'In this chart',
+            status: 'ready',
+            results: [result('weight 70 kg', 'obs:1')],
+          }),
+        );
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+          'weight 70 kg',
+          'chest pain note',
+        ]);
+        expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+        await user.keyboard('{ArrowDown}');
+        expect(screen.getByRole('option', { name: 'chest pain note' })).toHaveAttribute('aria-selected', 'true');
+        await user.keyboard('{ArrowDown}{Enter}');
+        expect(landedOn()).toBe('/weight%2070%20kg');
+      });
+
+      it('shows nothing for a group whose every result is a copy', async () => {
+        const user = userEvent.setup();
+        const reportsOne =
+          (title: string, id: string): React.FC<OmnibarProviderProps> =>
+          ({ query, report }) => {
+            useEffect(
+              () => report({ query, title, status: 'ready', results: query ? [result(id, 'obs:1')] : [] }),
+              [query, report],
+            );
+            return null;
+          };
+        mountProviders([
+          { name: 'projection', meta: foundInRecord, component: reportsOne('Found in the record', 'projected weight') },
+          { name: 'rest', meta: chartValues, component: reportsOne('In this chart', 'weight 70 kg') },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.getByRole('group', { name: 'In this chart' })).toBeInTheDocument();
+        expect(screen.queryByText('Found in the record')).not.toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
+      });
+
+      it('drops the copy of a chart value that chart lookup already shows', async () => {
+        const user = userEvent.setup();
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        mockOpenmrsFetch.mockImplementation((path: string) => {
+          const url = new URL(path, 'http://localhost');
+          if (url.pathname.endsWith('/concept')) {
+            return Promise.resolve({
+              data: { results: [{ uuid: 'weight-uuid', display: 'Weight (kg)', datatype: { display: 'Numeric' } }] },
+            } as FetchResponse);
+          }
+          if (url.pathname.endsWith('/Observation/$lastn')) {
+            return Promise.resolve({
+              data: {
+                entry: [
+                  {
+                    resource: {
+                      id: 'weight-obs-uuid',
+                      code: { coding: [{ code: 'weight-uuid' }] },
+                      valueQuantity: { value: 70, unit: 'kg' },
+                    },
+                  },
+                ],
+              },
+            } as FetchResponse);
+          }
+          return new Promise(() => {});
+        });
+        const chartLookupMeta = routes.extensions.find(
+          (extension) => extension.name === 'omnibar-chart-lookup-provider',
+        ).meta as OmnibarProviderMeta;
+        expect(chartLookupMeta.dedupeKey).toBe('chart-values');
+        mountProviders([
+          { name: 'omnibar-chart-lookup-provider', meta: chartLookupMeta, component: ChartLookupProvider },
+          {
+            name: 'querystore-chart-omnibar-provider',
+            meta: { lane: 'record', scopes: ['patient'], order: 15, dedupeKey: 'chart-values' },
+            component: ({ query, report }) => {
+              useEffect(
+                () =>
+                  report({
+                    query,
+                    title: 'Found in the record',
+                    status: 'ready',
+                    results: query
+                      ? [result('weight from the index', 'obs:weight-obs-uuid'), result('weight loss note', 'obs:note')]
+                      : [],
+                  }),
+                [query, report],
+              );
+              return null;
+            },
+          },
+        ]);
+        renderWithFreshCache(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(await screen.findByRole('option', { name: /Weight \(kg\): 70 kg/ })).toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+          expect.stringContaining('Weight (kg): 70 kg'),
+          'weight loss note',
+        ]);
+      });
     });
 
     describe('a group that reports its state', () => {
