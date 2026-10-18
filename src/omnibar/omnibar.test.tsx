@@ -2123,4 +2123,63 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(await screen.findByText(/nothing matches/i)).toBeInTheDocument();
     expect(screen.queryByRole('option')).not.toBeInTheDocument();
   });
+
+  describe('contract v1', () => {
+    const recordProps = (into: Array<OmnibarProviderProps>): React.FC<OmnibarProviderProps> =>
+      function Recorder(props) {
+        into.push(props);
+        const { query, report } = props;
+        useEffect(() => report(ready(query, 'Recorded', query ? ['recorded'] : [])), [query, report]);
+        return null;
+      };
+
+    it('declares contract 1 for every built-in provider', () => {
+      const providers = routes.extensions.filter((extension) => extension.slot === 'omnibar-providers-slot');
+      expect(providers.length).toBeGreaterThan(0);
+      for (const provider of providers) {
+        expect({ name: provider.name, contract: (provider.meta as OmnibarProviderMeta).contract }).toEqual({
+          name: provider.name,
+          contract: 1,
+        });
+      }
+    });
+
+    it('tells every provider which contract version the host speaks', async () => {
+      const user = userEvent.setup();
+      const props: Array<OmnibarProviderProps> = [];
+      mountProviders([{ name: 'recorder', meta: recordLane, component: recordProps(props) }]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'ward');
+
+      expect(props.at(-1)).toEqual(expect.objectContaining({ query: 'ward', contractVersion: 1 }));
+    });
+
+    it('never mounts a provider built for a newer contract, and names it once in the console', async () => {
+      const user = userEvent.setup();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const newer: Array<OmnibarProviderProps> = [];
+      const current: Array<OmnibarProviderProps> = [];
+      const unversioned: Array<OmnibarProviderProps> = [];
+      mountProviders([
+        { name: 'from-the-future', meta: { ...recordLane, contract: 2 }, component: recordProps(newer) },
+        { name: 'current', meta: { ...navigateLane, contract: 1 }, component: recordProps(current) },
+        { name: 'unversioned', meta: { ...navigateLane, order: 20 }, component: recordProps(unversioned) },
+      ]);
+      const { unmount } = render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '100GEJ');
+      unmount();
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'jane');
+
+      expect(newer).toEqual([]);
+      expect(current.length).toBeGreaterThan(0);
+      expect(unversioned.length).toBeGreaterThan(0);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0].join(' ')).toContain('from-the-future');
+      expect(warn.mock.calls.flat().join(' ')).not.toMatch(/100GEJ|jane/);
+      warn.mockRestore();
+    });
+  });
 });

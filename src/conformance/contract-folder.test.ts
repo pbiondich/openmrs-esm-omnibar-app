@@ -41,4 +41,8 @@ describe('the contract folder', () => {
     expect(contract.withProviderBoundary).toEqual(expect.any(Function));
     expect(contract.OMNIBAR_SELECTED_EVENT).toBe('openmrs:omnibar-selected');
   });
+
+  it('is contract version 1', () => {
+    expect(contract.OMNIBAR_CONTRACT_VERSION).toBe(1);
+  });
 });
