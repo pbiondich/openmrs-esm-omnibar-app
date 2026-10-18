@@ -27,6 +27,8 @@ interface ChartSearchWorkspaceProps {
  * ChartSearch's live `maxQuestionLength`. A longer query cannot be sent from that app's input.
  * `getConfig` waits for ChartSearch to define its schema, and never settles if it isn't installed,
  * so it is only asked once its workspace is registered. `useConfig` would suspend the provider instead.
+ * Each mount before ChartSearch's `startupApp` runs leaves one `getConfig` subscription,
+ * and they all clear when its config loads.
  */
 function useChartSearchMaxQuestionLength(workspaceRegistered: boolean): number {
   const [maxQuestionLength, setMaxQuestionLength] = useState(defaultMaxQuestionLength);
