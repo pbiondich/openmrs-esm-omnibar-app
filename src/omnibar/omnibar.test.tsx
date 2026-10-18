@@ -3462,6 +3462,32 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(landedOn()).toBe('/projected%20hit');
       });
 
+      it('shows the heading and quiet line of a group still indexing that has found nothing yet', async () => {
+        const user = userEvent.setup();
+        mountWith(function EmptyProjection({ query, report }) {
+          useEffect(
+            () =>
+              report({
+                query,
+                title: 'Found in the record',
+                status: 'ready',
+                results: [],
+                detail: { state: 'projecting' },
+              }),
+            [query, report],
+          );
+          return null;
+        });
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Found in the record')).toBeInTheDocument();
+        expect(screen.getByText('Still indexing; results may be incomplete')).toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Ward']);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/openmrs/spa/ward');
+      });
+
       it('shows an indexed group like any other', async () => {
         const user = userEvent.setup();
         mountWith(withDetail({ state: 'indexed' }));
