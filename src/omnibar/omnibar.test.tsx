@@ -1637,6 +1637,36 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(landedOn()).toBe('/openmrs/spa/home/service-queues');
   });
 
+  it('ignores a late report from the mount the bar had before it was closed and opened again', async () => {
+    const user = userEvent.setup();
+    const mounts: Array<OmnibarProviderProps> = [];
+    mountProviders([
+      {
+        name: 'values',
+        meta: recordLane,
+        component: function Recorder(props: OmnibarProviderProps) {
+          if (props.query === 'weight') mounts.push(props);
+          return null;
+        },
+      },
+    ]);
+    render(<Omnibar />);
+    const input = screen.getByRole('combobox');
+
+    await user.type(input, 'weight');
+    const before = mounts.at(-1);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.click(input);
+    await user.type(input, 'weight');
+    const after = mounts.at(-1);
+
+    act(() => before.report(ready('weight', 'Values', ['stale'])));
+    expect(screen.queryByRole('option', { name: 'stale' })).not.toBeInTheDocument();
+    act(() => after.report(ready('weight', 'Values', ['fresh'])));
+    expect(screen.getByRole('option', { name: 'fresh' })).toBeInTheDocument();
+  });
+
   it('drops a report for a query the user has typed past', async () => {
     const user = userEvent.setup();
     const mounted = new Map<string, OmnibarProviderProps>();
