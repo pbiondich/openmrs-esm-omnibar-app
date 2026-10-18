@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { interpolateUrl } from '@openmrs/esm-framework';
 import {
   type CohortDefinition,
   definitionUrl,
@@ -50,9 +51,18 @@ describe('cohort builder URLs', () => {
   it('puts the definition in the definition parameter', () => {
     const definition = { v: 1, criteria: [{ type: 'demographics', gender: 'female' }] } satisfies CohortDefinition;
     const url = definitionUrl(definition);
-    expect(url.startsWith('${openmrsSpaBase}cohort-builder?definition=')).toBe(true);
+    expect(url.startsWith('${openmrsSpaBase}/cohort-builder?definition=')).toBe(true);
     const param = new URLSearchParams(url.split('?')[1]).get('definition');
     expect(JSON.parse(decodeBase64Url(param))).toEqual(definition);
+  });
+
+  it('lands on the cohort builder page once the framework fills in the SPA base', () => {
+    // interpolateUrl trims the base's trailing slash, so the path must bring its own.
+    const uuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+    const definition = definitionUrl({ v: 1, criteria: [{ type: 'demographics', gender: 'male' }] });
+    expect(interpolateUrl(definition)).toMatch(/^\/openmrs\/spa\/cohort-builder\?definition=[A-Za-z0-9_-]+$/);
+    expect(interpolateUrl(savedCohortUrl(uuid))).toBe(`/openmrs/spa/cohort-builder?cohort=${uuid}`);
+    expect(interpolateUrl(savedQueryUrl(uuid))).toBe(`/openmrs/spa/cohort-builder?query=${uuid}`);
   });
 
   it('refuses a definition over the 4096 byte cap', () => {
@@ -62,8 +72,8 @@ describe('cohort builder URLs', () => {
 
   it('links saved cohorts and queries by uuid', () => {
     const uuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
-    expect(savedCohortUrl(uuid)).toBe(`\${openmrsSpaBase}cohort-builder?cohort=${uuid}`);
-    expect(savedQueryUrl(uuid)).toBe(`\${openmrsSpaBase}cohort-builder?query=${uuid}`);
+    expect(savedCohortUrl(uuid)).toBe(`\${openmrsSpaBase}/cohort-builder?cohort=${uuid}`);
+    expect(savedQueryUrl(uuid)).toBe(`\${openmrsSpaBase}/cohort-builder?query=${uuid}`);
   });
 
   it.each([

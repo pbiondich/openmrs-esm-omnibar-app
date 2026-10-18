@@ -85,7 +85,7 @@ describe('CohortBuilderProvider', () => {
     expect(last().results).toEqual([
       expect.objectContaining({
         title: 'Cohort Builder',
-        target: { type: 'navigate', to: '${openmrsSpaBase}cohort-builder' },
+        target: { type: 'navigate', to: '${openmrsSpaBase}/cohort-builder' },
       }),
     ]);
   });
@@ -114,7 +114,7 @@ describe('CohortCriteriaProvider', () => {
     expect(row.title).toBe('Build cohort: Female patients aged 15–49 on ARVs');
     expect(row.target.type).toBe('navigate');
     const to = (row.target as { to: string }).to;
-    expect(to.startsWith('${openmrsSpaBase}cohort-builder?definition=')).toBe(true);
+    expect(to.startsWith('${openmrsSpaBase}/cohort-builder?definition=')).toBe(true);
     expect(decodeDefinition(to)).toEqual({
       v: 1,
       label: 'Female patients aged 15–49 on ARVs',
@@ -206,7 +206,7 @@ describe('saved cohorts and saved queries', () => {
         id: `cohort:${cohortUuid}`,
         title: 'HIV clinic',
         subtitle: 'Everyone in care',
-        target: { type: 'navigate', to: `\${openmrsSpaBase}cohort-builder?cohort=${cohortUuid}` },
+        target: { type: 'navigate', to: `\${openmrsSpaBase}/cohort-builder?cohort=${cohortUuid}` },
       },
     ]);
   });
@@ -230,7 +230,7 @@ describe('saved cohorts and saved queries', () => {
         id: `query:${queryUuid}`,
         title: 'Women on ARVs',
         subtitle: 'Run in the Cohort Builder',
-        target: { type: 'navigate', to: `\${openmrsSpaBase}cohort-builder?query=${queryUuid}` },
+        target: { type: 'navigate', to: `\${openmrsSpaBase}/cohort-builder?query=${queryUuid}` },
       },
     ]);
   });

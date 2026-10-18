@@ -3,7 +3,7 @@
  * builds these URLs; the cohort builder validates and runs them.
  */
 
-export const cohortBuilderPath = '${openmrsSpaBase}cohort-builder';
+export const cohortBuilderPath = '${openmrsSpaBase}/cohort-builder';
 
 export type CohortCriterion =
   | { type: 'demographics'; gender: 'male' | 'female' | 'any'; minAge?: number; maxAge?: number }
