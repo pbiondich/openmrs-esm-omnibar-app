@@ -66,7 +66,10 @@ export interface OmnibarProviderMeta {
    * it lists other patients.
    */
   defaultInChart?: boolean;
-  /** The contract major version the provider was built against. Missing means 1. A host that speaks an older one doesn't mount it. */
+  /**
+   * The contract major version the provider was built against. Missing means 1. A host that speaks
+   * an older one doesn't mount it.
+   */
   contract?: number;
   /**
    * Not mounted, and so never asked, while the query looks like a patient identifier, so a scanned
@@ -124,7 +127,10 @@ export interface OmnibarResult {
    */
   patient?: OmnibarPatient;
   target: OmnibarTarget;
-  /** The record this result shows, such as `obs:<obs uuid>`, compared across providers that share a `dedupeKey`. */
+  /**
+   * The record this result shows, such as `obs:<obs uuid>`. Compared across providers that share a
+   * `dedupeKey`.
+   */
   dedupeId?: string;
 }
 
@@ -162,7 +168,8 @@ export interface OmnibarReport {
   /**
    * The state of the source behind the results, drawn as one quiet line under the heading. A
    * provider that can't reach its server reports `status: 'error'` with `detail.state: 'unavailable'`
-   * (see `isServerUnreachable`). Hosts from before contract 1 was published ignore it.
+   * (see `isServerUnreachable`). Drawn for the record and navigate lanes; the answer lane ignores it
+   * in contract 1, as do hosts from before contract 1 was published.
    */
   detail?: OmnibarReportDetail;
 }
