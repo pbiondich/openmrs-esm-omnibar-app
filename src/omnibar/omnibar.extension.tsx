@@ -89,7 +89,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 const Omnibar: React.FC = () => {
   const { t } = useTranslation();
   const desktop = isDesktop(useLayoutType());
-  const { appearance } = useConfig<OmnibarConfig>();
+  const { appearance, patientSearch } = useConfig<OmnibarConfig>();
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -127,11 +127,13 @@ const Omnibar: React.FC = () => {
           lane: meta.lane,
           order: getProviderOrder(meta, context.scope),
           neverDefault: context.scope === 'patient' && !meta.defaultInChart,
-          // Inside a chart, the one patient an ID finds may still be the default, so a scanned wristband
-          // opens on Enter. Only the host's own patient search, whose rows the host vouches for.
+          // Inside a chart, the one patient an ID finds may still be the default, so Enter opens a
+          // scanned wristband's patient. Only the host's own patient search, whose rows the host vouches
+          // for, and only when its limit leaves room to show a second patient with the same ID.
           defaultsToSolePatient:
             context.scope === 'patient' &&
             hints.looksLikeIdentifier &&
+            patientSearch.maxResults > 1 &&
             extension.name === builtInPatientSearch.name &&
             extension.moduleName === builtInPatientSearch.moduleName,
           dedupeKey: meta.dedupeKey,
@@ -139,7 +141,7 @@ const Omnibar: React.FC = () => {
       }
     }
     return info;
-  }, [assigned, context.scope, hints]);
+  }, [assigned, context.scope, hints, patientSearch.maxResults]);
 
   // Reports from a mount that belongs to another chart or scope are dropped, so this is worked out
   // before the providers are given their `report`. The providers are unmounted while the bar is
@@ -219,8 +221,9 @@ const Omnibar: React.FC = () => {
   // never when it names another patient: the user chose this patient's row, not that one. A default
   // highlight whose row is reported again in a way that can't be the default is dropped. Inside a
   // chart, a default highlight moves up to a chart row from a record-lane provider that ranks before
-  // its own once one arrives, such as the chart's admission over the ward page, and steps aside while
-  // such a provider hasn't answered; a row the user chose stays.
+  // its own once one arrives, such as the chart's admission over the ward page, but never up to a row
+  // that names another patient, and steps aside while such a provider hasn't answered; a row the user
+  // chose stays.
   const { selected, chosen } = useMemo(() => {
     const infoOf = (result: SelectableResult) => providerInfo[result.providerId];
     const mayBeDefault = (result: SelectableResult) => result.mayBeDefault;
@@ -233,7 +236,10 @@ const Omnibar: React.FC = () => {
         !selection.chosen &&
         selectable.find(
           (result) =>
-            infoOf(result).lane === 'record' && ranksBefore(infoOf(result), infoOf(same)) && mayBeDefaultNow(result),
+            infoOf(result).lane === 'record' &&
+            !result.namesOtherPatient &&
+            ranksBefore(infoOf(result), infoOf(same)) &&
+            mayBeDefaultNow(result),
         );
       if (earlierChartRow) {
         return { selected: earlierChartRow, chosen: false };

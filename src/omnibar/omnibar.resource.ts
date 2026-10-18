@@ -36,7 +36,10 @@ export interface SelectableResult extends OmnibarResult {
    * Otherwise only an arrow key or the pointer selects it.
    */
   mayBeDefault: boolean;
-  /** Its target names another patient than the chart's. A highlight never moves onto it by itself. */
+  /**
+   * Its target names another patient than the chart's. A highlight never moves onto it from another
+   * row by itself; only the scanned patient row (see `defaultsToSolePatient`) can land on it first.
+   */
   namesOtherPatient: boolean;
 }
 
@@ -46,9 +49,9 @@ export interface ProviderInfo {
   /** Its results are never highlighted by default, only by an arrow key or the pointer. */
   neverDefault?: boolean;
   /**
-   * When its group has exactly one patient row, that row may be the default even so, whichever
-   * patient it names. The host sets this only for its own patient search, inside a chart, for a query
-   * that looks like an identifier: a scanned wristband then opens on Enter.
+   * Its one patient row may be the default even so, whichever patient it names, under the checks in
+   * `scannedPatientRow`. The host sets this only for its own patient search, inside a chart, for a
+   * query that looks like an identifier: Enter then opens a scanned wristband's patient.
    */
   defaultsToSolePatient?: boolean;
   dedupeKey?: string;
@@ -315,17 +318,48 @@ function dropCopies(
 }
 
 /**
- * The group's one patient row, when it has exactly one and its target names that patient and no one
- * else. Rows that aren't a patient, such as "All patient results", don't count.
+ * True when a result names no patient outside `uuids` (lower case), by its target or its patient, and
+ * its target can be read.
  */
-function solePatientRow(group: ProviderGroup): OmnibarResult | undefined {
-  const patients = (group.results ?? []).filter((result) => result.patient);
+function namesNoOneBut(result: OmnibarResult, uuids: Array<string>): boolean {
+  const named = patientsNamedBy(result.target);
+  return (
+    named !== null &&
+    [...named, ...(result.patient ? [result.patient.uuid] : [])].every((uuid) => uuids.includes(uuid.toLowerCase()))
+  );
+}
+
+/**
+ * The patient row the group with `defaultsToSolePatient` may make the default: the only patient row
+ * of a group that has finished searching, holding exactly an identifier typed (in any case), and
+ * linking on this site to that patient and no one else. None while any other row on screen names
+ * someone besides that patient and the chart's, so Enter never picks between two people. Rows that
+ * aren't a patient, such as "All patient results", don't count.
+ */
+function scannedPatientRow(
+  groups: Array<ProviderGroup>,
+  query: string,
+  chartPatientUuid: string | undefined,
+): OmnibarResult | undefined {
+  const group = groups.find((candidate) => candidate.defaultsToSolePatient);
+  const patients = group?.status === 'ready' ? (group.results ?? []).filter((result) => result.patient) : [];
   if (patients.length !== 1) {
     return undefined;
   }
   const [row] = patients;
-  const named = patientsNamedBy(row.target);
-  return named?.length && named.every((uuid) => uuid.toLowerCase() === row.patient.uuid.toLowerCase())
+  const typed = [query, ...query.split(/\s+/)].map((text) => text.trim().toLowerCase()).filter(Boolean);
+  const holdsTyped = row.patient.identifiers?.some(({ identifier }) =>
+    typed.includes(identifier.trim().toLowerCase()),
+  );
+  const patient = row.patient.uuid.toLowerCase();
+  const vouchedFor = [patient, chartPatientUuid?.toLowerCase()].filter(Boolean);
+  const others = groups.flatMap((candidate) => candidate.results ?? []).filter((result) => result !== row);
+  return holdsTyped &&
+    row.target.type === 'navigate' &&
+    leadsOnThisSite(row.target.to) &&
+    patientsNamedBy(row.target)?.length &&
+    namesNoOneBut(row, [patient]) &&
+    others.every((result) => namesNoOneBut(result, vouchedFor))
     ? row
     : undefined;
 }
@@ -431,20 +465,18 @@ export function useResultCollector(
     [groups],
   );
 
-  const selectable = useMemo<Array<SelectableResult>>(
-    () =>
-      listGroups.flatMap((group) => {
-        const solePatient = group.defaultsToSolePatient ? solePatientRow(group) : undefined;
-        return (group.results ?? []).map((result) => ({
-          ...result,
-          providerId: group.providerId,
-          key: `${group.providerId}:${result.id}`,
-          mayBeDefault: result === solePatient || (!group.neverDefault && !namesOtherPatient(result)),
-          namesOtherPatient: namesOtherPatient(result),
-        }));
-      }),
-    [listGroups, namesOtherPatient],
-  );
+  const selectable = useMemo<Array<SelectableResult>>(() => {
+    const scanned = scannedPatientRow(listGroups, query, chartPatientUuid);
+    return listGroups.flatMap((group) =>
+      (group.results ?? []).map((result) => ({
+        ...result,
+        providerId: group.providerId,
+        key: `${group.providerId}:${result.id}`,
+        mayBeDefault: result === scanned || (!group.neverDefault && !namesOtherPatient(result)),
+        namesOtherPatient: namesOtherPatient(result),
+      })),
+    );
+  }, [listGroups, query, chartPatientUuid, namesOtherPatient]);
 
   // The record-lane providers that may take the default and haven't answered this query yet: no
   // report for it, `loading` with nothing to show, or still indexing (`projecting`) with nothing to
@@ -541,6 +573,15 @@ export function targetNamesOtherPatient(target: OmnibarTarget, chartPatientUuid:
 }
 
 const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;
+
+/** True when a link, once interpolated, stays on this site. False for one that can't be read. */
+function leadsOnThisSite(to: string): boolean {
+  try {
+    return isOnThisSite(new URL(interpolateUrl(to), window.location.href));
+  } catch {
+    return false;
+  }
+}
 
 /**
  * The only place a result turns into an action. Resolves false when it refuses: a link off this site

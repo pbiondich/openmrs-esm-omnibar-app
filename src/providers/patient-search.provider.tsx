@@ -65,7 +65,7 @@ function useRecentPatientUuids(enabled: boolean, maxRecent: number) {
   return uuids;
 }
 
-const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
+const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context, report, hints }) => {
   const { t } = useTranslation();
   const config = useConfig<OmnibarConfig>();
   const { minSearchCharacters, maxResults, showRecentPatients, includeDead, patientChartUrl } = config.patientSearch;
@@ -152,10 +152,13 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
       });
     }
 
+    // For an ID, rows from the cache stay `loading` until the search runs again: inside a chart the one
+    // patient an ID finds can be the default, and a patient given the same ID since must not be missed.
+    const revalidatingId = Boolean(hints?.looksLikeIdentifier) && search.isValidating;
     report({
       query,
       title: context.scope === 'patient' ? t('otherPatients', 'Other patients') : t('patients', 'Patients'),
-      status: search.isLoading ? 'loading' : 'ready',
+      status: search.isLoading || revalidatingId ? 'loading' : 'ready',
       results,
     });
   }, [
@@ -166,6 +169,8 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
     search.data,
     search.error,
     search.isLoading,
+    search.isValidating,
+    hints?.looksLikeIdentifier,
     recents.data,
     recents.isLoading,
     patientChartUrl,
