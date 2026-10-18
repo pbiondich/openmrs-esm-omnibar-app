@@ -1,5 +1,5 @@
 /**
- * The cohort builder URL contract, v1 (/Users/paul/projects/cohort/contract.md). The omnibar only
+ * The cohort builder URL contract, v1 (README, "Cohort search"). The omnibar only
  * builds these URLs; the cohort builder validates and runs them.
  */
 
