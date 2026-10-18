@@ -1,0 +1,95 @@
+diff --git a/src/api/chartsearchai.ts b/src/api/chartsearchai.ts
+index f7d745d..8c6ef96 100644
+--- a/src/api/chartsearchai.ts
++++ b/src/api/chartsearchai.ts
+@@ -513,24 +513,6 @@ export interface AiSearchError {
+   error: string;
+ }
+ 
+-/**
+- * Pre-warms the server-side LLM prompt cache for the given patient. Fire-and-forget;
+- * fired when the chart is opened so the first AI query skips full prefill cost. Pass
+- * an AbortSignal to cancel an in-flight warmup when the user navigates to a different
+- * patient before the previous warmup finished.
+- */
+-export function warmupPatient(patientUuid: string, signal?: AbortSignal): void {
+-  openmrsFetch(`${BASE_PATH}/warmup`, {
+-    method: 'POST',
+-    headers: { 'Content-Type': 'application/json' },
+-    body: JSON.stringify({ patient: patientUuid }),
+-    signal,
+-  }).catch(() => {
+-    // ignore — the user does not depend on this completing, and aborts are expected on patient
+-    // switch
+-  });
+-}
+-
+ /**
+  * Submits user feedback (thumbs up/down + optional comment) for an AI response.
+  */
+diff --git a/src/components/ai-search-button.component.tsx b/src/components/ai-search-button.component.tsx
+index 74410e9..153809a 100644
+--- a/src/components/ai-search-button.component.tsx
++++ b/src/components/ai-search-button.component.tsx
+@@ -1,9 +1,8 @@
+-import React, { useCallback, useEffect, useState } from 'react';
++import React, { useCallback, useState } from 'react';
+ import { useTranslation } from 'react-i18next';
+ import { WatsonHealthAiResults } from '@carbon/react/icons';
+ import { useConfig, usePatient } from '@openmrs/esm-framework';
+ import { type ChartSearchAiConfig } from '../config-schema';
+-import { warmupPatient } from '../api/chartsearchai';
+ import AiSearchPanel from './ai-search-panel.component';
+ import styles from './ai-search-button.scss';
+ 
+@@ -13,17 +12,6 @@ const AiSearchButton: React.FC = () => {
+   const { chatLaunchMode } = useConfig<ChartSearchAiConfig>();
+   const [isPanelOpen, setIsPanelOpen] = useState(false);
+ 
+-  // Pre-warm the server-side LLM prompt cache on patient open. The cleanup
+-  // aborts an in-flight warmup if the user switches patients before it
+-  // finishes — server-side stale-skip handles late completions, but cancelling
+-  // saves a server-thread hop and a DB hit per discarded warmup.
+-  useEffect(() => {
+-    if (!patientUuid) return;
+-    const controller = new AbortController();
+-    warmupPatient(patientUuid, controller.signal);
+-    return () => controller.abort();
+-  }, [patientUuid]);
+-
+   const togglePanel = useCallback(() => {
+     setIsPanelOpen((prev) => !prev);
+   }, []);
+diff --git a/src/components/ai-search-button.test.tsx b/src/components/ai-search-button.test.tsx
+index 0f3fccd..2254f03 100644
+--- a/src/components/ai-search-button.test.tsx
++++ b/src/components/ai-search-button.test.tsx
+@@ -2,7 +2,7 @@ import React from 'react';
+ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+ import { render, screen } from '@testing-library/react';
+ import userEvent from '@testing-library/user-event';
+-import { useConfig, usePatient } from '@openmrs/esm-framework';
++import { openmrsFetch, useConfig, usePatient } from '@openmrs/esm-framework';
+ import AiSearchButton from './ai-search-button.component';
+ 
+ const mockUsePatient = usePatient as Mock;
+@@ -21,6 +21,7 @@ describe('AiSearchButton', () => {
+   beforeEach(() => {
+     mockUsePatient.mockReturnValue({ patientUuid: 'test-patient-uuid' });
+     mockUseConfig.mockReturnValue({ chatLaunchMode: 'floating' });
++    vi.mocked(openmrsFetch).mockResolvedValue({ data: {} } as never);
+   });
+ 
+   it('renders the AI button', () => {
+@@ -28,6 +29,11 @@ describe('AiSearchButton', () => {
+     expect(screen.getByRole('button', { name: /ai search/i })).toBeInTheDocument();
+   });
+ 
++  it('does not warm ChartSearch when a chart opens', () => {
++    render(<AiSearchButton />);
++    expect(openmrsFetch).not.toHaveBeenCalledWith(expect.stringContaining('/warmup'), expect.anything());
++  });
++
+   it('opens the search panel when clicked', async () => {
+     const user = userEvent.setup();
+     render(<AiSearchButton />);
