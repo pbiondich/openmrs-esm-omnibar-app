@@ -485,3 +485,21 @@ Not fixed, as the reviewer asked (pre-existing): `void runTarget(...)` still lea
 - Failed first, on 48b4b25 with the f405e2d copy not yet in: `Tests  4 failed | 101 passed (105)` in `src/omnibar/omnibar.test.tsx`. All four race cases got the old subtitle. The cleanup change can't fail first, because it only affects tests that already fail.
 - `corepack yarn test`: 172 passed. `corepack yarn typescript` and `corepack yarn lint` exit 0.
 - Not tested live.
+## Fix: ChartSearch's live question limit
+
+Fix round 2 left this open: the omnibar's 1000-character limit was ChartSearch's default `maxQuestionLength`, not that app's live config. A distribution that lowered it got a row whose question the prefill patch then cut short.
+
+| Change | Commit |
+| --- | --- |
+| Failing tests first | d569eeb |
+| The row reads `maxQuestionLength` with `getConfig('@openmrs/esm-chartsearchai-app')`. That module name and key are ChartSearch's own (`src/index.ts`, `src/config-schema.ts`), and ChartSearch gives the key no validator. `maxQuestionLengthFrom` keeps 1000 unless the value is a whole number of at least 1. The provider asks only once the workspace is registered, because `getConfig` waits for ChartSearch's `startupApp` and never settles when ChartSearch isn't installed. Until it settles, the limit is 1000 | 21bb7f6 |
+| README and `docs/design/omnibar-context-rules.md` say where the limit comes from | 74f2fea |
+
+Why not `useConfig({ externalModuleName })`: it suspends until that module's config loads. Without ChartSearch the provider would never render, and so never report.
+
+No omnibar override. The live value is what ChartSearch's input and the prefill patch enforce, so an omnibar setting could only disagree with it. That is the bug this fixes. The limit always comes from ChartSearch, even when `workspaceName` names another workspace. The value is read when the provider mounts, so an implementer-tools change applies after the next chart change or page load.
+
+- Tests before: 166. After: 192 (111 in `src/omnibar/omnibar.test.tsx`, 50 in `src/providers/chartsearch-question.test.ts`, 31 in `src/providers/chart-lookup-search.test.ts`).
+- Failed first, on d569eeb with the old provider: 17 tests. With a live limit of 500, a 501-character question was offered. With 2000, a 2000-character question was not. A limit of 500 that loaded after the row showed left an 800-character row in place. All 14 `maxQuestionLengthFrom` cases failed because it didn't exist. The invalid-value, not-loaded and unregistered cases passed before and after, since they expect the old 1000 rule.
+- `corepack yarn test`, `corepack yarn typescript` and `corepack yarn lint` pass.
+- Not tested live. In particular, that ChartSearch's config has loaded by the time its chart group is open on the 3.8.0-rc.2 sandbox. If it hasn't, the row uses 1000 until it does.
