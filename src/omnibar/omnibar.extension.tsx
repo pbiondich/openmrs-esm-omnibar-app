@@ -144,8 +144,8 @@ const Omnibar: React.FC = () => {
   useOmnibarShortcut(openBar, inputRef);
   const containerRef = useOnClickOutside<HTMLDivElement>(closeBar, open && desktop);
 
-  // A workspace whose chart group closed after its row was drawn is refused. The bar has closed by
-  // then, so a snackbar says why nothing opened.
+  // A workspace whose chart group closed, or opened for another patient, after its row was drawn is
+  // refused. The bar has closed by then, so a snackbar says why nothing opened.
   const runTarget = useCallback(
     async (target: OmnibarTarget) => {
       if (!(await executeTarget(target))) {
@@ -154,7 +154,7 @@ const Omnibar: React.FC = () => {
           title: t('sidePanelNotOpened', 'Couldn’t open the side panel'),
           subtitle: t(
             'sidePanelNotOpenedSubtitle',
-            'This chart’s side panel closed before it could open. Search again to retry.',
+            'The side panel was closed or opened for another patient. Open it again on this chart, then search again.',
           ),
         });
       }
