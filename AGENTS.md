@@ -15,7 +15,7 @@ The omnibar is a thin shell, and capabilities live in the apps that own the data
 
 Feature apps such as Cohort Builder, ChartSearch and the query store **register their own providers** in `omnibar-providers-slot` from their own `routes.json`. Each app also declares its own page. New capabilities go into the owning app as a provider, not into this repo.
 
-The omnibar keeps these built-in providers as defaults for now: patient search with recently viewed patients, chart lookup, destinations, and the ChartSearch suggestion row (see [`src/routes.json`](src/routes.json)). See the [design rules](README.md#design-rules) in the README and [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
+The omnibar keeps these built-in providers as defaults for now: patient search with recently viewed patients, chart lookup, destinations, the ChartSearch suggestion row, and the query store chart provider, which is off unless `chartLookup.source` is `querystore` or `both` (see [`src/routes.json`](src/routes.json)). See the [design rules](README.md#design-rules) in the README and [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
 
 ## Contract v1, in brief
 
