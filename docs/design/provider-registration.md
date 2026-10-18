@@ -1,6 +1,6 @@
 # Omnibar provider registration: the omnibar as a pure host
 
-Status: PLAN ONLY. No code changes, pushes or deploys follow from this document by themselves.
+Status: PLAN ONLY (rev 2, 11:30 PM CT: querystore added as a provider owner, §4A). No code changes, pushes or deploys follow from this document by themselves.
 Author: Paul Biondich (drafted by Grok Bot), 2026-10-17 ~11:30 PM CT.
 
 Decision (Paul, 11:19 and 11:21 PM CT): follow the O3 convention. Feature modules register into the omnibar's
@@ -17,6 +17,9 @@ Code read for this plan (all read-only):
 | openmrs-esm-cohortbuilder-app | `b8b1440` (`feat/url-definition`, local only) | box `/workspace/cohort-verify/cohortbuilder` |
 | openmrs-esm-chartsearchai | `c2b6bf4` (live on o3), `7162b91` (`feat/initial-question`), `2dd487a` (`fix/no-chart-open-warmup`) | hermes `~/projects/sidejobs/esm-chartsearchai` |
 | openmrs-esm-patient-management | `96a7237` | hermes `~/projects/cohort/ref/openmrs-esm-patient-management` |
+| openmrs-module-querystore | `63b3cef` (box copy) + `origin/main` heads | box `/workspace/o3-core29/src/openmrs-module-querystore` |
+
+The querystore omnibar prototype is described from Paul's handoff only. It is uncommitted on his Mac (`~/Projects/openmrs-esm-omnibar-app`, `prototype/omnibar-endpoints`), and its working tree was **not** read.
 
 ---
 
@@ -84,6 +87,18 @@ Code read for this plan (all read-only):
 - **`hints.looksLikeIdentifier: boolean`** is NEW.
   - Three providers share `hasIdentifierShape` (`chartsearch-question.ts`): ChartSearch, plus saved cohorts and saved queries via the 2417fe2 import.
   - The host should compute it once, so "ID-shaped text gets only the patient" holds across apps.
+- **`status: 'warming'` and `report.detail?: { state: 'projecting' | 'indexed' | 'failed' | 'unavailable'; note?: string }`** (NEW, needed by querystore, §4A.3).
+  - Today `status` is `idle|loading|ready|error`. A provider backed by a projection needs to say "this chart is still being projected, results are partial" without that looking like an error or a spinner that never ends.
+  - The host draws `detail.state` as a quiet group subtitle: "Indexing this chart…", "Search unavailable".
+  - It never blocks Enter on other groups.
+  - A `failed` or `unavailable` group collapses to one line, so a broken projection can't push the REST lookup off screen.
+- **The ID-only flag is a mounting rule, not just a hint.**
+  - `hints.looksLikeIdentifier` (above) lets a provider stay quiet.
+  - Add `meta.skipIdentifierQueries: true`. With it, the host doesn't even pass ID-shaped queries to the provider: they get `status:'idle'` without a network call.
+  - The querystore and ChartSearch providers set it, so a scanned MRN never goes into a semantic index or an LLM.
+  - The patient search provider doesn't set it.
+- **`meta.dedupeKey?: string`, with a result-level `dedupeId?: string`** (NEW, for §4A.2).
+  - When two providers that share a `dedupeKey` report results with the same `dedupeId`, the host keeps only the copy from the provider with the lower order.
 - **Versioning:**
   - Providers declare `meta.contract: 1`.
   - The host mounts providers whose major version it supports; a missing value is treated as 1 for now.
@@ -106,6 +121,7 @@ The host ranks by lane (`record` < `navigate` < `answer`), then by `meta.order`.
 | Range | Use |
 | --- | --- |
 | 10 | Core record providers (patients; chart values in a chart) |
+| 15 | Querystore chart search (record lane, after REST chart values) |
 | 20-50 | Cohort (criteria 20, builder 30, saved cohorts 40, saved queries 50) |
 | 100 | Suggestions (ChartSearch) |
 
@@ -128,7 +144,8 @@ The host ranks by lane (`record` < `navigate` < `answer`), then by `meta.order`.
 | --- | --- | --- | --- |
 | Patient search (`patient-search.provider.tsx`, 173 lines; REST `patient?q`, representation as the search app) | esm-patient-search-app (patient-management) | **Move.** Interim: stays as a default, removable through slot config | It copies the search app's query and representation and has to stay in sync with it. That app already owns `patient-search-icon` in `top-nav-actions-slot` (which the omnibar asks implementers to remove, README l.152). Its owner should register `patient-search-omnibar-provider`. Needs an upstream PR to patient-management (or a local build); see §6 Q3 |
 | Recents (`patients-visited.ts` + the empty-query branch of patient search; `patientsVisited` user property) | esm-patient-search-app | **Move together with patient search** | It's the search app's own property: `patientsVisited` is read and written in `patient-search.resource.tsx` and `patient-search-icon.component.tsx`. The recents race fix (fa16358) belongs there too. It currently records visits from `OMNIBAR_SELECTED_EVENT`; the owner can listen to the same event, or record on chart open |
-| In-chart lookup (`chart-lookup.provider.tsx` + `chart-lookup-search.ts`; concept search + FHIR `Observation/$lastn`) | esm-patient-chart (results / tests app) | **Move.** Interim default | Clinical data and how it's displayed belong to the chart. Its `resultsUrl` already points at the chart's Results page. Hotfix 3 (filler words) and hotfix 4 (first values the patient has) go with it |
+| In-chart lookup (`chart-lookup.provider.tsx` + `chart-lookup-search.ts`; concept search + FHIR `Observation/$lastn`) | esm-patient-chart (results / tests app) | **Move.** Interim default. **Kept alongside querystore, not replaced by it** (§4A.2) | Clinical data and how it's displayed belong to the chart. Its `resultsUrl` already points at the chart's Results page. Hotfix 3 (filler words) and hotfix 4 (first values the patient has) go with it. It's the always-available, exact path that works with no projection |
+| Querystore chart search (prototype `querystore-chart.provider.tsx`) and warm-on-chart-open (`src/querystore/warm-on-chart-open.ts`) | **New esm-querystore-app** (§4A) | **Never lands in the omnibar** | Owned by the querystore module's team; talks to querystore endpoints; has its own enablement and privileges |
 | Destinations (`destinations.provider.tsx` + `destinations` config) | Each page's own app | **Stays as a minimal default** for now. End state: declarative | 55 lines of config matching with no REST. End state: each app adds `meta.omnibarDestination: {label, path, keywords}` to its existing page or link extension (or a tiny extension in `omnibar-destinations-slot`), and the host indexes that metadata without mounting code. Until then the config list stays (remove `cohort` from Patient lists' keywords once the builder provider exists) |
 | Ask ChartSearch (`chartsearch-suggestion.provider.tsx`) | esm-chartsearchai | **Move (this plan, §4)** | Feature-specific; it reads the other app's config and private workspace state |
 | Cohort criteria / builder / saved cohorts / saved queries (2417fe2) | openmrs-esm-cohortbuilder-app | **Move (this plan, §3)**; they never ship from the omnibar | Feature-specific; the URL encoder belongs next to its decoder |
@@ -229,6 +246,106 @@ It gets:
 
 ---
 
+## 4A. Querystore as a provider owner
+
+### 4A.0 What exists
+- **There is no querystore frontend module.**
+  - On GitHub, `gh search repos querystore --owner openmrs` and `query-store` return only `openmrs/openmrs-module-querystore`, the backend.
+  - No `esm`/`querystore` frontend repo exists anywhere on GitHub under that name.
+- **The patient endpoints in the handoff aren't upstream yet.**
+  - The backend's REST controller (`omod/…/web/rest/QueryStoreRestController.java`, mapped at `/rest/v1/querystore`) has `GET /indexingstatus` (Get Patients), `GET /drift` and `POST /reindex` (Manage Global Properties).
+  - `/patient/{uuid}/warm|status|recent|search` isn't on `origin/main` or any remote branch name.
+  - **They exist only in the prototype (ASSUMED from the handoff).** They need a backend branch and review before any frontend can rely on them.
+- **The backend is offline-capable.**
+  - It uses Elasticsearch, configured as an internal host in `openmrs-runtime.properties` (`QueryStoreConstants.java` l.241).
+  - Embeddings come from local ONNX model files (`embedding/ModelFileResolver.java`).
+  - The code calls no internet service (grep of `api/src/main/java`), so the search stays on the LAN.
+
+### 4A.1 Where it should live
+- **Proposal:** a new frontend module, `@openmrs/esm-querystore-app`.
+  - Preferred home: an `frontend/` package inside `openmrs-module-querystore`. That's one repo, versioned with the endpoints it calls, and it fits Paul's and the querystore team's way of working.
+  - Alternative: a separate `openmrs-esm-querystore-app` repo.
+  - Either way it stays local until Paul decides (Q9). No public repo is created by this plan.
+- **Contents** (moved from the prototype, not invented):
+  - `src/omnibar/querystore-chart.provider.tsx` (the prototype's `src/providers/querystore-chart.provider.tsx`)
+  - `src/warm/warm-on-chart-open.ts` (the prototype's `src/querystore/warm-on-chart-open.ts`), wrapped as an extension
+  - `src/api/querystore.resource.ts`, the single client for `/querystore/patient/{uuid}/warm|status|recent|search`
+  - the vendored contract (§1.5)
+  - `config-schema.ts`
+- **routes.json:**
+  - `backendDependencies: { "querystore": ">=<version with patient endpoints>" }`. The framework hides the whole app when the backend module is missing. That replaces the prototype's `chartLookup.source` switch for "is querystore present".
+  - `querystore-chart-omnibar-provider` in `omnibar-providers-slot`, with `privileges: ["Get Patients", "Get Observations"]` (match whatever the endpoint `@Authorized` requires; Q10) and `meta: { lane:'record', scopes:['patient'], order: 15, contract:1, skipIdentifierQueries:true, dedupeKey:'chart-values' }`.
+    - No `defaultInChart` until the 'both' rules below have been measured on o3.
+  - `querystore-warm-on-chart-open` in a chart slot that's mounted once per open chart (e.g. `patient-chart-dashboard-slot`, or a non-visual extension in `patient-banner-tags-slot`, the slot ChartSearch already uses for `ai-search-button`).
+    - It renders `null`, gated by `privileges: ["Get Patients"]`, and enabled by `config.warmOnChartOpen`.
+
+### 4A.2 Relation to the in-chart REST lookup: complement, not replace
+- **REST lookup** (concept name → FHIR `$lastn`):
+  - exact, structured, newest value per concept
+  - works on every install, with no projection lag
+  - works offline against the O3 offline cache patterns
+- **Querystore:**
+  - free text and semantic ("sugar levels", "chest pain notes", narrative and encounter text)
+  - finds what the concept-name search misses
+  - can lag behind writes, and needs ES plus a warm index
+- The prototype's `chartLookup.source: rest | querystore | both` turns into **two providers**, and the mode is chosen by the implementer through standard config:
+
+| Old mode | New setup |
+| --- | --- |
+| `rest` | querystore app not installed, or `"omnibar-providers-slot": {"remove": ["querystore-chart-omnibar-provider"]}` |
+| `querystore` | remove `omnibar-chart-lookup-provider` (the interim default) from the slot |
+| `both` (default when installed) | both mounted |
+
+**Ranking and dedupe rules in 'both' mode:**
+1. Both are lane `record`. REST at order 10 comes first, querystore at 15 after it, under separate headings:
+   - "Chart values" (REST)
+   - "Found in the record" (querystore)
+2. **Dedupe:** both declare `dedupeKey:'chart-values'`. Each reports `dedupeId = <obs uuid>` (or `concept:<uuid>:latest` when a querystore hit is the newest value of a concept REST already showed). The host drops the querystore copy.
+   - Until hosts support `dedupeKey`, the querystore provider dedupes against nothing, and the cost is visible duplicates. For that reason, step QS3 should follow host N+2 (QS2).
+3. **Default highlight:** only REST has `defaultInChart`, so Enter goes to the exact value. Querystore results are chosen by arrow or pointer until o3 measurements justify more (Q11).
+4. **Latency:** querystore reports `loading` and then `ready`. The host's existing rule ("pin the highlight to the first result it lands on", `omnibar.extension.tsx` l.103-111) keeps a slower querystore group from stealing Enter.
+5. **Projection state:** querystore's `/status` maps to `report.detail.state`:
+   - `projecting`: shows partial hits with "Indexing this chart…"
+   - `indexed`
+   - `failed`: one quiet line; the REST group is unaffected
+   - `unavailable`: ES down or the endpoint returns 404; idle, no line
+
+### 4A.3 Warm-on-chart-open as an extension
+- In the prototype, the omnibar warms querystore when a chart opens. That's a side effect in the wrong module, and the same mistake 2dd487a fixed in ChartSearch (warm-up on every chart open).
+- In the querystore app it's a non-visual extension that:
+  - POSTs `/warm` once per chart per session
+  - aborts on patient switch
+  - debounces quick chart switches
+  - is off for users without the privilege
+  - is configurable: `warmOnChartOpen: true | false | 'onFirstOmnibarOpen'`
+- Recommended default: `'onFirstOmnibarOpen'`. The provider itself warms the first time it's mounted in patient scope, which avoids load on charts where nobody searches. That matches the lesson from 2dd487a and is Q12.
+- The omnibar host doesn't know warming exists.
+
+### 4A.4 Offline-first
+- Neither the provider nor warming calls anything but same-origin `/ws/rest/v1/querystore/...`.
+- The backend's ES and ONNX are local (§4A.0).
+- In O3 offline mode, the querystore provider reports `detail.state:'unavailable'` (idle). The REST lookup provider keeps working from cached data, which is the main reason REST stays as a complement.
+- **The provider extension is `offline: false`.** Only REST and patient search are `offline: true`.
+- No CDN or model downloads in the frontend.
+
+### 4A.5 Tests that move or appear
+- They come from the prototype, if it has any (not inspected).
+- Provider tests:
+  - privilege and scope gates
+  - `skipIdentifierQueries` (no request for MRN-shaped text)
+  - `/status` → `detail.state` mapping
+  - stale-query drop
+  - `dedupeId` values
+- Warm extension tests:
+  - once per chart
+  - abort on switch
+  - off by config
+- Host tests (omnibar):
+  - `dedupeKey` collapse
+  - the `warming` state and `detail` rendering
+  - `skipIdentifierQueries` never mounts or passes the query
+- Contract conformance in both repos.
+
 ## 5. Order of work, so o3 never regresses
 
 Each step can be deployed on its own and rolled back through the importmap. **o3 must never show two "Ask ChartSearch" rows, and never zero rows where there is one today.**
@@ -251,6 +368,13 @@ Each step can be deployed on its own and rolled back through the importmap. **o3
 4. **Omnibar host N+1:**
    - delete `chartsearch-suggestion.provider.tsx`, `chartsearch-question.ts` (except the identifier heuristic, which moves into the contract as `looksLikeIdentifier`) and the `chartSearchSuggestion` config
    - remove the o3 config line from step 3
+4a. **Querystore (QS1-QS3), after the overnight benchmark and once the backend patient endpoints are on a reviewed branch:**
+   - **QS1, backend:** a querystore module build with `/patient/{uuid}/warm|status|recent|search`. Backend restart, so it gets its own window.
+   - **QS2, omnibar host N+2:** `status:'warming'`, `report.detail`, `meta.skipIdentifierQueries`, `dedupeKey` (all additive, contract minor).
+   - **QS3, `esm-querystore-app`:** provider + warm extension, `backendDependencies` on querystore.
+     - Installed in 'both' mode by default; REST stays.
+     - Rollback = remove its importmap entry; the REST lookup is untouched.
+   - QS3 can deploy before QS2. Without QS2 the provider works, but shows duplicates and no projection state. Prefer QS2 first.
 5. **Later, upstream-dependent:**
    - patient search + recents → patient-search app
    - chart lookup → patient-chart
@@ -278,6 +402,11 @@ Each step can be deployed on its own and rolled back through the importmap. **o3
 - Its routes registry entry gains one extension.
 - It needs the same-window config flip (step 3).
 - **chartsearchai is an openmrs-org repo on hermes**: these local branches aren't pushed anywhere. See Q5.
+
+**Querystore:**
+- Today o3 runs the querystore backend that the overnight benchmark exercises. **Nothing querystore-related deploys until that benchmark finishes.**
+- The patient endpoints mean a new backend omod (restart) and possibly reindexing. Warm-up adds load. Start with `warmOnChartOpen:'onFirstOmnibarOpen'` and watch ES.
+- The frontend is a new app in the importmap and the routes registry. The prototype's `chartLookup.source` config is never deployed.
 
 **Every frontend step:**
 - new `host/frontend-custom/<app>-<sha>/` dirs
@@ -312,3 +441,10 @@ Each step can be deployed on its own and rolled back through the importmap. **o3
 5. **chartsearchai branches:** merge 7162b91 + 2dd487a into one local provider branch? Any intent to PR them upstream?
 6. **Destinations end state:** each app's metadata (`meta.omnibarDestination`) or a dedicated `omnibar-destinations-slot`?
 7. **Retire `feat/cohort-omnibar`:** leave the pushed branch as history, or delete it on GitHub? (Deleting needs your OK.)
+8. **Querystore prototype handoff:** may the prototype files be moved out of the omnibar (`prototype/omnibar-endpoints`) into a new querystore app? Should `prototype/omnibar-endpoints` then be dropped, never merged?
+9. **Home for the querystore frontend:** a `frontend/` package inside `openmrs-module-querystore` (one repo with the endpoints), or a separate `openmrs-esm-querystore-app` repo? Local-only until you say otherwise?
+10. **Privileges for the patient endpoints:** what do `/warm`, `/status`, `/recent` and `/search` require server side? Is Get Patients enough, or Get Observations too (the read API uses Get Patients)? The provider's routes.json must match.
+11. **'both' mode defaults:** should querystore results ever take the default highlight in a chart? Or only after o3 measurements (latency, precision vs the REST lookup)? And should querystore-only mode be offered at all, given REST is the offline path?
+12. **Warming policy:** `onFirstOmnibarOpen` (recommended, per the 2dd487a lesson) or every chart open? Any ES load ceiling on o3?
+13. **`recent` endpoint:** what should it power? Empty-query "recent in this chart" rows? It would be the querystore provider's empty-query result, which the host already supports for recents.
+14. **Backend patient endpoints:** which branch are they on, and who reviews them before o3? They aren't on `openmrs-module-querystore` main.
