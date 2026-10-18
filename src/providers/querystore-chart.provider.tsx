@@ -116,8 +116,11 @@ const isGroup = (value: unknown): value is QuerystoreGroup =>
   typeof value === 'object' && value !== null && isHit((value as QuerystoreGroup).latest);
 
 /** A row with a text id and title, neither empty: one the host can draw rather than drop later. */
+/** Text from the server, or nothing when it isn't text or is only blanks. */
+const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined);
+
 const isShowable = (result: OmnibarResult) =>
-  typeof result.id === 'string' && result.id !== '' && typeof result.title === 'string' && result.title !== '';
+  typeof result.id === 'string' && result.id !== '' && Boolean(text(result.title));
 
 /** The usable entries of a list from the server, so one bad entry doesn't cost the good ones. */
 const usable = <T,>(list: unknown, keep: (entry: unknown) => entry is T): Array<T> =>
@@ -158,11 +161,11 @@ function hitTitle(
   hit: QuerystoreHit,
   conceptName: string | undefined,
   t: ReturnType<typeof useTranslation>['t'],
-): string {
+): string | undefined {
+  const concept = text(conceptName) ?? text(hit.conceptName);
   if (hit.valueNumeric != null) {
     const num = formatNumeric(hit.valueNumeric);
     const value = hit.units ? `${num} ${hit.units}` : num;
-    const concept = conceptName ?? hit.conceptName;
     if (concept) {
       return t('conceptValue', '{{concept}}: {{value}}', { concept, value, interpolation: { escapeValue: false } });
     }
@@ -170,7 +173,7 @@ function hitTitle(
   }
   // The snippet is labeled prose ("HIV status: Positive"), so it carries a coded or text value the
   // concept name alone would drop.
-  return hit.snippet || conceptName || hit.conceptName;
+  return text(hit.snippet) ?? concept;
 }
 
 function targetForHit(hit: QuerystoreHit, patientUuid: string, resultsUrl: string): OmnibarTarget {
