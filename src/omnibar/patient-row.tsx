@@ -93,7 +93,9 @@ export const PatientRow: React.FC<{ name: string; patient: OmnibarPatient; note?
       </div>{' '}
       <div className={styles.info}>
         <div className={styles.nameRow}>
-          <span className={styles.name}>{name}</span>{' '}
+          <span className={styles.name} dir="auto">
+            {name}
+          </span>{' '}
           {patient.gender && (
             <span className={styles.gender}>
               <span aria-hidden className={styles.genderIcon}>

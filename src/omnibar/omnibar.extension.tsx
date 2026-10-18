@@ -550,14 +550,18 @@ const Omnibar: React.FC = () => {
               }
               return (
                 <li key={group.providerId} role="presentation">
-                  <div id={headingId} className={styles.groupHeading}>
+                  <div id={headingId} className={styles.groupHeading} dir="auto">
                     {group.title}
                   </div>
                   {group.status === 'loading' && !group.results?.length && !collapsed && (
                     <InlineLoading className={styles.groupLoading} description={t('searching', 'Searching')} />
                   )}
                   {group.status === 'error' && !collapsed && <p className={styles.groupError}>{providerError}</p>}
-                  {line && <p className={styles.groupNote}>{line}</p>}
+                  {line && (
+                    <p className={styles.groupNote} dir="auto">
+                      {line}
+                    </p>
+                  )}
                   <ul role="group" aria-labelledby={headingId}>
                     {(group.results ?? []).map((result) => {
                       const key = `${group.providerId}:${result.id}`;
@@ -585,8 +589,14 @@ const Omnibar: React.FC = () => {
                             <PatientRow name={result.title} patient={result.patient} note={result.subtitle} />
                           ) : (
                             <span className={styles.optionText}>
-                              <span className={styles.optionTitle}>{result.title}</span>
-                              {result.subtitle && <span className={styles.optionSubtitle}>{result.subtitle}</span>}
+                              <span className={styles.optionTitle} dir="auto">
+                                {result.title}
+                              </span>
+                              {result.subtitle && (
+                                <span className={styles.optionSubtitle} dir="auto">
+                                  {result.subtitle}
+                                </span>
+                              )}
                             </span>
                           )}
                         </li>
@@ -610,7 +620,7 @@ const Omnibar: React.FC = () => {
                 aria-live="polite"
                 aria-busy={Boolean(answer?.streaming)}
               >
-                <div id={headingId} className={styles.groupHeading}>
+                <div id={headingId} className={styles.groupHeading} dir="auto">
                   {group.title}
                 </div>
                 {group.status === 'loading' && !answer?.text && (
@@ -624,7 +634,7 @@ const Omnibar: React.FC = () => {
                 )}
                 {answer && !unsourced && (
                   <>
-                    <p className={styles.answerText}>
+                    <p className={styles.answerText} dir="auto">
                       {answer.text}
                       {answer.streaming && <span className={styles.caret} aria-hidden />}
                     </p>
@@ -636,6 +646,7 @@ const Omnibar: React.FC = () => {
                             key={index}
                             type="button"
                             className={styles.sourceLink}
+                            dir="auto"
                             aria-disabled={!resultsAreCurrent}
                             onClick={() => openSource(source.target)}
                           >

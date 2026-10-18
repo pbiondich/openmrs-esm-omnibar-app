@@ -226,6 +226,11 @@ $omnibar-min-width: 18rem;
   color: themes.$text-secondary;
 }
 
+// A provider's note can be one long token, such as a URL, that would otherwise widen the panel.
+.groupNote {
+  overflow-wrap: anywhere;
+}
+
 .emptyState {
   padding-block: layout.$spacing-06;
 }

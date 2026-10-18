@@ -49,7 +49,13 @@ const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 
 export const maxResultsPerGroup = 50;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+// Bidirectional embedding, override and isolate controls, and the direction marks. In a title they can
+// reorder what a clinician reads, such as the digits of a value; each line finds its own direction
+// with dir="auto" instead.
+const directionControls = /[\u202A-\u202E\u2066-\u2069\u200E\u200F]/g;
+const plainText = (text: string) => text.replace(directionControls, '');
 const textOrNothing = (value: unknown) => (typeof value === 'string' ? value : undefined);
+const plainTextOrNothing = (value: unknown) => (typeof value === 'string' ? plainText(value) : undefined);
 
 function isKnownTarget(target: unknown): target is OmnibarTarget {
   return (
@@ -86,8 +92,8 @@ function cleanResult(result: unknown): OmnibarResult | null {
   }
   return {
     id: result.id,
-    title: result.title,
-    subtitle: textOrNothing(result.subtitle),
+    title: plainText(result.title),
+    subtitle: plainTextOrNothing(result.subtitle),
     patient: cleanPatient(result.patient),
     target: result.target,
     dedupeId: textOrNothing(result.dedupeId),
@@ -98,8 +104,8 @@ function cleanResult(result: unknown): OmnibarResult | null {
  * A provider's report in the shape the bar draws, or null to ignore it. A provider is trusted code,
  * but a mistake in one must not break the bar outside its error boundary: a report without a text
  * query and heading, or whose results aren't a list, is ignored; a result without a text id and
- * title, or with a target the bar doesn't know, is dropped; a group keeps its first 50 results; and
- * an answer with no list of sources has none.
+ * title, or with a target the bar doesn't know, is dropped; a group keeps its first 50 results; an
+ * answer with no list of sources has none; and direction controls are taken out of every text.
  */
 export function cleanReport(report: unknown): OmnibarReport | null {
   if (!isObject(report) || typeof report.query !== 'string' || typeof report.title !== 'string') {
@@ -112,7 +118,7 @@ export function cleanReport(report: unknown): OmnibarReport | null {
   return {
     query: report.query,
     status: report.status as OmnibarReport['status'],
-    title: report.title,
+    title: plainText(report.title),
     results: Array.isArray(results)
       ? results
           .map(cleanResult)
@@ -121,19 +127,21 @@ export function cleanReport(report: unknown): OmnibarReport | null {
       : undefined,
     answer: isObject(answer)
       ? {
-          text: textOrNothing(answer.text) ?? '',
+          text: plainTextOrNothing(answer.text) ?? '',
           streaming: Boolean(answer.streaming),
           sources: Array.isArray(answer.sources)
-            ? answer.sources.filter(
-                (source): source is OmnibarSource =>
-                  isObject(source) && typeof source.label === 'string' && isKnownTarget(source.target),
-              )
+            ? answer.sources
+                .filter(
+                  (source): source is OmnibarSource =>
+                    isObject(source) && typeof source.label === 'string' && isKnownTarget(source.target),
+                )
+                .map((source) => ({ label: plainText(source.label), target: source.target }))
             : [],
         }
       : undefined,
     detail:
       isObject(detail) && typeof detail.state === 'string'
-        ? { state: detail.state as OmnibarReportDetail['state'], note: textOrNothing(detail.note) }
+        ? { state: detail.state as OmnibarReportDetail['state'], note: plainTextOrNothing(detail.note) }
         : undefined,
   };
 }
