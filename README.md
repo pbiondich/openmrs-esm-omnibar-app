@@ -28,7 +28,7 @@ This is a prototype of an O3 omnibar. :)
 
 To perhaps make the omnibar concept more concrete for you, I'll lay out a couple of hypothetical examples of how a pervasive prompt could have a number of really helpful functions, all within the same prompt!
 
-Each scenario is marked with where it stands: **Prototype** means the code exists in this repo (still unverified against a live server), **Example** means a provider sketch exists for another team to adapt, and **Planned** means it's designed but not built.
+Each scenario is marked with where it stands: **Prototype** means the code exists in this repo, and **Planned** means it's designed but not built.
 
 ### Outside a patient record
 
@@ -45,7 +45,7 @@ A chip with the patient's name sits in the field, so it's always clear whose rec
 
 | The user types | What they get | Status |
 | --- | --- | --- |
-| `when did she start ART?` | A streamed answer from something like ChartSearch, perhaps with links to the encounters and observations it drew on. An answer that cites nothing is hidden. | Example |
+| `when did she start ART?` | A non-default "Ask ChartSearch" row. Choosing it opens AI Chart Search with the question filled in. The clinician presses Send before any model request runs. | Prototype |
 | `cd4`, `hb`, `weight` | Latest values and dates for each matching concept, in the user's language. Choosing one from the list opens the results viewer; pressing Enter on the query itself brings up a detail display of everything that matched. | Prototype |
 | a name or ID | Other patients, listed below anything from this chart. | Prototype |
 
@@ -97,7 +97,6 @@ interface OmnibarReport {
   title: string; // group heading, translated by the provider
   results?: Array<OmnibarResult>;
   answer?: OmnibarAnswer; // answer lane only
-  errorMessage?: string;
 }
 
 interface OmnibarProviderProps { query: string; context: OmnibarContext; report: (r: OmnibarReport) => void }
@@ -112,9 +111,27 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 | Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property |
 | Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
-| ChartSearch (in `examples/`) | answer | patient | ChartSearch API; the endpoint in the example is a placeholder |
+| ChartSearch suggestion | navigate | patient | Local question heuristic; opens a registered workspace |
 
-Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch example lives in `examples/` because it belongs in the ChartSearch module, not here.
+Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch row appears only for question-like input, only for users with `AI Query Patient Data`, and only when `ai-chat-workspace` is registered. It never takes the default highlight.
+
+The omnibar sends no ChartSearch request while the user types or when the row opens the workspace. The upstream patch in [`docs/upstream/esm-chartsearchai-initial-question.patch`](docs/upstream/esm-chartsearchai-initial-question.patch) fills the existing ChartSearch input and removes chart-open warmup. The clinician still presses **Send**. ChartSearch owns the request, citations, safety UI, feedback, and errors. At the pinned upstream commit, ChartSearch has no client request timeout.
+
+Without the upstream patch, the row still opens the workspace, but the question is not filled in. If AI Chart Search is already open, a different question replaces that workspace. The transcript for that patient remains. Text the clinician had not sent is lost.
+
+To hide the row, set `enabled` to false. To open a different registered workspace, set `workspaceName`. `minWords` must be a whole number of at least 2.
+
+```json
+{
+  "@openmrs/esm-omnibar-app": {
+    "chartSearchSuggestion": {
+      "enabled": true,
+      "minWords": 3,
+      "workspaceName": "ai-chat-workspace"
+    }
+  }
+}
+```
 
 The full design, including how O3's current search works and why each decision was made, is in [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
 
@@ -197,7 +214,7 @@ It registers in its own `routes.json`, where `meta` declares the lane, the scope
 }
 ```
 
-See [`examples/chartsearch-answer.provider.tsx`](examples/chartsearch-answer.provider.tsx) for a streaming answer provider.
+ChartSearch uses the same provider contract. Its provider reports a workspace target and never calls the model.
 
 ### Developing
 
@@ -220,7 +237,7 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 1. ~~Run the prototype in a dev distribution and fix what the live system shows.~~ Running at [o3.pgb.md](https://o3.pgb.md/openmrs/spa); first live fixes are in.
 2. Take it to the patient-management squad, with patient search as the first provider and the `appearance` option ready.
 3. Add a dedicated centre slot to the navbar in esm-primary-navigation-app, since `top-nav-actions-slot` is crowded.
-4. Make ChartSearch the first external provider, to prove the contract handles streaming and sources.
+4. Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.
 5. Add cohort questions, which needs the Cohort Builder to accept a query definition by URL.
 6. Move the slot and types into esm-framework through an RFC once the contract settles.
 

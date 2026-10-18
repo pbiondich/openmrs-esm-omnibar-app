@@ -296,3 +296,14 @@ Requests: patient search is still one request per query, and recents are one use
 Logged, not fixed (small-hotfix rule: one review, fix only blockers):
 - NIT `src/omnibar/patient-row.tsx:65-70`: Carbon `Tag` can swap an ellipsized label for a focusable `DefinitionTooltip` button, so "no focusable descendants inside an option" depends on layout (`max-inline-size: none` normally prevents it). A locally styled, non-interactive span would make it unconditional.
 - NIT `package.json:45`: `geopattern` is `^1.2.3`, not an exact pin; `yarn.lock` resolves 1.2.3.
+
+## Feature: ChartSearch suggestion row
+
+- On a patient chart, a question-shaped query can offer `Ask ChartSearch: "<query>"` under Suggestions. The row uses the existing navigate lane at order 100 and is never the default, even when it is the only row. Arrow or click opens `ai-chat-workspace` with `{ patientUuid, initialQuestion }` and null window and group props. Enter on the row does nothing when it is the only row.
+- The route requires `AI Query Patient Data`, and the provider checks that privilege again at runtime. The row is hidden when `chartSearchSuggestion.enabled` is false or when `workspaceName` is not registered. `looksLikeChartSearchQuestion` rejects short input, single concepts, UUIDs, and compact IDs before it accepts a question word, a trailing `?`, or at least `minWords` words. `minWords` must be a whole number of at least 2.
+- The omnibar makes no ChartSearch request. The upstream patch in `docs/upstream/esm-chartsearchai-initial-question.patch` removes chart-open warmup and prefills the existing input only when the workspace patient matches. Send is still required. Without the patch the workspace opens and ignores the question. ChartSearch has no client request timeout. Stop and its error panel handle requests after submission.
+- The streaming answer example is removed. It queried ChartSearch while the clinician typed.
+- Tests: 76 before, 112 after. 83 are in `src/omnibar/omnibar.test.tsx` and 29 in `src/providers/chartsearch-question.test.ts`. Before the identifier rule was narrowed, `hba1c results ok` and `covid-19 risk today` failed because the first rule treated any digit as a patient ID.
+- `corepack yarn verify` is green (`Tasks: 3 successful, 3 total`).
+- `corepack yarn build` is green. `Rspack compiled with 1 warning` (asset size limit on `132.js` at 605.971 KiB and `769.js` at 755.256 KiB).
+

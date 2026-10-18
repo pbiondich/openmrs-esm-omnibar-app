@@ -6,9 +6,9 @@ Oct 17, 2026 · @Paul Biondich
 
 O3's top-nav search should become a visible, extensible omnibar: one field that finds patients, pages and chart values, and that other apps such as ChartSearch AI plug into as providers.
 
-A clinician in a patient's chart presses Ctrl K and types `cd4`. Before they finish typing, the bar shows "CD4 count: 350 cells/µL, recorded 12 Mar 2026", matched through the concept dictionary with no model involved. If they instead type `why was ART switched last year`, ChartSearch streams an answer below the list, with links to the encounters it drew on. At the front desk, a clerk types `triage` and gets Service queues, because destinations carry the words staff actually use.
+A clinician in a patient's chart presses Ctrl K and types `cd4`. Before they finish typing, the bar shows "CD4 count: 350 cells/µL, recorded 12 Mar 2026", matched through the concept dictionary with no model involved. If they instead type `why was ART switched last year`, the bar offers an "Ask ChartSearch" destination below real results. Choosing it opens AI Chart Search with the question filled in. The model is not called until the clinician presses Send. At the front desk, a clerk types `triage` and gets Service queues, because destinations carry the words staff actually use.
 
-The omnibar shell knows nothing clinical. Every capability arrives as a provider, which is an ordinary O3 extension, so it gets lazy loading, privilege gating, feature flags, config and translations from the existing framework. A working prototype, esm-omnibar-app, implements the shell, three built-in providers and a ChartSearch example. It type-checks, lints, builds and passes its unit tests, but has not yet run against a live O3 instance.
+The omnibar shell knows nothing clinical. Every capability arrives as a provider, which is an ordinary O3 extension, so it gets lazy loading, privilege gating, feature flags, config and translations from the existing framework. A working prototype, esm-omnibar-app, implements the shell and four built-in providers. It type-checks, lints, builds and passes its unit tests. The ChartSearch handoff has not been checked on a live server.
 
 ## How search works in O3 today
 
@@ -37,7 +37,7 @@ Providers receive the query and scope and send back reports; only the shell turn
 - **Results describe destinations; they don't act.** A target is a page on the same site or a workspace launch. There is no `onSelect` callback, so the normal way to build a provider has no path to write to the record from the bar. This is a convention set by the contract's shape, not a sandbox.
 - **Answers must cite records.** A finished answer with no sources is hidden, with a note saying why. Sources are links into the chart.
 - **Stale results are dropped.** Each report carries the query it answers; a slow reply to `cd` can't overwrite results for `cd4`.
-- **Deterministic first.** Patients, pages and dictionary concepts answer most lookups instantly. A generative provider like ChartSearch should only take questions.
+- **Deterministic first.** Patients, pages and dictionary concepts answer most lookups instantly. ChartSearch appears only as an explicit destination for question-like input.
 
 ## The provider contract
 
@@ -116,16 +116,16 @@ After a selection the shell fires `openmrs:omnibar-selected` on window with the 
 
 ## Built-in providers
 
-Three providers ship with the prototype, and a fourth shows how ChartSearch would plug in.
+Four providers ship with the prototype.
 
 | Provider | Lane | Scopes | Example query | What it returns | Data source |
 | --- | --- | --- | --- | --- | --- |
 | Patient search | record | global, patient | `kip` or an ID | Up to 5 patients, then "All patient results" linking to `/search`; recents when the field is empty | REST `/patient?q=`, `patientsVisited` user property |
 | Chart lookup | record | patient | `cd4`, `hb`, `weight` | Latest value and date per matching concept, linking to the results viewer | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation/$lastn?max=1&code=…` |
 | Destinations | navigate | global, patient | `ward`, `triage` | Pages and apps, matched on label then keywords, filtered by privilege | Config: label, path, keywords, privilege |
-| ChartSearch (example) | answer | patient | `why was ART switched last year` | A streamed answer with source links into the chart | ChartSearch API (placeholder endpoint in the example) |
+| ChartSearch suggestion | navigate | patient | `why was ART switched last year` | A non-default row that opens AI Chart Search with the question filled in | Local heuristic; no ChartSearch request |
 
-Inside a chart, chart lookup comes first and patient search drops to "Other patients", through `patientScopeOrder`. Patient search doesn't declare `defaultInChart`, so an ID typed in a chart still finds the patient, but Enter alone never opens their chart. The ChartSearch example only responds to question-like queries (more than 12 characters with a space) and aborts its request on every new keystroke or chart change. It lives in `examples/` because it belongs in the ChartSearch module, not the omnibar.
+Inside a chart, chart lookup comes first and patient search drops to "Other patients", through `patientScopeOrder`. Patient search doesn't declare `defaultInChart`, so an ID typed in a chart still finds the patient, but Enter alone never opens their chart. The ChartSearch provider also omits `defaultInChart`, so an arrow key or click is always required. It checks the runtime privilege and workspace registration before reporting, and it never calls the model. ChartSearch owns errors and has no client timeout. The upstream patch prefills the existing input only when the workspace patient matches. Without that patch the workspace opens and the question is not filled in. If the workspace is already open, a different question replaces it. The patient transcript remains and unsent input is lost.
 
 ## Visible by default
 
@@ -181,18 +181,18 @@ Proposed path:
 1. Run the prototype in a dev distro and fix what the live system shows.
 2. Take it to the patient-management squad, with patient search as the first provider and the `appearance` option ready.
 3. Add a dedicated centre slot to the navbar in esm-primary-navigation-app.
-4. Make ChartSearch the first external provider, to prove the contract handles streaming and sources.
+4. Apply the upstream ChartSearch initial-question patch and verify the workspace handoff on a live distribution.
 5. Move the slot and types into esm-framework through an RFC once the contract settles.
 
 ## Prototype files
 
-The full source of every file below is in Source files. Build tooling comes unchanged from openmrs-esm-template-app.
+Source files is a snapshot from before the ChartSearch suggestion. The table below is the current file list. Build tooling comes unchanged from openmrs-esm-template-app.
 
 | File | What it does |
 | --- | --- |
-| `src/routes.json` | Registers the omnibar in `top-nav-actions-slot` and the three providers in `omnibar-providers-slot` |
+| `src/routes.json` | Registers the omnibar in `top-nav-actions-slot` and the four providers in `omnibar-providers-slot` |
 | `src/index.ts` | Lazy-loaded entry points and config schema registration |
-| `src/config-schema.ts` | `appearance`, patient search, chart lookup and destination settings |
+| `src/config-schema.ts` | `appearance`, patient search, chart lookup, destination, and ChartSearch suggestion settings |
 | `src/omnibar/types.ts` | The public provider contract |
 | `src/omnibar/use-omnibar-context.ts` | Scope from the chart URL; widen and narrow |
 | `src/omnibar/omnibar.resource.ts` | Result collector, lane ordering, target execution, keyboard shortcut |
@@ -201,7 +201,8 @@ The full source of every file below is in Source files. Build tooling comes unch
 | `src/providers/patient-search.provider.tsx` | Patient search and recents |
 | `src/providers/chart-lookup.provider.tsx` | Concept dictionary to latest observation |
 | `src/providers/destinations.provider.tsx` | Config-driven pages and apps |
-| `examples/chartsearch-answer.provider.tsx` | Streaming answer provider for ChartSearch to adapt |
+| `src/providers/chartsearch-question.ts` | Pure question and patient-ID heuristic |
+| `src/providers/chartsearch-suggestion.provider.tsx` | Privilege-gated ChartSearch workspace destination |
 | `src/omnibar/omnibar.test.tsx` | Unit tests, with providers mounted through the slot |
-| `examples/chartsearch-answer.provider.test.tsx` | Streaming, cancellation and errors for the ChartSearch example |
+| `docs/upstream/esm-chartsearchai-initial-question.patch` | Proposed upstream workspace prefill and no-warmup patch |
 | `translations/en.json` | English strings |
