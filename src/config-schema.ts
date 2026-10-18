@@ -205,7 +205,7 @@ export const configSchema = {
       _type: Type.Boolean,
       _default: false,
       _description:
-        'Let the cohort parser understand drug groups ("on ARVs"). Off by default: the Cohort Builder searches drug orders with reporting.library.cohortDefinition.builtIn.drugOrderSearch, which no reporting release defines, so the search fails unless the server provides that definition.',
+        'Let the cohort parser understand drug groups ("on ARVs"). Off by default: the Cohort Builder searches drug orders with reporting.library.cohortDefinition.builtIn.drugOrderSearch, which no reporting release defines, so the search fails until the server can run it. Turn this on once reporting defines it, or once the site installs its own DrugOrderCohortDefinition and sets the Cohort Builder\'s drugOrderSearchDefinitionKey to it (e.g. "configuration.definitionlibrary.cohort.drugOrderSearch").',
     },
     programs: {
       _type: Type.Array,
