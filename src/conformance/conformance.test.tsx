@@ -16,7 +16,7 @@ import {
   useConfig,
   useLayoutType,
 } from '@openmrs/esm-framework';
-import { configSchema, type OmnibarConfig } from '../config-schema';
+import { configSchema as appConfigSchema, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
 import Omnibar from '../omnibar/omnibar.extension';
 import ChartLookupProvider from '../providers/chart-lookup.provider';
@@ -28,6 +28,16 @@ import {
   type OmnibarProviderProps,
 } from '../omnibar-contract';
 import { extensionName, type SavedList, savedListsProvider } from './external-app/saved-lists.provider';
+
+// Most of these tests describe Enter opening the highlighted row, which inside a chart is now the
+// "open-highlight" behaviour. The tests of Enter submitting to Query results set "submit" themselves.
+const configSchema = {
+  ...appConfigSchema,
+  queryResults: {
+    ...appConfigSchema.queryResults,
+    enterBehavior: { ...appConfigSchema.queryResults.enterBehavior, _default: 'open-highlight' },
+  },
+};
 
 // The same slot as in src/omnibar/omnibar.test.tsx: the framework mock's ExtensionSlot never mounts
 // anything, so this one filters with `select`, runs the render function per extension, and passes

@@ -93,6 +93,26 @@ export const configSchema = {
         'The workspace group that ChartSearch workspace opens in. The row is offered only while the omnibar reports that group open for this patient.',
     },
   },
+  queryResults: {
+    enterBehavior: {
+      _type: Type.String,
+      _default: 'submit',
+      _description:
+        'What Enter does inside a chart. "submit" (default) opens the chart\'s Query results section for what was typed, unless the user arrowed or pointed to a row since their last keystroke, in which case Enter opens that row. "open-highlight" keeps the earlier behaviour: Enter opens the highlighted row. Outside a chart, Enter always opens the highlighted row.',
+      _validators: [validators.oneOf(['submit', 'open-highlight'])],
+    },
+    askChartSearch: {
+      _type: Type.Boolean,
+      _default: true,
+      _description:
+        'Offer to ask ChartSearch about question-like queries on the Query results page. The answer appears on the page, and nothing is sent until the clinician presses Ask. Needs the AI Query Patient Data privilege and ChartSearch installed.',
+    },
+    maxValuesPerConcept: {
+      _type: Type.Number,
+      _default: 50,
+      _description: 'Values shown for each matching concept on the Query results page, newest first.',
+    },
+  },
   destinations: {
     _type: Type.Array,
     _description: 'Pages and apps the omnibar can open. Adjust to match the apps in your distribution.',
@@ -178,5 +198,10 @@ export interface OmnibarConfig {
     source: 'rest' | 'querystore' | 'both';
   };
   chartSearchSuggestion: ChartSearchSuggestionConfig;
+  queryResults: {
+    enterBehavior: 'submit' | 'open-highlight';
+    askChartSearch: boolean;
+    maxValuesPerConcept: number;
+  };
   destinations: Array<Destination>;
 }
