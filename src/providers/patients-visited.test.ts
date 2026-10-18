@@ -9,6 +9,10 @@ describe('parseVisited', () => {
     expect(parseVisited(`${uuid(1)},../../session,,${uuid(2)},junk`)).toEqual([uuid(1), uuid(2)]);
   });
 
+  it('reads UUIDs in lower case, so one patient spelled two ways reads as one', () => {
+    expect(parseVisited(`${uuid(1).toUpperCase()},${uuid(2)}`)).toEqual([uuid(1), uuid(2)]);
+  });
+
   it('reads a missing property as no visits', () => {
     expect(parseVisited(undefined)).toEqual([]);
     expect(parseVisited('')).toEqual([]);
@@ -26,6 +30,12 @@ describe('addVisit', () => {
       uuid(99),
       ...Array.from({ length: 9 }, (_, i) => uuid(i + 1)),
     ]);
+  });
+
+  it('counts a patient once however their UUID is cased', () => {
+    expect(addVisit(uuid(2).toUpperCase(), `${uuid(1)},${uuid(2)},${uuid(1).toUpperCase()}`)).toBe(
+      `${uuid(2)},${uuid(1)}`,
+    );
   });
 
   it('drops entries that are not UUIDs before the cut', () => {
