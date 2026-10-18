@@ -8,6 +8,7 @@ import { mockSessionStore } from '@openmrs/esm-api/mock';
 import { OMNIBAR_CONTRACT_VERSION, type OmnibarViewMeta, type OmnibarViewProps } from '../omnibar-contract';
 import QueryResultsPage from './query-results.page';
 import { rememberQuery } from './query-history';
+import { markSubmitted } from './submission';
 
 // As in the omnibar's tests: the framework mock's slot mounts nothing, so this one filters with
 // `select`, runs the render function per extension and passes <Extension state> as props.
@@ -198,5 +199,44 @@ describe('the Query results page', () => {
 
     expect(screen.getByText(/Search Humprey Doe’s chart from the search bar/)).toBeInTheDocument();
     expect(seen).toHaveLength(0);
+  });
+
+  describe('telling views whether the user just asked', () => {
+    it('says so for the query just submitted for this chart, once', () => {
+      const seen: Array<OmnibarViewProps> = [];
+      register([{ name: 'values', meta: { scopes: ['patient'] }, component: reports('ready', 'Values', seen) }]);
+      markSubmitted(humprey.toUpperCase(), 'cd4');
+      const { unmount } = render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+      expect(seen.at(-1).submitted).toBe(true);
+      unmount();
+
+      // Opened again, as a reload or back would, nobody asked.
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+      expect(seen.at(-1).submitted).toBe(false);
+    });
+
+    it.each([
+      ['nothing was submitted', () => {}],
+      ['another query was', () => markSubmitted(humprey, 'weight')],
+      ['the query was submitted for another chart', () => markSubmitted(other, 'cd4')],
+    ])('says not when %s', (_, before) => {
+      const seen: Array<OmnibarViewProps> = [];
+      register([{ name: 'values', meta: { scopes: ['patient'] }, component: reports('ready', 'Values', seen) }]);
+      before();
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+      expect(seen.at(-1).submitted).toBe(false);
+    });
+
+    it('counts choosing an earlier query as asking it', async () => {
+      const user = userEvent.setup();
+      const seen: Array<OmnibarViewProps> = [];
+      register([{ name: 'values', meta: { scopes: ['patient'] }, component: reports('ready', 'Values', seen) }]);
+      rememberQuery(humprey, 'weight');
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+      await user.click(screen.getByRole('button', { name: 'weight' }));
+      goTo('weight');
+      expect(seen.at(-1)).toMatchObject({ query: 'weight', submitted: true });
+    });
   });
 });

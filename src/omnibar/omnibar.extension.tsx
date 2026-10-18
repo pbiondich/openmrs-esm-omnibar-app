@@ -44,6 +44,8 @@ import {
 } from './types';
 import { looksLikeIdentifier } from '../omnibar-contract';
 import { queryResultsUrl } from '../query-results/query-results-url';
+import { markSubmitted } from '../query-results/submission';
+import { useChartSearchOffer } from '../views/chartsearch-offer';
 import styles from './omnibar.scss';
 
 export const providersSlot = 'omnibar-providers-slot';
@@ -374,9 +376,12 @@ const Omnibar: React.FC = () => {
   const submittedQuery = query.trim();
   const submitsOnEnter =
     queryResults?.enterBehavior !== 'open-highlight' && Boolean(scopePatientUuid) && Boolean(submittedQuery) && !chosen;
+  // Said in the hint, so the user knows Enter will also ask ChartSearch, an AI, about the chart.
+  const asksChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid);
   const submitQuery = () => {
     if (!scopePatientUuid || !submittedQuery) return;
     const to = queryResultsUrl(scopePatientUuid, submittedQuery);
+    markSubmitted(scopePatientUuid, submittedQuery);
     closeBar();
     navigate({ to });
   };
@@ -771,15 +776,25 @@ const Omnibar: React.FC = () => {
               onClick={submitQuery}
               dir="auto"
             >
-              {desktop
-                ? t('enterToSeeAll', 'Enter to see all results for “{{query}}”', {
-                    query: submittedQuery,
-                    interpolation: { escapeValue: false },
-                  })
-                : t('seeAllResults', 'See all results for “{{query}}”', {
-                    query: submittedQuery,
-                    interpolation: { escapeValue: false },
-                  })}
+              {asksChartSearch
+                ? desktop
+                  ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask ChartSearch', {
+                      query: submittedQuery,
+                      interpolation: { escapeValue: false },
+                    })
+                  : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask ChartSearch', {
+                      query: submittedQuery,
+                      interpolation: { escapeValue: false },
+                    })
+                : desktop
+                  ? t('enterToSeeAll', 'Enter to see all results for “{{query}}”', {
+                      query: submittedQuery,
+                      interpolation: { escapeValue: false },
+                    })
+                  : t('seeAllResults', 'See all results for “{{query}}”', {
+                      query: submittedQuery,
+                      interpolation: { escapeValue: false },
+                    })}
             </button>
           )}
 

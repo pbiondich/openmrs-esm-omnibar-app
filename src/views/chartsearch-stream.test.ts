@@ -69,6 +69,21 @@ describe('reading ChartSearch payloads', () => {
     expect(parseReferences('nope')).toBeNull();
   });
 
+  it('cuts any one field from the server short, so it can’t fill the page', () => {
+    const [warning] = parseStatements({
+      safetyWarnings: [{ type: 'x'.repeat(10_000), detail: 'd'.repeat(100_000), chartOrderBridges: [] }],
+    }).safetyWarnings;
+    expect(warning.detail).toHaveLength(5_000);
+    expect(warning.detail.endsWith('…')).toBe(true);
+    expect(warning.type).toHaveLength(500);
+    expect(
+      parseReferences([{ index: 1, resourceType: 'r'.repeat(10_000), source: 's'.repeat(10_000) }])[0],
+    ).toMatchObject({
+      resourceType: expect.stringMatching(/^r{499}…$/),
+      source: expect.stringMatching(/^s{499}…$/),
+    });
+  });
+
   it('reads the statements, leaving out what isn’t the right shape', () => {
     expect(
       parseStatements({

@@ -45,6 +45,7 @@ import {
 } from './omnibar.resource';
 import { withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
+import { takeSubmission } from '../query-results/submission';
 import {
   OMNIBAR_SELECTED_EVENT,
   type OmnibarContext,
@@ -4725,6 +4726,43 @@ describe('Enter inside a chart, with Query results', () => {
     await user.keyboard('{Enter}');
     expect(landedOn()).toBe(queryResultsFor('cd4'));
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    // The page learns the user asked, so a view may answer at once.
+    expect(takeSubmission(chartPatient, 'cd4')).toBe(true);
+    expect(takeSubmission(chartPatient, 'cd4')).toBe(false);
+  });
+
+  it('says in the hint when Enter will also ask ChartSearch', async () => {
+    const user = userEvent.setup();
+    mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
+    vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
+    vi.mocked(userHasAccess).mockReturnValue(true);
+    mountProviders([]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'when did he start ART?');
+    expect(
+      await screen.findByRole('button', {
+        name: 'Enter to see all results for “when did he start ART?” and ask ChartSearch',
+      }),
+    ).toBeInTheDocument();
+
+    vi.mocked(userHasAccess).mockReturnValue(false);
+    await user.type(screen.getByRole('combobox'), ' ');
+    expect(
+      screen.getByRole('button', { name: 'Enter to see all results for “when did he start ART?”' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps working when the workspace registry fails', async () => {
+    const user = userEvent.setup();
+    mockGetRegisteredWorkspace2Names.mockImplementation(() => {
+      throw new Error('registry failed');
+    });
+    mountProviders([]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'when did he start ART?{Enter}');
+    expect(landedOn()).toBe(queryResultsFor('when did he start ART?'));
   });
 
   it('submits the typed text before any provider has answered', async () => {

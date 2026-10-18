@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, InlineLoading } from '@carbon/react';
-import { formatDate, getRegisteredWorkspace2Names, useConfig, useSession, userHasAccess } from '@openmrs/esm-framework';
-import { type OmnibarConfig } from '../config-schema';
+import { formatDate } from '@openmrs/esm-framework';
 import { isServerUnreachable, type OmnibarViewProps, type OmnibarViewState } from '../omnibar-contract';
-import { looksLikeChartSearchQuestion, useChartSearchMaxQuestionLength } from '../providers/chartsearch-question';
+import { useChartSearchOffer } from './chartsearch-offer';
 import {
   type ChartSearchReference,
   type ChartSearchStatements,
@@ -18,10 +17,12 @@ import {
 import styles from './chartsearch-answer.scss';
 
 /**
- * Ask ChartSearch, on the Query results page. For a question-like query it offers to ask, and only
- * when the clinician presses Ask does it send the question, with the chart's patient, to ChartSearch's
- * streaming endpoint; the answer streams into the page. Nothing is sent on Enter, on opening the page,
- * or on choosing a query from history. The answer is never stored.
+ * ChartSearch, on the Query results page. For a question-like query the user just submitted (Enter in
+ * the bar, its "see all results" line, or an earlier query on the page), it sends the question, with
+ * the chart's patient, to ChartSearch's streaming endpoint, and the answer streams into the page. The
+ * bar's hint says Enter will ask ChartSearch, so Enter is the request. A page reloaded, reached with
+ * back or forward, or opened from a link sends nothing until the clinician presses Ask. Typing alone
+ * never sends anything, and the answer is never stored.
  *
  * This is a prototype that lives here for now (see docs/decisions.md): it belongs in ChartSearch's own
  * app, which already draws these answers. It draws ChartSearch's statements about the answer as that
@@ -29,9 +30,8 @@ import styles from './chartsearch-answer.scss';
  * chart evidence, safety findings whole, and each caveat as a caveat, never as a verdict.
  */
 
-const privilege = 'AI Query Patient Data';
-
-type Phase = 'ready' | 'asking' | 'answering' | 'answered' | 'final' | 'failed' | 'unavailable';
+type Phase = 'ready' | 'asking' | 'answering' | 'answered' | 'final' | Failure;
+type Failure = 'failed' | 'unavailable' | 'signedOut';
 
 interface AnswerState {
   phase: Phase;
@@ -42,11 +42,7 @@ interface AnswerState {
   disclaimer: string | null;
 }
 
-type Action =
-  | { type: 'ask' }
-  | { type: 'event'; event: SseEvent }
-  | { type: 'end' }
-  | { type: 'fail'; unreachable: boolean };
+type Action = { type: 'ask' } | { type: 'event'; event: SseEvent } | { type: 'end' } | { type: 'fail'; phase: Failure };
 
 const initialState: AnswerState = { phase: 'ready', text: '', references: [], statements: null, disclaimer: null };
 
@@ -57,12 +53,12 @@ function reducer(state: AnswerState, action: Action): AnswerState {
     case 'ask':
       return { ...initialState, phase: 'asking' };
     case 'fail':
-      return { ...state, phase: action.unreachable ? 'unavailable' : 'failed' };
+      return { ...state, phase: action.phase };
     case 'end':
       // A stream that ends before `done` didn't finish its answer.
       return state.phase === 'answered' ? { ...state, phase: 'final' } : { ...state, phase: 'failed' };
     case 'event': {
-      if (state.phase === 'failed' || state.phase === 'unavailable' || state.phase === 'final') {
+      if (state.phase === 'final' || isFailure(state.phase)) {
         return state;
       }
       const { event, data } = action.event;
@@ -92,7 +88,8 @@ function reducer(state: AnswerState, action: Action): AnswerState {
             text: typeof payload.answer === 'string' ? cap(payload.answer) : state.text,
             references: parseReferences(payload.references) ?? state.references,
             statements: parseStatements(payload),
-            disclaimer: typeof payload.disclaimer === 'string' ? payload.disclaimer : null,
+            disclaimer:
+              typeof payload.disclaimer === 'string' ? payload.disclaimer.slice(0, maxDisclaimerCharacters) : null,
           };
         }
         case 'grounded': {
@@ -118,6 +115,17 @@ function reducer(state: AnswerState, action: Action): AnswerState {
   }
 }
 
+const isFailure = (phase: Phase): phase is Failure =>
+  phase === 'failed' || phase === 'unavailable' || phase === 'signedOut';
+const maxDisclaimerCharacters = 1_000;
+
+/** How a failed request is told: the server out of reach, the session ended, or anything else. */
+function failureOf(error: unknown): Failure {
+  if (isServerUnreachable(error)) return 'unavailable';
+  // A raw fetch doesn't send the user to the login page as openmrsFetch would, so the page says why.
+  return (error as { response?: { status?: number } })?.response?.status === 401 ? 'signedOut' : 'failed';
+}
+
 const humanize = (value: string) => {
   const words = value.replace(/[_-]+/g, ' ').trim();
   return words ? words.charAt(0).toLocaleUpperCase() + words.slice(1) : value;
@@ -129,24 +137,11 @@ const formatDay = (date: string | null) => {
   return Number.isNaN(parsed.getTime()) ? null : formatDate(parsed, { time: false });
 };
 
-const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, reportState }) => {
+const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, reportState, submitted }) => {
   const { t } = useTranslation();
-  const { queryResults, chartSearchSuggestion } = useConfig<OmnibarConfig>();
-  const { user } = useSession();
   const patientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
-
-  // ChartSearch's workspace being registered says its app is installed; nothing here opens it.
-  const workspaceName = chartSearchSuggestion.workspaceName.trim();
-  const installed = Boolean(workspaceName && getRegisteredWorkspace2Names().includes(workspaceName));
-  const maxQuestionLength = useChartSearchMaxQuestionLength(installed);
   const question = query.trim();
-  const offered =
-    queryResults?.askChartSearch !== false &&
-    Boolean(patientUuid) &&
-    installed &&
-    Boolean(user && userHasAccess(privilege, user)) &&
-    question.length <= maxQuestionLength &&
-    looksLikeChartSearchQuestion(question, chartSearchSuggestion.minWords);
+  const offered = useChartSearchOffer(question, patientUuid);
 
   const [state, dispatch] = useReducer(reducer, initialState);
   const controller = useRef<AbortController | null>(null);
@@ -160,9 +155,20 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
     dispatch({ type: 'ask' });
     streamChartSearch(patientUuid, question, (event) => dispatch({ type: 'event', event }), current.signal).then(
       () => current.signal.aborted || dispatch({ type: 'end' }),
-      (error) => current.signal.aborted || dispatch({ type: 'fail', unreachable: isServerUnreachable(error) }),
+      (error) => current.signal.aborted || dispatch({ type: 'fail', phase: failureOf(error) }),
     );
   }, [offered, patientUuid, question]);
+
+  // A query the user just submitted is asked at once: Enter was the request. A page reloaded, reached
+  // with back or forward, or opened from a link asks only when the clinician presses the button, so
+  // nothing sends the question again on its own. Each query is a new mount, so this runs once.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (submitted && offered && !asked.current) {
+      asked.current = true;
+      ask();
+    }
+  }, [submitted, offered, ask]);
 
   const viewState: OmnibarViewState = !offered ? 'empty' : 'ready';
   useEffect(() => {
@@ -246,7 +252,7 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
   return (
     <div className={styles.card}>
       <h3 id={headingId} className={styles.heading}>
-        {t('askChartSearchHeading', 'Ask ChartSearch')}
+        {t('chartSearchHeading', 'ChartSearch')}
       </h3>
       <p className={styles.question} dir="auto">
         {question}
@@ -256,8 +262,8 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
         <>
           <p className={styles.note}>
             {t(
-              'askChartSearchNote',
-              'ChartSearch answers from this chart using AI. Nothing is sent until you press Ask.',
+              'askChartSearchAgainNote',
+              'ChartSearch answers from this chart using AI. It isn’t asked again when this page is reopened.',
             )}
           </p>
           <Button kind="primary" size="md" onClick={ask}>
@@ -266,12 +272,14 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
         </>
       )}
 
-      {(state.phase === 'failed' || state.phase === 'unavailable') && (
+      {isFailure(state.phase) && (
         <>
           <p className={styles.note} role="status">
             {state.phase === 'unavailable'
               ? t('providerUnavailable', 'Unavailable right now')
-              : t('chartSearchFailed', 'ChartSearch couldn’t answer this question.')}
+              : state.phase === 'signedOut'
+                ? t('chartSearchSignedOut', 'Your session has ended. Log in again, then ask again.')
+                : t('chartSearchFailed', 'ChartSearch couldn’t answer this question.')}
           </p>
           <Button kind="tertiary" size="sm" onClick={ask}>
             {t('tryAgain', 'Try again')}
@@ -279,7 +287,7 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
         </>
       )}
 
-      {state.phase !== 'ready' && state.phase !== 'failed' && state.phase !== 'unavailable' && (
+      {state.phase !== 'ready' && !isFailure(state.phase) && (
         <section className={styles.answer} aria-live="polite" aria-busy={streaming}>
           {!state.text && streaming && <InlineLoading description={t('thinking', 'Working on an answer')} />}
           {unsourced ? (

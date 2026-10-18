@@ -227,8 +227,9 @@ export interface OmnibarProviderProps {
  * chart's Query results section, which mounts every view in this slot with that query. A view is an
  * ordinary extension, registered from its own app's routes.json with `OmnibarViewMeta` as its meta.
  * Unlike a provider it renders: one section of the page, with its own heading. The design rules apply
- * as they do to providers: a view navigates or opens a workspace, never writes to the record, never
- * calls a model unless the clinician asks it to in the view, and uses `context.patientUuid` only.
+ * as they do to providers: a view navigates or opens a workspace, never writes to the record, calls a
+ * model only for a query the user just submitted or when the clinician asks in the view, and uses
+ * `context.patientUuid` only.
  */
 export const OMNIBAR_QUERY_RESULTS_SLOT = 'omnibar-query-results-slot';
 
@@ -266,6 +267,13 @@ export interface OmnibarViewProps {
   /** Dropped once the host has moved past this mount: another query or chart, or the page closing. */
   reportState: (state: OmnibarViewState) => void;
   hints?: OmnibarQueryHints;
+  /**
+   * True when the user asked for this query just now: Enter in the bar, its "see all results" line, or
+   * an earlier query chosen on the page. False when the page was reloaded, reached with back or
+   * forward, or opened from a bookmark or the left nav. A view that calls a model calls it only when
+   * this is true, or when the clinician asks in the view.
+   */
+  submitted?: boolean;
 }
 
 /** Fired on window after the user picks a result, for bookkeeping such as recently viewed patients. */

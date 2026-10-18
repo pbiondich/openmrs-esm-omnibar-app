@@ -15,6 +15,9 @@ export interface SseEvent {
 /** The most bytes read, and the longest answer kept, so a runaway stream can't fill the page. */
 export const maxStreamBytes = 2_000_000;
 export const maxAnswerCharacters = 50_000;
+/** The longest safety finding, and the longest of any other field, drawn from ChartSearch's statements. */
+export const maxDetailCharacters = 5_000;
+export const maxFieldCharacters = 500;
 
 /**
  * A server-sent events parser for a stream read in chunks. Lines starting with ":" are comments
@@ -163,7 +166,10 @@ export interface ChartSearchStatements {
 }
 
 const isString = (value: unknown): value is string => typeof value === 'string';
-const stringOrNull = (value: unknown) => (isString(value) ? value : null);
+/** A string cut to `max` characters, so no one field from the server can fill the page. */
+const capped = (value: string, max = maxFieldCharacters) =>
+  value.length > max ? `${value.slice(0, max - 1)}…` : value;
+const stringOrNull = (value: unknown) => (isString(value) ? capped(value) : null);
 const wholeNumber = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
 const numbersOrNull = (value: unknown) => (Array.isArray(value) ? value.filter(wholeNumber) : null);
 
@@ -175,11 +181,11 @@ export function parseReferences(value: unknown): Array<ChartSearchReference> | n
     .filter((ref) => ref && typeof ref === 'object' && wholeNumber(ref.index) && isString(ref.resourceType))
     .map((ref) => ({
       index: ref.index,
-      resourceType: ref.resourceType,
+      resourceType: capped(ref.resourceType),
       date: stringOrNull(ref.date),
       grounded: typeof ref.grounded === 'boolean' ? ref.grounded : null,
       // Anything but "reference" is drawn as chart evidence only if ChartSearch says "chart".
-      group: isString(ref.group) ? ref.group : 'unknown',
+      group: isString(ref.group) ? capped(ref.group) : 'unknown',
       source: stringOrNull(ref.source),
       withheldInteractions: wholeNumber(ref.withheldInteractions) ? ref.withheldInteractions : 0,
       attachedByTheModule: ref.attachedByTheModule === true,
@@ -193,14 +199,14 @@ function parseWarnings(value: unknown): Array<ChartSearchSafetyWarning> {
   return value
     .filter((chip) => chip && typeof chip === 'object' && isString(chip.detail))
     .map((chip) => ({
-      type: isString(chip.type) ? chip.type : '',
-      drug: isString(chip.drug) ? chip.drug : '',
-      detail: chip.detail,
-      severity: isString(chip.severity) && chip.severity.trim() ? chip.severity.trim() : null,
+      type: isString(chip.type) ? capped(chip.type) : '',
+      drug: isString(chip.drug) ? capped(chip.drug) : '',
+      detail: capped(chip.detail, maxDetailCharacters),
+      severity: isString(chip.severity) && chip.severity.trim() ? capped(chip.severity.trim()) : null,
       chartOrderBridges: Array.isArray(chip.chartOrderBridges)
-        ? chip.chartOrderBridges.filter(
-            (bridge) => bridge && isString(bridge.substance) && isString(bridge.orderDisplay),
-          )
+        ? chip.chartOrderBridges
+            .filter((bridge) => bridge && isString(bridge.substance) && isString(bridge.orderDisplay))
+            .map((bridge) => ({ substance: capped(bridge.substance), orderDisplay: capped(bridge.orderDisplay) }))
         : [],
     }));
 }

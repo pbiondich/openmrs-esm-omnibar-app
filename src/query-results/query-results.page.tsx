@@ -21,6 +21,7 @@ import { speaksContractOf } from '../omnibar/omnibar.resource';
 import { useOpenedWorkspaceGroup } from '../omnibar/workspace-group';
 import { capQuery, queryResultsUrl } from './query-results-url';
 import { getQueryHistory, rememberQuery } from './query-history';
+import { markSubmitted, takeSubmission } from './submission';
 import styles from './query-results.scss';
 
 interface QueryResultsPageProps {
@@ -125,6 +126,14 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   });
   const statesNow = states.generation === generation ? states.byView : {};
 
+  // Whether this query was submitted just now, read once per generation: the mark is used up as it's
+  // read, so a later render, or the page reopened, sees a page nobody asked for again.
+  const submissions = useRef<{ generation: string; submitted: boolean } | null>(null);
+  if (submissions.current?.generation !== generation) {
+    submissions.current = { generation, submitted: Boolean(query) && takeSubmission(patientUuid, query) };
+  }
+  const submitted = submissions.current.submitted;
+
   const context = useMemo<OmnibarContext>(
     () => ({ scope: 'patient', patientUuid, locale: i18n.language, workspaceGroup }),
     [patientUuid, i18n.language, workspaceGroup],
@@ -144,12 +153,12 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
             return byView[name] === state ? current : { generation, byView: { ...byView, [name]: state } };
           });
         };
-        props = { query, context, contractVersion: OMNIBAR_CONTRACT_VERSION, reportState, hints };
+        props = { query, context, contractVersion: OMNIBAR_CONTRACT_VERSION, reportState, hints, submitted };
         cache.set(name, props);
       }
       return props;
     };
-  }, [generation, query, context, hints]);
+  }, [generation, query, context, hints, submitted]);
 
   const reported = views.map((view) => statesNow[view.name]);
   const settled = reported.length > 0 && reported.every((state) => state && state !== 'loading');
@@ -160,7 +169,11 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
     return null;
   }
 
-  const runAgain = (earlierQuery: string) => navigate({ to: queryResultsUrl(patientUuid, earlierQuery) });
+  // Choosing an earlier query is asking it again, as Enter is.
+  const runAgain = (earlierQuery: string) => {
+    markSubmitted(patientUuid, earlierQuery);
+    navigate({ to: queryResultsUrl(patientUuid, earlierQuery) });
+  };
 
   return (
     <div className={styles.page}>

@@ -81,7 +81,7 @@ const done = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const renderView = (query = question) => {
+const renderView = (query = question, submitted = false) => {
   const states: Array<OmnibarViewState> = [];
   const props: OmnibarViewProps = {
     query,
@@ -90,6 +90,7 @@ const renderView = (query = question) => {
     reportState: (state) => {
       states.push(state);
     },
+    submitted,
   };
   const view = render(<ChartSearchAnswerView {...props} />);
   return { states, ...view };
@@ -108,13 +109,46 @@ describe('the Ask ChartSearch view', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('offers to ask about a question, and sends nothing until Ask is pressed', async () => {
+  it('asks at once about a question the user just submitted, with no Ask button, and only once', async () => {
+    const stream = streamingResponse();
+    fetchMock.mockResolvedValue(stream.response);
+    const { states, rerender } = renderView(question, true);
+
+    expect(screen.getByRole('heading', { name: 'ChartSearch' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ask ChartSearch' })).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ patient: humprey, question });
+    await waitFor(() => expect(states.at(-1)).toBe('ready'));
+
+    rerender(
+      <ChartSearchAnswerView
+        query={question}
+        context={{ scope: 'patient', patientUuid: humprey, locale: 'en' }}
+        contractVersion={1}
+        reportState={() => {}}
+        submitted
+      />,
+    );
+    await act(async () => stream.write(frame('done', done())));
+    await act(async () => stream.end());
+    expect(await screen.findByText('ART started on 3 March 2024 [1].')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('on a page nobody just asked for, such as a reload, sends nothing until Ask is pressed', async () => {
     const { states } = renderView();
 
-    expect(screen.getByRole('heading', { name: 'Ask ChartSearch' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'ChartSearch' })).toBeInTheDocument();
     expect(screen.getByText(question)).toBeInTheDocument();
-    expect(screen.getByText(/Nothing is sent until you press Ask/)).toBeInTheDocument();
+    expect(screen.getByText(/isn’t asked again when this page is reopened/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ask ChartSearch' })).toBeInTheDocument();
     await waitFor(() => expect(states.at(-1)).toBe('ready'));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never asks about a submitted query that isn’t a question', async () => {
+    const { states } = renderView('cd4', true);
+    await waitFor(() => expect(states.at(-1)).toBe('empty'));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -305,6 +339,7 @@ describe('the Ask ChartSearch view', () => {
     [503, 'Unavailable right now'],
     [429, 'ChartSearch couldn’t answer this question.'],
     [403, 'ChartSearch couldn’t answer this question.'],
+    [401, 'Your session has ended. Log in again, then ask again.'],
   ])('says only what the page says when the server answers %s', async (status, message) => {
     const user = userEvent.setup();
     fetchMock.mockResolvedValue(streamingResponse({ status }).response);
