@@ -793,3 +793,27 @@ Tests rewritten:
 - The new host tests and the query store tests passed five runs in a row.
 - `src/omnibar-contract/` is unchanged. N8, the `dedupeKey` comment in `types.ts`, is still a follow-up for the original.
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 567 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+
+### Review round 4 (Cursor cloud re-review: APPROVE WITH NITS; Grok r4 re-check, code and security: CHANGES REQUESTED, no blocking)
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 (Cursor SHOULD-FIX) | `pointAt` returned early when the hovered row was already highlighted, so pointing at a destination picked by default didn't mark it chosen, and a late chart row could still take it | Pointing at a row marks it chosen when it isn't already, including when it's highlighted by default. Test: the ward is picked by default, the user points at it, the admission row arrives, and the ward keeps the highlight and Enter | ba9a959 (test), 8eee4c5 |
+| 2 (Cursor optional nit, Grok S1 SHOULD-FIX) | Once the 1.5 s cap had pinned a destination, a later empty indexing answer (a search slower than 1.5 s, or one retried after an error) didn't take the highlight back, so Enter opened the ward while the chart was still indexing | Inside a chart, a default highlight is kept only while it may be the default now. While a provider ranked before it is back to not having answered, it's withdrawn and Enter does nothing, until rows arrive (the give-way) or the cap runs out. No new clock starts: both caps still count from the query. A chosen row (arrow or pointer) is kept as it was. Outside a chart nothing waits, so the pin is unchanged. The contract doc's "The default highlight" and "Stale data", and AGENTS.md, say so | d189cce (test), 4f08ddf, 92868f9 |
+| N1 (Grok) | No test showed that a session user change after the first paint refilters the rows | Test: the session changes to a user without `Get Conditions`, and the condition row goes. It passes as a guard, and fails with `user` removed from the effect's dependencies | f9d1d9d |
+| N2 (Grok) | A whitespace-only snippet or concept name counted as a title | Blank text counts as missing. A coded row falls back to the concept name, a numeric row with a blank concept name shows just the value, and a row with nothing left is dropped | c3e3392 (test), fe6cfba |
+| N8 (Grok) | The `dedupeKey` comment in `src/omnibar-contract/types.ts` | Still a follow-up for the original; the copied folder is unchanged | none |
+
+Round 4 item 2 was first left as optional, because withdrawing a highlight under the user is what the pin was meant to prevent. Grok's r4 made it required. It holds now only inside a chart, only for a highlight the user didn't choose, and only within the per-query caps.
+
+The S1 tests use the real query store provider and real delays:
+
+- The first search is held 2 s, past the 1.5 s cap, and answers `not_indexed` with no rows. The ward loses the highlight and Enter does nothing. The re-check brings the admission row, and Enter opens this patient's `/chart/Visits`.
+- The user arrows to the ward before that answer: the ward keeps Enter.
+- A 503, then SWR's retry answering `not_indexed` with no rows: the ward is released while the indexing hold is live. `errorRetryInterval` is 200 ms in that test's `SWRConfig`, because SWR's default retry delay is random and could land past the 10 s cap.
+
+- Tests: 567 before, 574 after (`omnibar.test.tsx` +4, provider test +3).
+- Failed first: ba9a959 1, d189cce 2 (the arrowed case passed and stays as a guard), c3e3392 1.
+- The pointer test failed once in a full-suite run right after 8eee4c5's change, then passed alone and in three full runs. The likely cause is its tight timing under load: the ward highlighted at 1.5 s, the chart row due at 2.2 s. Its slow answer is now 3 s, so the pointer move always lands first.
+- The host, provider and query store tests passed three runs in a row after the last change.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 574 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
