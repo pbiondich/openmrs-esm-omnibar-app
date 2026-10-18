@@ -710,17 +710,25 @@ describe('QuerystoreChartProvider registration', () => {
   const metaOf = (name: string) =>
     routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
 
-  it('declares contract 1, ranks after chart lookup, skips identifiers and leaves the default highlight alone', () => {
-    // Exact, so a `defaultInChart` creeping back in fails: only chart lookup takes the default among
-    // `chart-values` providers, since the kept copy's target is the one that runs.
+  it('declares contract 1, ranks after chart lookup, skips identifiers and may take the default highlight', () => {
+    // Exact. It may take the default only because it ranks after chart lookup in the same lane, so
+    // chart lookup's copy of a shared obs still wins dedupe, and every target stays on the open chart.
     expect(metaOf('omnibar-querystore-chart-provider')).toEqual({
       lane: 'record',
       scopes: ['patient'],
       order: 15,
+      defaultInChart: true,
       contract: 1,
       dedupeKey: 'chart-values',
       skipIdentifierQueries: true,
     });
+  });
+
+  it('ranks after chart lookup in the same lane', () => {
+    const lookup = metaOf('omnibar-chart-lookup-provider');
+    const store = metaOf('omnibar-querystore-chart-provider');
+    expect(store.lane).toBe(lookup.lane);
+    expect(store.order).toBeGreaterThan(lookup.order);
   });
 
   it('is mounted only for users who may see observations, like chart lookup, the provider it replaces', () => {

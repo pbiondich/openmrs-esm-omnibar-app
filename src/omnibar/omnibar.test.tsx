@@ -34,6 +34,7 @@ import ChartLookupProvider from '../providers/chart-lookup.provider';
 import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.provider';
 import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
+import QuerystoreChartProvider from '../providers/querystore-chart.provider';
 import Omnibar from './omnibar.extension';
 import {
   cleanReport,
@@ -2455,6 +2456,90 @@ describe('Omnibar with providers mounted through the slot', () => {
 
       expect(await screen.findByText(/nothing matches/i)).toBeInTheDocument();
       expect(conceptSearches()).toEqual([]);
+    });
+
+    describe('with the query store as the chart-values source', () => {
+      const admission = {
+        conceptUuid: 'admission-uuid',
+        conceptName: 'Admission',
+        count: 1,
+        score: 0.9,
+        latest: {
+          resourceType: 'encounter',
+          resourceUuid: 'enc-uuid',
+          date: '2026-03-12',
+          snippet: 'Admission: Ward 3',
+          conceptName: 'Admission',
+          conceptUuid: 'admission-uuid',
+        },
+      };
+
+      beforeEach(() => {
+        const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+        mockUseConfig.mockReturnValue({ ...defaults, chartLookup: { ...defaults.chartLookup, source: 'querystore' } });
+        vi.mocked(useSession).mockReturnValue({ authenticated: true, sessionId: 's', user: { uuid: 'u' } } as Session);
+      });
+
+      it('opens the chart record, not the destination, when a word matches both', async () => {
+        const user = userEvent.setup();
+        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+        mockOpenmrsFetch.mockImplementation((url: string) => {
+          if (url.includes('/querystore/patient/')) {
+            return Promise.resolve({ data: { status: 'indexed', groups: [admission] } } as FetchResponse);
+          }
+          if (url.includes('/patient?')) {
+            return Promise.resolve({ data: { results: [] } } as FetchResponse);
+          }
+          return new Promise(() => {});
+        });
+        mountProviders([
+          shipped('omnibar-patient-search-provider', PatientSearchProvider),
+          shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+          shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+          shipped('omnibar-destinations-provider', DestinationsProvider),
+        ]);
+        renderWithFreshCache(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+        const record = await screen.findByRole('option', { name: /Admission: Ward 3/ });
+        expect(screen.getByRole('option', { name: /^Ward/ })).toHaveAttribute('aria-selected', 'false');
+        expect(record).toHaveAttribute('aria-selected', 'true');
+
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Visits`);
+      });
+
+      it("keeps chart lookup's copy of a value both find, and its highlight, whichever reports first", async () => {
+        const user = userEvent.setup();
+        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Results`);
+        const copy = (title: string, tab: string): OmnibarResult => ({
+          id: 'cd4-uuid',
+          title,
+          target: { type: 'navigate', to: `/openmrs/spa/patient/${chartPatient}/chart/${tab}` },
+          dedupeId: 'obs:f1e2d3c4-0000-4000-8000-000000000001',
+        });
+        const reporting = (title: string, tab: string): React.FC<OmnibarProviderProps> =>
+          function Reporting({ query, report }) {
+            useEffect(() => {
+              report({ query, title, status: 'ready', results: query ? [copy(`${title} CD4 count: 350`, tab)] : [] });
+            }, [query, report]);
+            return null;
+          };
+        // The query store's copy is mounted first, so it reports first.
+        mountProviders([
+          shipped('omnibar-querystore-chart-provider', reporting('Query store', 'Visits')),
+          shipped('omnibar-chart-lookup-provider', reporting('Chart lookup', 'Results')),
+        ]);
+        renderWithFreshCache(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'cd4');
+        const kept = await screen.findByRole('option', { name: /Chart lookup CD4 count: 350/ });
+        expect(screen.queryByRole('option', { name: /Query store CD4 count/ })).not.toBeInTheDocument();
+        expect(kept).toHaveAttribute('aria-selected', 'true');
+
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+      });
     });
   });
 
