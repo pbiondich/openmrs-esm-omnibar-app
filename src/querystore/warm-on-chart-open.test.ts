@@ -300,6 +300,8 @@ describe('setupWarmOnChartOpen', () => {
       ['Infinity', 'Infinity', 60_000],
       ['negative', '-5', 5_000],
       ['zero', '0', 5_000],
+      ['under a second', '0.5', 5_000],
+      ['a millisecond', '0.001', 5_000],
       ['an HTTP date', 'Wed, 21 Oct 2026 07:28:00 GMT', 5_000],
       ['missing', null, 5_000],
     ])('waits a bounded time when Retry-After is %s', async (_, retryAfter, waitMs) => {
