@@ -11,6 +11,7 @@ Outside a patient context (global scope)
 
 Inside a patient chart (patient scope)
 - Primary job: look up something specific about this patient (chart lookup first).
+- Chart lookup drops filler words such as latest, show, what's, his and the, then searches the concept dictionary for what is left as one phrase. A query of only filler words searches nothing. When the phrase finds no concept that can hold a value, each remaining word is searched on its own, at most two. A concept set such as Vital signs stands for its members. `chartLookup.minSearchCharacters` applies to what is left, and `chartLookup.maxConcepts` caps the concepts across all searches.
 - The row title is `Ask ChartSearch: "<query>"`. It appears under Suggestions when the row is enabled, the user has `AI Query Patient Data`, a patient is open, the configured workspace is registered, and that workspace's window group is already open for this patient. The default workspace is `ai-chat-workspace`. A query longer than 1000 characters is not offered.
 - The question check runs in this order.
   1. Reject trimmed input shorter than four characters.

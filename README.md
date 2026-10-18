@@ -46,7 +46,7 @@ A chip with the patient's name sits in the field, so it's always clear whose rec
 | The user types | What they get | Status |
 | --- | --- | --- |
 | `when did she start ART?` | A non-default "Ask ChartSearch" row. Choosing it opens AI Chart Search with the question filled in. The clinician presses Send before any model request runs. | Prototype |
-| `cd4`, `hb`, `weight` | Latest values and dates for each matching concept, in the user's language. Choosing one from the list opens the results viewer; pressing Enter on the query itself brings up a detail display of everything that matched. | Prototype |
+| `cd4`, `hb`, `latest weight`, `show vitals` | Latest values and dates for each matching concept, in the user's language. Choosing one from the list opens the results viewer; pressing Enter on the query itself brings up a detail display of everything that matched. | Prototype |
 | a name or ID | Other patients, listed below anything from this chart. | Prototype |
 
 ### Everywhere
@@ -109,7 +109,7 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 | Provider | Lane | Scopes | Data source |
 | --- | --- | --- | --- |
 | Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property |
-| Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation/$lastn` (latest value per concept) |
+| Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale) on the query without filler words such as "latest" or "show", a concept set standing for its members, then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
 | ChartSearch suggestion | navigate | patient | Local question heuristic; opens a registered workspace |
 
