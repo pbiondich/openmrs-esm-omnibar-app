@@ -1034,6 +1034,103 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(launchWorkspace2).toHaveBeenCalledTimes(3);
     });
 
+    it('refuses a launch whose window or group props name another patient than the open group it requires', async () => {
+      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      const requiresOpenGroup = { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid };
+      const workspaceProps = { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' };
+
+      for (const props of [
+        { groupProps: { patientUuid: otherPatientUuid } },
+        { windowProps: { patientUuid: otherPatientUuid } },
+      ]) {
+        expect(
+          await executeTarget({
+            type: 'workspace',
+            workspaceName: 'ai-chat-workspace',
+            workspaceProps,
+            requiresOpenGroup,
+            ...props,
+          }),
+        ).toBe(false);
+      }
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it.each(['workspaceProps', 'windowProps', 'groupProps'])(
+      'refuses, inside a chart, a launch whose %s name another patient, with or without a required group',
+      async (bag) => {
+        const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+        const target = (patientUuid: unknown) => ({
+          type: 'workspace' as const,
+          workspaceName: 'notes',
+          [bag]: { patientUuid },
+        });
+
+        expect(await executeTarget(target(otherPatientUuid), chartPatientUuid)).toBe(false);
+        expect(
+          await executeTarget(
+            {
+              ...target(otherPatientUuid),
+              requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+            },
+            chartPatientUuid,
+          ),
+        ).toBe(false);
+        expect(launchWorkspace2).not.toHaveBeenCalled();
+
+        expect(await executeTarget(target(chartPatientUuid), chartPatientUuid)).toBe(true);
+        expect(await executeTarget(target(chartPatientUuid.toUpperCase()), chartPatientUuid)).toBe(true);
+        expect(await executeTarget(target(42), chartPatientUuid)).toBe(true);
+        // Outside a chart there is no patient to hold it to.
+        expect(await executeTarget(target(otherPatientUuid))).toBe(true);
+        expect(launchWorkspace2).toHaveBeenCalledTimes(4);
+      },
+    );
+
+    it('warns in a snackbar when a clicked row opens a workspace for another patient, with no required group', async () => {
+      const user = userEvent.setup();
+      const OtherPatientNotes: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(
+          () =>
+            report({
+              query,
+              title: 'Notes',
+              status: 'ready',
+              results: query
+                ? [
+                    {
+                      id: 'note',
+                      title: 'Write a note',
+                      target: {
+                        type: 'workspace',
+                        workspaceName: 'visit-notes',
+                        groupProps: { patientUuid: '0c1d2e3f-4a5b-4c6d-8e7f-901234567890' },
+                      },
+                    },
+                  ]
+                : [],
+            }),
+          [query, report],
+        );
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'notes',
+          meta: { lane: 'navigate', scopes: ['patient'], order: 100, defaultInChart: true },
+          component: OtherPatientNotes,
+        },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'note');
+      await user.click(screen.getByRole('option', { name: 'Write a note' }));
+
+      await waitFor(() => expect(showSnackbar).toHaveBeenCalledTimes(1));
+      expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' }));
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
     it('warns in a snackbar when a picked row names another patient than the open group it requires', async () => {
       const user = userEvent.setup();
       const MismatchedRow: React.FC<OmnibarProviderProps> = ({ query, report }) => {
