@@ -1,7 +1,15 @@
 import { useEffect } from 'react';
 import useSWR from 'swr';
 import { useTranslation } from 'react-i18next';
-import { formatDate, interpolateUrl, openmrsFetch, restBaseUrl, useConfig } from '@openmrs/esm-framework';
+import {
+  formatDate,
+  interpolateUrl,
+  openmrsFetch,
+  restBaseUrl,
+  useConfig,
+  useSession,
+  userHasAccess,
+} from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import {
   isServerUnreachable,
@@ -78,6 +86,25 @@ function errorDetail(error: unknown, status: QuerystoreStatus | undefined): Omni
  */
 const dedupeIdFor = (hit: QuerystoreHit, comparing: boolean) =>
   !comparing && hit.resourceType === 'obs' && hit.resourceUuid ? `obs:${hit.resourceUuid}` : undefined;
+
+/**
+ * The core privilege that reads each record type, as the query store's REST resource maps them. The
+ * extension needs only Get Observations, so each row is checked here too, and a user who can't read a
+ * type never sees its snippet. A type not listed has no tab here and nothing says which privilege
+ * reads it, so its rows are dropped. The server must still filter by these itself.
+ */
+const readPrivilege: Readonly<Record<string, string>> = {
+  obs: 'Get Observations',
+  condition: 'Get Conditions',
+  diagnosis: 'Get Diagnoses',
+  allergy: 'Get Allergies',
+  drug_order: 'Get Orders',
+  test_order: 'Get Orders',
+  referral_order: 'Get Orders',
+  medication_dispense: 'Get Medication Dispense',
+  encounter: 'Get Encounters',
+  visit: 'Get Visits',
+};
 
 const isHit = (value: unknown): value is QuerystoreHit =>
   typeof value === 'object' &&
@@ -169,6 +196,7 @@ function targetForHit(hit: QuerystoreHit, patientUuid: string, resultsUrl: strin
 const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, context, report, hints }) => {
   const { t } = useTranslation();
   const { chartLookup } = useConfig<OmnibarConfig>();
+  const { user } = useSession();
   const patientUuid = context.patientUuid;
 
   const active = (chartLookup.source === 'querystore' || chartLookup.source === 'both') && Boolean(patientUuid);
@@ -216,6 +244,11 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
         : { state: 'projecting' };
     };
 
+    const mayRead = (hit: QuerystoreHit) =>
+      Boolean(user) &&
+      Object.prototype.hasOwnProperty.call(readPrivilege, hit.resourceType) &&
+      userHasAccess(readPrivilege[hit.resourceType], user);
+
     if (!active) {
       report({ query, title, status: 'idle' });
       return;
@@ -233,7 +266,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
         report({ query, title, status: 'error', detail: errorDetail(searchData.error, searchData.data?.status) });
         return;
       }
-      const groups = usable(searchData.data?.groups, isGroup);
+      const groups = usable(searchData.data?.groups, isGroup).filter((group) => mayRead(group.latest));
       const results: Array<OmnibarResult> = groups.map((group) => {
         const latest = group.latest;
         const rowTitle = hitTitle(latest, group.conceptName, t);
@@ -285,7 +318,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
       });
       return;
     }
-    const hits = usable(recentData.data?.hits, isHit);
+    const hits = usable(recentData.data?.hits, isHit).filter(mayRead);
     const results: Array<OmnibarResult> = hits.map((hit) => {
       const rowTitle = hitTitle(hit, hit.conceptName, t);
       const target = targetForHit(hit, patientUuid, resultsUrl);
@@ -324,6 +357,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
     recentData.error,
     recentData.isLoading,
     exhausted,
+    user,
     report,
     t,
   ]);
