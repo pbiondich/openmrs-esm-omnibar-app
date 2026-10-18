@@ -154,6 +154,12 @@ A result without a text `id` and `title`, or with a target the host doesn't know
 
 The host keeps its own copy of the target of each result, and remembers the target of the highlighted row. If the provider reports that row again, under the same id, with another target, Enter and a click on it clear the highlight and open nothing. The same target written with its keys in another order is not another target. Changing a reported object without reporting again changes nothing.
 
+### The default highlight
+
+With nothing arrowed or pointed to, the host highlights the first row, by lane then order, that may be the default, and Enter opens it. It pins that row: a slower provider that later sorts above it doesn't move the highlight, so Enter doesn't change under the user.
+
+Inside a chart, a `navigate`-lane row isn't chosen as the default while a `record`-lane provider with `defaultInChart` hasn't answered the current query: no report for it yet, or `loading` with no rows. Enter does nothing meanwhile. When that provider reports rows, its first row takes the highlight. When it reports none, an error, or `idle`, the page takes it as before. The host waits at most 1.5 seconds per query, so a provider stuck loading can't leave Enter doing nothing. A row the user arrowed or pointed to is never moved. Without this, a destination that answers from config at once would take Enter from chart values that need a request, such as "admission" opening the ward page instead of the chart's admission.
+
 After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT`) on `window` with `{ providerId, resultId }`.
 
 ## Dedupe
