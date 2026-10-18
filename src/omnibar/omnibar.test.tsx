@@ -2923,6 +2923,13 @@ describe('Omnibar with providers mounted through the slot', () => {
     });
 
     describe('with the query store as the chart-values source', () => {
+      const queryStoreTakingDefault = (
+        component: React.ComponentType<OmnibarProviderProps> = QuerystoreChartProvider,
+      ) => {
+        const entry = shipped('omnibar-querystore-chart-provider', component);
+        return { ...entry, meta: { ...entry.meta, defaultInChart: true } };
+      };
+      const queryStoreAsShipped = shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider);
       const admission = {
         conceptUuid: 'admission-uuid',
         conceptName: 'Admission',
@@ -2975,7 +2982,7 @@ describe('Omnibar with providers mounted through the slot', () => {
         mountProviders([
           shipped('omnibar-patient-search-provider', PatientSearchProvider),
           shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
-          shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+          queryStoreTakingDefault(),
           shipped('omnibar-destinations-provider', DestinationsProvider),
         ]);
         renderWithFreshCache(<Omnibar />);
@@ -3017,7 +3024,10 @@ describe('Omnibar with providers mounted through the slot', () => {
       describe('while the chart values are still on their way', () => {
         const ward = () => screen.getByRole('option', { name: /^Ward/ });
         // The query store's answer to "admission" waits until the test lets it through, or forever.
-        const openChartWaitingOnQueryStore = (groups: Array<object> | 'never') => {
+        const openChartWaitingOnQueryStore = (
+          groups: Array<object> | 'never',
+          queryStore: ReturnType<typeof shipped> = queryStoreTakingDefault(),
+        ) => {
           window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
           let answer: () => void;
           const answered = new Promise<FetchResponse>((resolve) => {
@@ -3035,7 +3045,7 @@ describe('Omnibar with providers mounted through the slot', () => {
           mountProviders([
             shipped('omnibar-patient-search-provider', PatientSearchProvider),
             shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
-            shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+            queryStore,
             shipped('omnibar-destinations-provider', DestinationsProvider),
           ]);
           renderWithFreshCache(<Omnibar />);
@@ -3071,6 +3081,24 @@ describe('Omnibar with providers mounted through the slot', () => {
           await queryStoreAnswers();
 
           await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'));
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe('/openmrs/spa/ward');
+        });
+
+        it('as routes.json ships it, gives the destination the highlight without waiting, and keeps it when the chart record arrives', async () => {
+          const user = userEvent.setup();
+          const queryStoreAnswers = openChartWaitingOnQueryStore([admission], queryStoreAsShipped);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByRole('option', { name: /^Ward/ });
+          expect(ward()).toHaveAttribute('aria-selected', 'true');
+
+          await queryStoreAnswers();
+          expect(await screen.findByRole('option', { name: /Admission: Ward 3/ })).toHaveAttribute(
+            'aria-selected',
+            'false',
+          );
+          expect(ward()).toHaveAttribute('aria-selected', 'true');
           await user.keyboard('{Enter}');
           expect(landedOn()).toBe('/openmrs/spa/ward');
         });
@@ -3137,7 +3165,7 @@ describe('Omnibar with providers mounted through the slot', () => {
           mountProviders([
             shipped('omnibar-patient-search-provider', PatientSearchProvider),
             shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
-            shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+            queryStoreTakingDefault(),
             shipped('omnibar-destinations-provider', DestinationsProvider),
           ]);
           renderWithFreshCache(<Omnibar />);
@@ -3228,7 +3256,7 @@ describe('Omnibar with providers mounted through the slot', () => {
             mountProviders([
               shipped('omnibar-patient-search-provider', PatientSearchProvider),
               shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
-              shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+              queryStoreTakingDefault(),
               shipped('omnibar-destinations-provider', DestinationsProvider),
             ]);
             render(
@@ -3339,7 +3367,7 @@ describe('Omnibar with providers mounted through the slot', () => {
             return null;
           };
           mountProviders([
-            shipped('omnibar-querystore-chart-provider', GaveUp),
+            queryStoreTakingDefault(GaveUp),
             shipped('omnibar-destinations-provider', DestinationsProvider),
           ]);
           renderWithFreshCache(<Omnibar />);
@@ -3369,7 +3397,10 @@ describe('Omnibar with providers mounted through the slot', () => {
 
         describe('in the side-by-side comparison mode', () => {
           // Chart lookup's concepts wait until the test lets them through; the query store answers at once.
-          const openChartComparing = (concepts: Array<object>) => {
+          const openChartComparing = (
+            concepts: Array<object>,
+            queryStore: ReturnType<typeof shipped> = queryStoreTakingDefault(),
+          ) => {
             const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
             mockUseConfig.mockReturnValue({ ...defaults, chartLookup: { ...defaults.chartLookup, source: 'both' } });
             window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
@@ -3410,7 +3441,7 @@ describe('Omnibar with providers mounted through the slot', () => {
             mountProviders([
               shipped('omnibar-patient-search-provider', PatientSearchProvider),
               shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
-              shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+              queryStore,
               shipped('omnibar-destinations-provider', DestinationsProvider),
             ]);
             renderWithFreshCache(<Omnibar />);
@@ -3434,7 +3465,7 @@ describe('Omnibar with providers mounted through the slot', () => {
             expect(queryStoreRow).toHaveAttribute('aria-selected', 'false');
           });
 
-          it("gives the query store's row the highlight when chart lookup finds nothing", async () => {
+          it("gives the query store's row the highlight when chart lookup finds nothing, if it sets defaultInChart", async () => {
             const user = userEvent.setup();
             const conceptsArrive = openChartComparing([]);
 
@@ -3447,6 +3478,20 @@ describe('Omnibar with providers mounted through the slot', () => {
             );
             await user.keyboard('{Enter}');
             expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+          });
+
+          it("as routes.json ships it, leaves the query store's row unhighlighted when chart lookup finds nothing", async () => {
+            const user = userEvent.setup();
+            const conceptsArrive = openChartComparing([], queryStoreAsShipped);
+
+            await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'cd4');
+            const queryStoreRow = await rowIn('In this chart (query store)');
+            await conceptsArrive();
+            await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+
+            expect(queryStoreRow).toHaveAttribute('aria-selected', 'false');
+            await user.keyboard('{Enter}');
+            expect(navigate).not.toHaveBeenCalled();
           });
         });
 
@@ -3489,7 +3534,7 @@ describe('Omnibar with providers mounted through the slot', () => {
           mountProviders([
             shipped('omnibar-patient-search-provider', PatientSearchProvider),
             shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
-            shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+            queryStoreTakingDefault(),
             shipped('omnibar-destinations-provider', DestinationsProvider),
           ]);
           renderWithFreshCache(<Omnibar />);
@@ -4278,6 +4323,57 @@ describe('Omnibar with providers mounted through the slot', () => {
           expect.stringContaining('Weight (kg): 70 kg'),
           'weight loss note',
         ]);
+      });
+
+      it('lets the query store row be chosen only by arrow or pointer inside a chart, never by default', async () => {
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const user = userEvent.setup();
+        const metaOf = (name: string) =>
+          routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
+        const mounted = {
+          chart: new Map<string, OmnibarProviderProps>(),
+          querystore: new Map<string, OmnibarProviderProps>(),
+        };
+        const recorder = (into: Map<string, OmnibarProviderProps>) =>
+          function Recorder(props: OmnibarProviderProps) {
+            into.set(props.query, props);
+            return null;
+          };
+        mountProviders([
+          {
+            name: 'omnibar-chart-lookup-provider',
+            meta: metaOf('omnibar-chart-lookup-provider'),
+            component: recorder(mounted.chart),
+          },
+          {
+            name: 'omnibar-querystore-chart-provider',
+            meta: metaOf('omnibar-querystore-chart-provider'),
+            component: recorder(mounted.querystore),
+          },
+        ]);
+        render(<Omnibar />);
+        const reportFrom = (provider: keyof typeof mounted, title: string, results: Array<OmnibarResult>) =>
+          act(() => mounted[provider].get('weight').report({ query: 'weight', title, status: 'ready', results }));
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportFrom('chart', 'In this chart', []);
+        reportFrom('querystore', 'Found in the record', [result('weight loss note', 'obs:note')]);
+
+        expect(screen.getByRole('option', { name: 'weight loss note' })).toHaveAttribute('aria-selected', 'false');
+        expect(screen.queryByRole('option', { selected: true })).not.toBeInTheDocument();
+
+        reportFrom('chart', 'In this chart', [result('weight 70 kg', 'obs:1')]);
+        reportFrom('querystore', 'Found in the record', [
+          result('weight from the index', 'obs:1'),
+          result('weight loss note', 'obs:note'),
+        ]);
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+          'weight 70 kg',
+          'weight loss note',
+        ]);
+        expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByRole('option', { name: 'weight loss note' })).toHaveAttribute('aria-selected', 'false');
       });
     });
 

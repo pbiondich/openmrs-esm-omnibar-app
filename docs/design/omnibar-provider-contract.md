@@ -160,7 +160,7 @@ With nothing arrowed or pointed to, the host highlights the first row, by lane t
 
 Inside a chart, chart values come first:
 
-- A row isn't chosen as the default while a `record`-lane provider with `defaultInChart` that ranks before it hasn't answered the current query. Enter does nothing meanwhile. So a destination waits for the chart values, and in the side-by-side mode the query store's row waits for chart lookup's.
+- A row isn't chosen as the default while a `record`-lane provider with `defaultInChart` that ranks before it hasn't answered the current query. Enter does nothing meanwhile. So a destination waits for the chart values.
 - Not answered means: no report for the query yet, `loading` with no rows, or `detail.state: 'projecting'` with no rows and no `note`. A provider still indexing with nothing found hasn't answered, because its next re-check may find rows. Once it has given up re-checking it says so in a `note`, and that is an answer.
 - Rows, `idle`, an `error`, `unavailable`, `failed`, or `ready` with no rows and no `projecting` detail are answers. The waiting row may then take the default.
 - The wait is bounded per query: 1.5 seconds for a provider with no report or still `loading`, so one stuck loading can't leave Enter doing nothing, and 10 seconds for one still indexing with nothing found, long enough for its first re-checks. Each new query, including one the user comes back to, starts the waits again.
@@ -189,7 +189,7 @@ After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT
 When two mounted providers share a `dedupeKey` and both report a result with the same `dedupeId`:
 
 - the host ranks the copies by lane, then order, and keeps the first one that may take the default highlight. Failing that, it keeps the first that names no other patient than the chart's, and failing that, the first of all. When the copies arrive doesn't matter, except between two providers with the same lane and order. So inside a chart a provider without `defaultInChart` can't push out the chart's own row by ranking above it, and a row that names another patient never pushes out one that stays on this patient
-- the kept copy's target is what Enter and a click run. So among `chart-values` providers, chart lookup keeps the copy. Another provider with that key may set `defaultInChart` only if it ranks after chart lookup (the same lane, a higher order) and every target it reports stays on the open chart. Then chart lookup's copy still wins whenever both found the record, since a copy with the same preference never replaces one ranked before it, and the other provider takes the default only for rows chart lookup didn't find. The query store chart search (order 15) is that case. Otherwise leave `defaultInChart` unset
+- the kept copy's target is what Enter and a click run. So among `chart-values` providers, chart lookup keeps the copy. Another provider with that key may set `defaultInChart` only if it ranks after chart lookup (the same lane, a higher order) and every target it reports stays on the open chart. Then chart lookup's copy still wins whenever both found the record, since a copy with the same preference never replaces one ranked before it, and the other provider takes the default only for rows chart lookup didn't find. The query store chart search (order 15) is that case. It may set the flag but doesn't for now, so its rows are chosen by arrow or pointer. Revisit after benchmark round 3 (see [decisions](../decisions.md)). Otherwise leave `defaultInChart` unset
 - the other copy is dropped, and a group left with nothing isn't drawn
 - results without a `dedupeId`, and providers with another key or none, are never touched
 - the highlight follows the record: if the highlighted row is dropped, the highlight moves to the copy that is kept. If no copy is left on screen, or the only one names another patient, nothing is highlighted and Enter does nothing until the user picks a row. A default highlight (one the user didn't arrow or point to) moves only onto a copy that may itself be the default
@@ -268,7 +268,7 @@ The host ranks by lane, then by `order`. Now that several apps pick numbers, thi
 
 | Key | `dedupeId` | Providers |
 | --- | --- | --- |
-| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search (order 15, `defaultInChart`, allowed because it ranks after chart lookup and stays on the open chart) |
+| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search (order 15; may set `defaultInChart` because it ranks after chart lookup and stays on the open chart, but for now doesn't) |
 
 ## Copying the contract folder
 

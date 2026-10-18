@@ -107,12 +107,16 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **The left-nav link to Query results drops the query.** Following it shows this session's earlier queries and how to search, not the last result.
 *Why:* the link is a dashboard link like any other, and a page whose contents change with each query shouldn't silently replay one.
 
+### From query store benchmark round 2, 3:33 PM PT
+
+**Query store rows don't take the default highlight inside a chart, for now.** The query store chart provider no longer sets `defaultInChart`, so its rows are chosen by arrow or pointer. Chart lookup keeps the default. The contract still allows the query store to set it, so this is a choice in `routes.json`, not a rule. Revisit after the synonym and short-word fix and benchmark round 3. This settles plan question 11.
+*Why:* in [round 2](briefs/2026-10-18-querystore-benchmark-round-2.md) on o3, the query store's keyword path was fast (p50 about 165–245 ms, against 340–820 ms for REST and FHIR) and every latest value was correct (27 of 27). But its first row matched the REST dropdown's in only 17 of 26 queries, because keyword search misses synonyms and two-letter queries such as "hb".
+
 ## Open
 
 These came up but aren't decided yet.
 
 - **Two values on the same date.** When a patient has two results for the same concept on the same date, should the dropdown show the most recently entered one, or say "2 results on this date"?
 - **Query results layout.** One merged page with a section per provider, or tabs by kind (values, notes, orders, answer)?
-- **Should query store rows take the default highlight inside a chart?** PR #5 gave the provider `defaultInChart`, but the plan said not until measured on o3, and round 1 found older values ranked first. Waiting on [round 2](briefs/2026-10-18-querystore-benchmark-round-2.md) (plan question 11).
 - **Privileges for the query store's patient endpoints.** Is Get Patients enough, or Get Observations too? The provider's `routes.json` must match what the server requires (plan question 10).
 - **When to warm a chart.** On every chart open, as built, or on the first omnibar open, as the plan recommended? Round 1's slow cold starts argue for indexing ahead of time either way (plan question 12).
