@@ -27,14 +27,6 @@ export function groupNameForWorkspace(state: Workspace2Snapshot, workspaceName: 
   return state.registeredWindowsByName?.[windowName]?.group || undefined;
 }
 
-/**
- * The group that owns this workspace's window, read once from the registry. For providers in this
- * app, which never subscribe to the store: the host passes the open group as context.workspaceGroup.
- */
-export function workspaceGroupNameOf(workspaceName: string): string | undefined {
-  return groupNameForWorkspace(getWorkspace2Store().getState(), workspaceName);
-}
-
 /** True when that group is the one already open, for this patient. */
 export function workspaceGroupIsOpen(state: Workspace2Snapshot, workspaceName: string, patientUuid: string): boolean {
   const groupName = groupNameForWorkspace(state, workspaceName);

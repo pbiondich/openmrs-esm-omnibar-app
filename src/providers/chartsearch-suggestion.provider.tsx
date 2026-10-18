@@ -10,7 +10,6 @@ import {
 } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
-import { workspaceGroupNameOf } from '../omnibar/workspace-group';
 import { defaultMaxQuestionLength, looksLikeChartSearchQuestion, maxQuestionLengthFrom } from './chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
@@ -63,9 +62,10 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
   const workspaceName = chartSearchSuggestion.workspaceName.trim();
   const workspaceRegistered = Boolean(workspaceName && getRegisteredWorkspace2Names().includes(workspaceName));
   const maxQuestionLength = useChartSearchMaxQuestionLength(workspaceRegistered);
-  // The registry says which group the workspace opens in; the host says which group is open. A host
-  // from before contract 1 was published doesn't say, so there the row isn't offered.
-  const chartGroupName = workspaceRegistered ? workspaceGroupNameOf(workspaceName) : undefined;
+  // The config says which group the workspace opens in; the host says which group is open. A host
+  // from before contract 1 was published doesn't say, so there the row isn't offered. The host checks
+  // the workspace registry again at launch, so a group name set wrong here fails closed.
+  const chartGroupName = chartSearchSuggestion.workspaceGroupName.trim();
   const openGroup = context.workspaceGroup;
   const chartGroupIsOpen = Boolean(
     patientUuid && chartGroupName && openGroup?.groupName === chartGroupName && openGroup.patientUuid === patientUuid,

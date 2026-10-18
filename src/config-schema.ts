@@ -79,6 +79,12 @@ export const configSchema = {
       _default: 'ai-chat-workspace',
       _description: 'Registered ChartSearch workspace opened by the suggestion row.',
     },
+    workspaceGroupName: {
+      _type: Type.String,
+      _default: 'patient-chart',
+      _description:
+        'The workspace group that ChartSearch workspace opens in. The row is offered only while the omnibar reports that group open for this patient.',
+    },
   },
   destinations: {
     _type: Type.Array,
@@ -145,6 +151,7 @@ export interface ChartSearchSuggestionConfig {
   enabled: boolean;
   minWords: number;
   workspaceName: string;
+  workspaceGroupName: string;
 }
 
 export interface OmnibarConfig {
