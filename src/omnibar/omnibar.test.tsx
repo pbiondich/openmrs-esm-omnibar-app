@@ -2478,6 +2478,7 @@ describe('Omnibar with providers mounted through the slot', () => {
         const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
         mockUseConfig.mockReturnValue({ ...defaults, chartLookup: { ...defaults.chartLookup, source: 'querystore' } });
         vi.mocked(useSession).mockReturnValue({ authenticated: true, sessionId: 's', user: { uuid: 'u' } } as Session);
+        vi.mocked(userHasAccess).mockReturnValue(true);
       });
 
       const cd4 = {

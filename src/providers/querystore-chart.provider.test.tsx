@@ -2,7 +2,15 @@ import React from 'react';
 import { SWRConfig } from 'swr';
 import { act, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type FetchResponse, getDefaultsFromConfigSchema, openmrsFetch, useConfig } from '@openmrs/esm-framework';
+import {
+  type FetchResponse,
+  type Session,
+  getDefaultsFromConfigSchema,
+  openmrsFetch,
+  useConfig,
+  useSession,
+  userHasAccess,
+} from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import { type OmnibarContext, type OmnibarProviderMeta, type OmnibarReport } from '../omnibar-contract';
 import routes from '../routes.json';
@@ -38,6 +46,14 @@ const defaultConfig = () =>
       source: 'querystore' as const,
     },
   }) satisfies OmnibarConfig;
+
+const user = { uuid: 'user-uuid', privileges: [], roles: [] } as unknown as Session['user'];
+
+// Every test runs as a user who may read every record type, unless it says otherwise.
+beforeEach(() => {
+  vi.mocked(useSession).mockReturnValue({ authenticated: true, sessionId: 's', user } as Session);
+  vi.mocked(userHasAccess).mockReturnValue(true);
+});
 
 function makeGroup(
   overrides: Partial<{
@@ -479,9 +495,9 @@ describe('QuerystoreChartProvider', () => {
       ['referral_order', `${chart}/Orders`],
       ['encounter', `${chart}/Visits`],
       ['visit', `${chart}/Visits`],
-      ['something_new', `${chart}/`],
-      [`../../patient/${otherPatient}/chart`, `${chart}/`],
     ];
+    // Types this provider doesn't know are dropped: nothing says which privilege reads them.
+    const unknown = ['something_new', 'program', `../../patient/${otherPatient}/chart`];
     const location = window.location;
 
     afterEach(() => {
@@ -495,7 +511,7 @@ describe('QuerystoreChartProvider', () => {
         writable: true,
         configurable: true,
       });
-      const hits = tabs.map(([resourceType], i) => ({
+      const hits = [...tabs.map(([resourceType]) => resourceType), ...unknown].map((resourceType, i) => ({
         ...makeGroup({ resourceType, conceptUuid: `c${i}`, resourceUuid: `r${i}` }).latest,
         patientUuid: otherPatient,
       }));
@@ -519,6 +535,70 @@ describe('QuerystoreChartProvider', () => {
         expect(url).toContain(`/ws/rest/v1/querystore/patient/${patientUuid}/${query ? 'search' : 'recent'}?`);
         expect(url).not.toContain(otherPatient);
       }
+    });
+  });
+
+  describe.each(['cd4', ''])('privileges per record type (query "%s")', (query) => {
+    const privileges: Array<[string, string]> = [
+      ['obs', 'Get Observations'],
+      ['condition', 'Get Conditions'],
+      ['diagnosis', 'Get Diagnoses'],
+      ['allergy', 'Get Allergies'],
+      ['drug_order', 'Get Orders'],
+      ['test_order', 'Get Orders'],
+      ['referral_order', 'Get Orders'],
+      ['medication_dispense', 'Get Medication Dispense'],
+      ['encounter', 'Get Encounters'],
+      ['visit', 'Get Visits'],
+    ];
+    const serveEveryType = () => {
+      const hits = privileges.map(
+        ([resourceType], i) =>
+          makeGroup({ resourceType, conceptUuid: `c${i}`, resourceUuid: `r${i}`, snippet: resourceType }).latest,
+      );
+      mockOpenmrsFetch.mockResolvedValue({
+        data: {
+          status: 'indexed',
+          groups: hits.map((latest, i) => ({ ...makeGroup(), conceptUuid: `c${i}`, latest })),
+          hits,
+        },
+      } as FetchResponse);
+    };
+    // Rows are numbered by their place in `privileges`: `c<i>` on the search path, `r<i>` on the recent.
+    const shownTypes = async (report: ReturnType<typeof vi.fn>) => {
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('ready'));
+      return report.mock.calls.at(-1)[0].results.map((result) => privileges[Number(result.id.slice(1))][0]);
+    };
+
+    it.each(privileges)('drops a %s row for a user without %s, and keeps the others', async (type, privilege) => {
+      vi.mocked(userHasAccess).mockImplementation((required) => required !== privilege);
+      serveEveryType();
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+      const shown = await shownTypes(report);
+      expect(shown).not.toContain(type);
+      expect(shown).toEqual(privileges.filter(([, required]) => required !== privilege).map(([t]) => t));
+    });
+
+    it('asks about the current user', async () => {
+      serveEveryType();
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+      expect(await shownTypes(report)).toEqual(privileges.map(([t]) => t));
+      for (const [, privilege] of privileges) {
+        expect(userHasAccess).toHaveBeenCalledWith(privilege, user);
+      }
+    });
+
+    it('shows nothing when the session has no user', async () => {
+      vi.mocked(useSession).mockReturnValue({ authenticated: false, sessionId: 's' } as Session);
+      serveEveryType();
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+      expect(await shownTypes(report)).toEqual([]);
     });
   });
 
