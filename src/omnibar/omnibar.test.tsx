@@ -35,7 +35,7 @@ import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.p
 import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
-import { executeTarget, getProviderOrder, useResultCollector } from './omnibar.resource';
+import { executeTarget, getProviderOrder, type ProviderInfo, useResultCollector } from './omnibar.resource';
 import { withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
 import {
@@ -133,6 +133,35 @@ describe('useResultCollector', () => {
 
     rerender({ query: 'cd4 count' });
     expect(result.current.selectable).toHaveLength(0);
+  });
+
+  it('drops a report from a mount that was there before the chart changed', () => {
+    const { result, rerender } = renderHook(({ contextKey }) => useResultCollector('q', providers, contextKey), {
+      initialProps: { contextKey: 'patient:first' },
+    });
+    const before = result.current.getReporter('patients');
+
+    rerender({ contextKey: 'patient:second' });
+    act(() => before(ready('q', 'Patients', ['stale'])));
+    expect(result.current.selectable).toHaveLength(0);
+
+    act(() => result.current.getReporter('patients')(ready('q', 'Patients', ['fresh'])));
+    expect(result.current.selectable.map((r) => r.id)).toEqual(['fresh']);
+  });
+
+  it('drops a report from a mount of a provider that has since left and come back', () => {
+    const { result, rerender } = renderHook(({ info }) => useResultCollector('q', info), {
+      initialProps: { info: providers as Record<string, ProviderInfo> },
+    });
+    const before = result.current.getReporter('patients');
+
+    rerender({ info: { pages: providers.pages } });
+    rerender({ info: providers });
+    act(() => before(ready('q', 'Patients', ['stale'])));
+    expect(result.current.selectable).toHaveLength(0);
+
+    act(() => result.current.getReporter('patients')(ready('q', 'Patients', ['fresh'])));
+    expect(result.current.selectable.map((r) => r.id)).toEqual(['fresh']);
   });
 
   it('puts records before pages and keeps answers out of the arrow-key list', () => {
@@ -1997,6 +2026,53 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(await screen.findByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'false');
       await user.keyboard('{Enter}');
 
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it("ignores the previous chart's values when its provider reports them late, after the user moves on", async () => {
+      const user = userEvent.setup();
+      const nextPatient = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Results`);
+      // Each mount keeps its props, as a timer or fetch it never cancels would.
+      const mounts = new Map<string, OmnibarProviderProps>();
+      const ChartValues: React.FC<OmnibarProviderProps> = (props) => {
+        mounts.set(`${props.context.patientUuid}:${props.query}`, props);
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'chart',
+          meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
+          component: ChartValues,
+        },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'weight');
+      const previous = mounts.get(`${chartPatient}:weight`);
+      act(() => {
+        window.history.pushState({}, '', `/openmrs/spa/patient/${nextPatient}/chart/Results`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await waitFor(() => expect(mounts.has(`${nextPatient}:weight`)).toBe(true));
+
+      act(() =>
+        previous.report({
+          query: 'weight',
+          title: 'In this chart',
+          status: 'ready',
+          results: [
+            {
+              id: 'weight',
+              title: 'Weight 70 kg',
+              target: { type: 'navigate', to: `/openmrs/spa/patient/${chartPatient}/chart/` },
+            },
+          ],
+        }),
+      );
+
+      expect(screen.queryByRole('option', { name: 'Weight 70 kg' })).not.toBeInTheDocument();
+      await user.keyboard('{Enter}');
       expect(navigate).not.toHaveBeenCalled();
     });
 
