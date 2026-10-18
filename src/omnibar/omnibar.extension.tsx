@@ -211,8 +211,8 @@ const Omnibar: React.FC = () => {
   // never when it names another patient: the user chose this patient's row, not that one. A default
   // highlight whose row is reported again in a way that can't be the default is dropped. Inside a
   // chart, a default highlight moves up to a chart row from a record-lane provider that ranks before
-  // its own once one arrives, such as the chart's admission over the ward page; a row the user chose
-  // stays.
+  // its own once one arrives, such as the chart's admission over the ward page, and steps aside while
+  // such a provider hasn't answered; a row the user chose stays.
   const { selected, chosen } = useMemo(() => {
     const infoOf = (result: SelectableResult) => providerInfo[result.providerId];
     const mayBeDefault = (result: SelectableResult) => result.mayBeDefault;
@@ -230,7 +230,9 @@ const Omnibar: React.FC = () => {
       if (earlierChartRow) {
         return { selected: earlierChartRow, chosen: false };
       }
-      return { selected: selection.chosen || mayBeDefault(same) ? same : undefined, chosen: selection.chosen };
+      // A default highlight also steps aside while a provider ranked before it waits again, such as a
+      // search that turned out to be the chart still indexing. Outside a chart nothing waits.
+      return { selected: selection.chosen || mayBeDefaultNow(same) ? same : undefined, chosen: selection.chosen };
     }
     if (selection?.dedupeKey && selection.dedupeId) {
       const copy = selectable.find(
