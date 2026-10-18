@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getConfig, openmrsFetch } from '@openmrs/esm-framework';
+import { type FetchResponse, getConfig, openmrsFetch } from '@openmrs/esm-framework';
 import { setupWarmOnChartOpen } from './warm-on-chart-open';
 
 vi.mock('@openmrs/esm-framework', async (importOriginal) => ({
@@ -168,6 +168,46 @@ describe('setupWarmOnChartOpen', () => {
 
       await vi.advanceTimersByTimeAsync(6000);
       expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['a day', '86400', 60_000],
+      ['Infinity', 'Infinity', 60_000],
+      ['negative', '-5', 5_000],
+      ['zero', '0', 5_000],
+      ['an HTTP date', 'Wed, 21 Oct 2026 07:28:00 GMT', 5_000],
+      ['missing', null, 5_000],
+    ])('waits a bounded time when Retry-After is %s', async (_, retryAfter, waitMs) => {
+      mockOpenmrsFetch.mockRejectedValue(unavailable(retryAfter));
+      Object.defineProperty(window, 'location', {
+        value: { ...window.location, pathname: chartUrl(patientUuid) },
+        writable: true,
+        configurable: true,
+      });
+      teardown = setupWarmOnChartOpen(moduleName);
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+
+      await vi.advanceTimersByTimeAsync(waitMs - 100);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops a waiting retry when another chart opens, so coming back warms only once', async () => {
+      mockOpenmrsFetch
+        .mockRejectedValueOnce(unavailable('10'))
+        .mockResolvedValue({ data: { status: 'indexed' } } as FetchResponse);
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+
+      fireRoutingEvent(chartUrl(otherUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2));
+      fireRoutingEvent(chartUrl(patientUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(3));
+
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(3);
     });
 
     it('does not retry other failures', async () => {
