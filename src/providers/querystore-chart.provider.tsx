@@ -11,12 +11,16 @@ import {
   type OmnibarResult,
   type OmnibarTarget,
 } from '../omnibar-contract';
+import { useBoundedPoll } from '../querystore/bounded-poll';
 
 /**
  * Inside a chart, queries the querystore index for matching concepts (grouped by concept) or
  * recent documents. Active only when chartLookup.source is 'querystore' or 'both'. While the chart
  * is still being indexed it shows what the server has found so far, with the host's "Still
- * indexing" line, rather than waiting.
+ * indexing" line, rather than waiting, and re-checks a few times with growing delays (see
+ * `useBoundedPoll`). Each re-check is a non-waiting request, which also starts a warm on the server,
+ * so a chart that opened while every indexing slot was busy catches up. If it still isn't indexed
+ * after the last, the line says so and the provider stops asking until the query changes.
  */
 
 /** As the server reports a chart: being indexed, ready, never indexed, or its last indexing failed. */
@@ -24,12 +28,6 @@ type QuerystoreStatus = 'indexed' | 'projecting' | 'not_indexed' | 'failed';
 
 /** The chart is being indexed, or will be once the server has a slot free, so results may be incomplete. */
 const isIndexing = (status: QuerystoreStatus | undefined) => status === 'projecting' || status === 'not_indexed';
-
-/**
- * Poll again while the chart is being indexed, or isn't yet: the server starts a warm on each
- * non-waiting request, so a chart that opened while every indexing slot was busy catches up.
- */
-const pollWhileIndexing = (data?: { status: QuerystoreStatus }) => (isIndexing(data?.status) ? 1500 : 0);
 
 interface QuerystoreHit {
   resourceType: string;
@@ -153,19 +151,33 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
 
   const recentUrl = recents ? `${base}/recent?limit=5&wait=false` : null;
 
-  const searchData = useSWR<SearchResponse>(searchUrl, fetcher, {
-    refreshInterval: pollWhileIndexing,
-  });
+  const searchData = useSWR<SearchResponse>(searchUrl, fetcher);
+  const recentData = useSWR<RecentResponse>(recentUrl, fetcher);
 
-  const recentData = useSWR<RecentResponse>(recentUrl, fetcher, {
-    refreshInterval: pollWhileIndexing,
-  });
+  const current = searching ? searchData : recentData;
+  const { exhausted } = useBoundedPoll(
+    searching ? searchUrl : recentUrl,
+    !current.error && isIndexing(current.data?.status),
+    current.mutate,
+  );
 
   useEffect(() => {
     const title =
       chartLookup.source === 'both'
         ? t('inThisChartQuerystore', 'In this chart (query store)')
         : t('inThisChart', 'In this chart');
+
+    const indexingDetail = (status: QuerystoreStatus | undefined): OmnibarReportDetail | undefined => {
+      if (!isIndexing(status)) {
+        return undefined;
+      }
+      return exhausted
+        ? {
+            state: 'projecting',
+            note: t('querystoreNotFullyIndexed', 'This chart isn’t fully indexed yet; results may be incomplete'),
+          }
+        : { state: 'projecting' };
+    };
 
     if (!active) {
       report({ query, title, status: 'idle' });
@@ -214,7 +226,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
         title,
         status: searchData.isLoading ? 'loading' : 'ready',
         results,
-        detail: isIndexing(searchData.data?.status) ? { state: 'projecting' } : undefined,
+        detail: indexingDetail(searchData.data?.status),
       });
       return;
     }
@@ -248,7 +260,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
       title: recentTitle,
       status: recentData.isLoading ? 'loading' : 'ready',
       results,
-      detail: isIndexing(recentData.data?.status) ? { state: 'projecting' } : undefined,
+      detail: indexingDetail(recentData.data?.status),
     });
   }, [
     query,
@@ -264,6 +276,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
     recentData.data,
     recentData.error,
     recentData.isLoading,
+    exhausted,
     report,
     t,
   ]);

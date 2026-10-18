@@ -11,6 +11,7 @@
   "deceased": "Deceased",
   "goTo": "Go to",
   "inThisChart": "In this chart",
+  "inThisChartQuerystore": "In this chart (query store)",
   "keyboardHints": "↑ ↓ to move, Enter to open, Esc to close",
   "no": "No",
   "noMatches": "Nothing matches “{{query}}”. Check the spelling or try a patient ID.",
@@ -19,7 +20,12 @@
   "providerError": "Couldn’t load results",
   "providerProjecting": "Still indexing; results may be incomplete",
   "providerUnavailable": "Unavailable right now",
+  "querystoreNotFullyIndexed": "This chart isn’t fully indexed yet; results may be incomplete",
+  "querystoreRecordedOnWithCount_one": "Latest, recorded {{date}} · {{count}} readings",
+  "querystoreRecordedOnWithCount_other": "Latest, recorded {{date}} · {{count}} readings",
+  "recentInThisChart": "Recent in this chart",
   "recentPatients": "Recent patients",
+  "recordedDate": "Recorded {{date}}",
   "recordedOn": "Latest, recorded {{date}}",
   "removePatientContext": "Remove {{name}} context",
   "resultNotOpened": "Couldn’t open that result",
@@ -37,9 +43,5 @@
   "thisChart": "This chart",
   "thisPatient": "this patient",
   "unsourcedAnswer": "This answer is hidden because it didn’t cite any records.",
-  "yes": "Yes",
-  "inThisChartQuerystore": "In this chart (query store)",
-  "querystoreRecordedOnWithCount": "Latest, recorded {{date}} · {{count}} readings",
-  "recentInThisChart": "Recent in this chart",
-  "recordedDate": "Recorded {{date}}"
+  "yes": "Yes"
 }
