@@ -20,7 +20,7 @@ Inside a patient chart (patient scope)
   4. Accept a listed question word in any token. The words are what, when, which, who, how, why, is, are, does, did, has, was, were, any, list, show, latest, and last.
   5. Accept at least `minWords` words. `minWords` is a whole number of at least 2. The default is 3.
   6. Reject a single concept and everything else.
-- Choosing the row opens that workspace with `patientUuid` and `initialQuestion`. Window props and group props stay null, so the open chart group keeps its props. The same group check runs again at launch. The omnibar does not call ChartSearch. ChartSearch owns errors and has no client timeout. The clinician presses Send before the model runs.
+- Choosing the row opens that workspace with `patientUuid` and `initialQuestion`. Window props and group props stay null, so the open chart group keeps its props. The same group check runs again at launch. If the group has closed or now belongs to another patient, nothing opens and a warning snackbar says the side panel closed. The omnibar does not call ChartSearch. ChartSearch owns errors and has no client timeout. The clinician presses Send before the model runs.
 - An already-open chat from Ask AI is reopened with the new workspace props, and the group props stay unchanged. With the initial-question patch the input is prefilled. Unsent text in the old input is lost. The transcript stays in ChartSearch's session store. Without the patch the question is ignored.
 
 Always
