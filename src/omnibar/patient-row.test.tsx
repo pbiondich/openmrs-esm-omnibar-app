@@ -1,6 +1,6 @@
 import React from 'react';
 import { SWRConfig } from 'swr';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type FetchResponse, openmrsFetch, useConfig, usePrimaryIdentifierCode } from '@openmrs/esm-framework';
 import { PatientRow } from './patient-row';
@@ -26,6 +26,14 @@ function servePhotoLink(uri: string | null) {
 
 const photoRequests = () => mockOpenmrsFetch.mock.calls.map(([url]) => url).filter((url) => url.includes('/obs'));
 
+/** Waits for the one photo lookup and lets the row render what it found. */
+async function settlePhotoLookup() {
+  await waitFor(() => expect(photoRequests()).toHaveLength(1));
+  await act(async () => {
+    await mockOpenmrsFetch.mock.results[0].value.catch(() => {});
+  });
+}
+
 /** Renders rows that share one SWR cache, as rows do across keystrokes and omnibar openings. */
 function renderRows() {
   const cache = new Map();
@@ -35,7 +43,7 @@ function renderRows() {
   const row = (name = 'Mogan Zavai Kamwara', uuid = patientUuid) => (
     <PatientRow key={`${uuid}-${name}`} name={name} patient={{ uuid }} />
   );
-  return { ui, row, ...render(ui(row())) };
+  return { cache, ui, row, ...render(ui(row())) };
 }
 
 const avatars = () => screen.getAllByTestId('patientAvatar');
@@ -78,7 +86,7 @@ describe('PatientRow photo', () => {
     servePhotoLink(null);
     renderRows();
 
-    await waitFor(() => expect(photoRequests()).toHaveLength(1));
+    await settlePhotoLookup();
     expectGeneratedTile(avatars()[0]);
   });
 
@@ -86,25 +94,24 @@ describe('PatientRow photo', () => {
     mockOpenmrsFetch.mockRejectedValue(new Error('500'));
     renderRows();
 
-    await waitFor(() => expect(photoRequests()).toHaveLength(1));
+    await settlePhotoLookup();
     expectGeneratedTile(avatars()[0]);
   });
 
   it.each([
-    ['protocol-relative', '//evil.example/pixel'],
-    ['protocol-relative with a backslash', '/\\evil.example/pixel'],
-    ['off-origin', 'https://evil.example/pixel'],
+    ['protocol-relative', `//evil.example${valuePath}`],
+    ['protocol-relative with a backslash', `/\\evil.example${valuePath}`],
+    ['off-origin', `https://evil.example${valuePath}`],
+    ['same-origin non-photo', '/openmrs/logout'],
     ['javascript:', 'javascript:alert(1)'],
     ['data:', 'data:image/png;base64,iVBORw0KGgo='],
   ])('keeps the generated tile and loads nothing for a %s link', async (_label, uri) => {
     servePhotoLink(uri);
     const { container } = renderRows();
 
-    await waitFor(() => expect(photoRequests()).toHaveLength(1));
-    // Give SWR a chance to hand the rejected link to the row.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settlePhotoLookup();
     expectGeneratedTile(avatars()[0]);
-    expect(container.innerHTML).not.toContain('evil.example');
+    expect(container.innerHTML).not.toMatch(/evil\.example|logout/);
   });
 
   it('falls back to the generated tile, and stays there, when the photo fails to load', async () => {
@@ -141,12 +148,21 @@ describe('PatientRow photo', () => {
     expect(photoRequests()).toHaveLength(1);
   });
 
+  it('keeps its photo URL out of the cache entry for the raw REST request', async () => {
+    servePhotoLink(valuePath);
+    const { cache } = renderRows();
+    await waitFor(() => expect(photo()).not.toBeNull());
+
+    // The app shares one SWR cache; anyone fetching this URL with openmrsFetch expects a FetchResponse.
+    expect(cache.has(photoRequests()[0])).toBe(false);
+  });
+
   it('looks up nothing when no photo concept is configured', async () => {
     configurePhotoConcept(null);
     servePhotoLink(valuePath);
     renderRows();
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // With a concept, the lookup starts as the row mounts.
     expect(mockOpenmrsFetch).not.toHaveBeenCalled();
     expectGeneratedTile(avatars()[0]);
   });
