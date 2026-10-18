@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { looksLikeChartSearchQuestion } from './chartsearch-question';
+import { defaultMaxQuestionLength, looksLikeChartSearchQuestion, maxQuestionLengthFrom } from './chartsearch-question';
 
 const minWords = 3;
 
@@ -50,4 +50,21 @@ describe('looksLikeChartSearchQuestion', () => {
     expect(looksLikeChartSearchQuestion('blood pressure trend', 4)).toBe(false);
     expect(looksLikeChartSearchQuestion('cd4 count', 2)).toBe(true);
   });
+});
+
+describe('maxQuestionLengthFrom', () => {
+  it("falls back to ChartSearch's default of 1000", () => {
+    expect(defaultMaxQuestionLength).toBe(1000);
+  });
+
+  it.each([1, 500, 1000, 4000])('uses a whole number of at least 1: %j', (value) => {
+    expect(maxQuestionLengthFrom(value)).toBe(value);
+  });
+
+  it.each([undefined, null, '500', 0, -1, 12.5, Number.NaN, Number.POSITIVE_INFINITY, {}])(
+    'falls back for anything else: %s',
+    (value) => {
+      expect(maxQuestionLengthFrom(value)).toBe(1000);
+    },
+  );
 });

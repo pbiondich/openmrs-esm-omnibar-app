@@ -7,6 +7,7 @@ import {
   type FetchConfig,
   type FetchResponse,
   type Session,
+  getConfig,
   getGlobalStore,
   getRegisteredWorkspace2Names,
   getDefaultsFromConfigSchema,
@@ -607,6 +608,7 @@ describe('Omnibar with providers mounted through the slot', () => {
         isLoading: false,
         error: null,
       });
+      vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 1000 });
     });
 
     afterEach(() => window.history.pushState({}, '', '/'));
@@ -931,6 +933,88 @@ describe('Omnibar with providers mounted through the slot', () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 250));
       expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    describe("with ChartSearch's maxQuestionLength", () => {
+      const chartSearchModuleName = '@openmrs/esm-chartsearchai-app';
+      const questionOfLength = (length: number) => `what ${'a'.repeat(length - 5)}`;
+      const askRow = () => screen.queryByRole('option', { name: /ask chartsearch/i });
+
+      const expectOffered = async (length: number, offered: boolean) => {
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: questionOfLength(length) } });
+        if (offered) {
+          expect(await screen.findByRole('option', { name: /ask chartsearch/i })).toBeInTheDocument();
+          return;
+        }
+        // Long enough for the 200 ms debounce and the provider's report.
+        await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+        expect(askRow()).not.toBeInTheDocument();
+      };
+
+      const renderOmnibar = () => {
+        mountProviders([provider]);
+        render(<Omnibar />);
+      };
+
+      it('hides a question longer than a lowered live limit', async () => {
+        vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 500 });
+        renderOmnibar();
+
+        await expectOffered(501, false);
+        await expectOffered(500, true);
+        expect(getConfig).toHaveBeenCalledWith(chartSearchModuleName);
+      });
+
+      it('offers a question up to a raised live limit', async () => {
+        vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 2000 });
+        renderOmnibar();
+
+        await expectOffered(2001, false);
+        await expectOffered(2000, true);
+      });
+
+      it.each([
+        ['a string', { maxQuestionLength: '500' }],
+        ['zero', { maxQuestionLength: 0 }],
+        ['a negative number', { maxQuestionLength: -5 }],
+        ['a fraction', { maxQuestionLength: 12.5 }],
+        ['null', { maxQuestionLength: null }],
+        ['missing', {}],
+        ['no config at all', undefined],
+      ])('keeps the 1000-character default when the live value is %s', async (_label, config) => {
+        vi.mocked(getConfig).mockResolvedValue(config);
+        renderOmnibar();
+
+        await expectOffered(1001, false);
+        await expectOffered(1000, true);
+      });
+
+      it("keeps the 1000-character default while ChartSearch's config has not loaded", async () => {
+        vi.mocked(getConfig).mockReturnValue(new Promise(() => {}));
+        renderOmnibar();
+
+        await expectOffered(1001, false);
+        await expectOffered(1000, true);
+      });
+
+      it("hides the row when ChartSearch's config loads with a lower limit", async () => {
+        let loadConfig: (config: { maxQuestionLength: number }) => void = () => {};
+        vi.mocked(getConfig).mockReturnValue(new Promise((resolve) => (loadConfig = resolve)));
+        renderOmnibar();
+        await expectOffered(800, true);
+
+        await act(async () => loadConfig({ maxQuestionLength: 500 }));
+
+        await waitFor(() => expect(askRow()).not.toBeInTheDocument());
+      });
+
+      it("does not wait on ChartSearch's config when its workspace is not registered", async () => {
+        mockGetRegisteredWorkspace2Names.mockReturnValue([]);
+        renderOmnibar();
+
+        await expectOffered(800, false);
+        expect(getConfig).not.toHaveBeenCalled();
+      });
     });
 
     it.each(['100GEJ', '1234567'])(
