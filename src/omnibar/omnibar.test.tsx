@@ -3001,6 +3001,52 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(navigate).not.toHaveBeenCalled();
       });
 
+      it('never lets a highlight the user arrowed to follow its copy onto a row that names another patient', async () => {
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const user = userEvent.setup();
+        const mounted = {
+          chart: new Map<string, OmnibarProviderProps>(),
+          index: new Map<string, OmnibarProviderProps>(),
+        };
+        const recorder = (into: Map<string, OmnibarProviderProps>) =>
+          function Recorder(props: OmnibarProviderProps) {
+            into.set(props.query, props);
+            return null;
+          };
+        mountProviders([
+          {
+            name: 'chart',
+            meta: { lane: 'record', scopes: ['patient'], order: 10, dedupeKey: 'chart-values', defaultInChart: true },
+            component: recorder(mounted.chart),
+          },
+          {
+            name: 'index',
+            meta: { lane: 'record', scopes: ['patient'], order: 15, dedupeKey: 'chart-values', defaultInChart: true },
+            component: recorder(mounted.index),
+          },
+        ]);
+        render(<Omnibar />);
+        const reportFrom = (provider: keyof typeof mounted, title: string, results: Array<OmnibarResult>) =>
+          act(() => mounted[provider].get('weight').report({ query: 'weight', title, status: 'ready', results }));
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportFrom('chart', 'In this chart', [result('weight 70 kg', 'obs:1'), result('height 170 cm', 'obs:2')]);
+        reportFrom('index', 'Indexed', [
+          {
+            ...result('weight elsewhere', 'obs:1'),
+            target: { type: 'navigate', to: '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/' },
+          },
+        ]);
+        await user.keyboard('{ArrowDown}{ArrowUp}');
+        expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+
+        reportFrom('chart', 'In this chart', [result('height 170 cm', 'obs:2')]);
+
+        expect(screen.getByRole('option', { name: 'weight elsewhere' })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
       it('shows nothing for a group whose every result is a copy', async () => {
         const user = userEvent.setup();
         const reportsOne =
