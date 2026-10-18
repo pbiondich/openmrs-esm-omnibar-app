@@ -96,7 +96,7 @@ export function getProviderOrder(
   return scope === 'patient' ? (meta?.patientScopeOrder ?? base) : base;
 }
 
-const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;
+export const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;
 
 /** The only place a result turns into an action. */
 export async function executeTarget(target: OmnibarTarget): Promise<void> {
