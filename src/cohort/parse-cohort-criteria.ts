@@ -242,6 +242,10 @@ export function parseCohortCriteria(text: string, config: CohortCriteriaConfig):
   if (!isAge(minAge) || !isAge(maxAge) || (minAge != null && maxAge != null && minAge > maxAge)) {
     return null;
   }
+  // The cohort builder reads an age of 0 as "not set", so "under 1" would become everyone alive.
+  if (maxAge === 0) {
+    return null;
+  }
   if (!programs.every((program) => isContractUuid(program.uuid))) {
     return null;
   }
