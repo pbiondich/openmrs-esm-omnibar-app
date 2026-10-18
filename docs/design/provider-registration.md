@@ -1,6 +1,6 @@
 # Omnibar provider registration: the omnibar as a pure host
 
-Status: PLAN ONLY (rev 2, 11:30 PM CT: querystore added as a provider owner, §4A). No code changes, pushes or deploys follow from this document by themselves.
+Status: rev 3, 2026-10-17 11:41 PM PT. Paul has decided questions 1-7 (§7A); querystore questions 8-14 stay open for a joint review. Step 1 (omnibar host N, contract v1) has started on `feat/provider-contract`. No code changes, pushes or deploys follow from this document by themselves.
 Author: Paul Biondich (drafted by Grok Bot), 2026-10-17 ~11:30 PM CT.
 
 Decision (Paul, 11:19 and 11:21 PM CT): follow the O3 convention. Feature modules register into the omnibar's
@@ -424,7 +424,32 @@ Each step can be deployed on its own and rolled back through the importmap. **o3
 
 ---
 
-## 7. Open questions for Paul
+## 7A. Decisions (Paul, 2026-10-17 11:41 PM PT)
+
+| # | Decision | Effect on the plan |
+| --- | --- | --- |
+| 1 | Copy a versioned contract file into each app now; npm package later | §1.5 option B is adopted. Each app gets `src/omnibar-contract/` with `OMNIBAR_CONTRACT_VERSION`, plus a conformance test |
+| 2 | Cohort rows fail gracefully: a quiet "unavailable" line when the server is unreachable. No special offline mode | Contract v1 gets `report.detail.state: 'unavailable'` (§1.4) in step 1. The cohort providers report it on network failure. Their routes entries keep the default offline flags; no `offline:false` special-casing |
+| 3 | Patient search, recents and chart lookup stay as built-in omnibar defaults for now | §2.1 "Move" verdicts for these three are deferred. They stay in the omnibar, removable through slot config. No upstream PRs now |
+| 4 | Cohort Builder and ChartSearch rows are on by default when their app is installed; implementers can switch them off in config | Cohort: `omnibar.enabled` (default true) in `@openmrs/esm-cohort-builder-app`. ChartSearch: `omnibarSuggestion.enabled` (default true). Slot `remove` also works |
+| 5 | Merge 7162b91 and 2dd487a into one local ChartSearch branch; the row moves there; upstream later | §4 target branch = one merged local branch. **Parked:** Paul isn't sure he likes the row opening the bottom-right chat; the launch target may change before §5 step 3 |
+| 6 | Pages and apps: each app declares its own entry in metadata | End state of the destinations provider: `meta.omnibarDestination` on each app's existing extension/page registration. The config list stays as a default until apps adopt it |
+| 7 | Keep `feat/cohort-omnibar` on GitHub and add the lightweight tag `archive/cohort-omnibar-2417fe2` on 2417fe2 | Tag pushed. The branch is retired (never merged or deployed) but kept |
+
+Querystore questions 8-14 are open for a joint review.
+
+### Step 1 scope as started (omnibar host N, branch `feat/provider-contract` off fa16358)
+- Contract v1 in `src/omnibar/types.ts`:
+  - `OMNIBAR_CONTRACT_VERSION = 1`, `meta.contract`, and `contractVersion` in the props
+  - `context.workspaceGroup` (the chart side panel is open, and for which patient)
+  - `hints.looksLikeIdentifier` and `meta.skipIdentifierQueries`
+  - `report.detail.state` including `'unavailable'`
+  - `meta.dedupeKey` with `result.dedupeId`
+- Built-in providers are kept and adopt the new fields where they apply. ChartSearch uses `context.workspaceGroup` and `skipIdentifierQueries`.
+- `cohort` is dropped from the Patient lists keywords.
+- The contract doc is generated from the types. The vendored folder is published from `src/omnibar-contract/`.
+
+## 7. Open questions for Paul (1-7 decided, see 7A)
 
 1. **Contract publishing:**
    - is "vendored contract file now, `@openmrs/esm-omnibar-contract` on npm later" OK?
