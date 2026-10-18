@@ -68,6 +68,18 @@ export interface OmnibarProviderMeta {
   defaultInChart?: boolean;
   /** The contract major version the provider was built against. Missing means 1. A host that speaks an older one doesn't mount it. */
   contract?: number;
+  /**
+   * Not mounted, and so never asked, while the query looks like a patient identifier, so a scanned
+   * MRN never reaches a semantic index or a model. Its group disappears for that query. Patient
+   * search must not set it.
+   */
+  skipIdentifierQueries?: boolean;
+}
+
+/** Facts about the query, worked out once by the host for every provider. */
+export interface OmnibarQueryHints {
+  /** See `looksLikeIdentifier`. */
+  looksLikeIdentifier: boolean;
 }
 
 export type OmnibarTarget =
@@ -146,6 +158,8 @@ export interface OmnibarProviderProps {
   query: string;
   context: OmnibarContext;
   report: (report: OmnibarReport) => void;
+  /** Hosts from before contract 1 was published don't pass it. */
+  hints?: OmnibarQueryHints;
   /** The contract version the host speaks. Hosts from before contract 1 was published don't pass it. */
   contractVersion?: number;
 }

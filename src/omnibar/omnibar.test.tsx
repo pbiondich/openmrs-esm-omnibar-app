@@ -2215,7 +2215,7 @@ describe('Omnibar with providers mounted through the slot', () => {
       const props: Array<OmnibarProviderProps> = [];
       mountProviders([{ name: 'recorder', meta: recordLane, component: recordProps(props) }]);
       render(<Omnibar />);
-      const hintsFor = (query: string) => props.findLast((p) => p.query === query)?.hints;
+      const hintsFor = (query: string) => props.filter((p) => p.query === query).at(-1)?.hints;
 
       await user.type(screen.getByRole('combobox'), '100GEJ');
       expect(hintsFor('100GEJ')).toEqual({ looksLikeIdentifier: true });

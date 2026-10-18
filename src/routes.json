@@ -30,7 +30,7 @@
       "component": "chartSearchSuggestionProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["AI Query Patient Data"],
-      "meta": { "lane": "navigate", "scopes": ["patient"], "order": 100, "contract": 1 }
+      "meta": { "lane": "navigate", "scopes": ["patient"], "order": 100, "contract": 1, "skipIdentifierQueries": true }
     },
     {
       "name": "omnibar-destinations-provider",
