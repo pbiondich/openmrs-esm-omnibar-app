@@ -80,14 +80,24 @@ export function setupWarmOnChartOpen(moduleName: string): () => void {
 
     getConfig<OmnibarConfig>(moduleName)
       .then(async (config) => {
-        if (config.chartLookup.source === 'rest') return;
+        if (config.chartLookup.source === 'rest') return false;
         const session = await getCurrentUser();
-        if (!session?.user || !userHasAccess(warmPrivilege, session.user)) return;
-        // Fire-and-forget apart from the one 503 retry: other errors are swallowed. Warm is idempotent.
-        if (stillIn(uuid)) {
-          warm(uuid, 1);
-        }
+        return Boolean(session?.user && userHasAccess(warmPrivilege, session.user));
       })
+      .then(
+        (allowed) => {
+          // Fire-and-forget apart from the one 503 retry: other errors are swallowed. Warm is idempotent.
+          if (allowed && stillIn(uuid)) {
+            warm(uuid, 1);
+          }
+        },
+        () => {
+          // The config or the session didn't load: forget the chart, so the next move within it tries again.
+          if (lastUuid === uuid) {
+            lastUuid = undefined;
+          }
+        },
+      )
       .catch(() => {});
   };
 
