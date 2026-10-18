@@ -4,6 +4,7 @@ import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@te
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type FetchConfig,
   type FetchResponse,
   type Session,
   getGlobalStore,
@@ -1802,6 +1803,114 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect.objectContaining({ body: { userProperties: { patientsVisited: `${jane.uuid},${purgedUuid}` } } }),
       ],
     ]);
+  });
+
+  describe('recording a visit while something else saves the same user', () => {
+    const firstUuid = 'a1b2c3d4-0000-4000-8000-000000000002';
+    const secondUuid = 'a1b2c3d4-0000-4000-8000-000000000003';
+    const locationUuid = 'a1b2c3d4-0000-4000-8000-000000000004';
+
+    /**
+     * The user resource as the server keeps it: a GET returns the stored properties, and a POST of
+     * `userProperties` replaces the whole map, so any property the POST leaves out is gone.
+     */
+    const serveUserResource = (userProperties: Record<string, string>) => {
+      const server = { userProperties, failingSaves: 0 };
+      vi.mocked(useSession).mockReturnValue({
+        authenticated: true,
+        sessionId: 's',
+        user: { uuid: 'user-uuid' },
+      } as Session);
+      mockOpenmrsFetch.mockImplementation(async (url: string, init?: FetchConfig) => {
+        if (url.includes('/user/user-uuid')) {
+          if (init?.method === 'POST') {
+            if (server.failingSaves > 0) {
+              server.failingSaves -= 1;
+              throw new Error('Server responded with 500');
+            }
+            server.userProperties = { ...(init.body as { userProperties: Record<string, string> }).userProperties };
+          }
+          return { data: { userProperties: { ...server.userProperties } } } as FetchResponse;
+        }
+        if (url.includes(`/patient/${jane.uuid}`)) {
+          return { data: jane } as FetchResponse;
+        }
+        throw new Error('Not found');
+      });
+      return server;
+    };
+    const userRequests = () =>
+      mockOpenmrsFetch.mock.calls
+        .filter(([url]) => url.includes('/user/user-uuid'))
+        .map(([, init]) => init?.method ?? 'GET');
+    const choosePatient = (uuid: string) =>
+      window.dispatchEvent(
+        new CustomEvent(OMNIBAR_SELECTED_EVENT, {
+          detail: { providerId: 'omnibar-patient-search-provider', resultId: `patient:${uuid}` },
+        }),
+      );
+    const openRecents = async (user: ReturnType<typeof userEvent.setup>) => {
+      mountProviders([{ name: 'omnibar-patient-search-provider', meta: recordLane, component: PatientSearchProvider }]);
+      renderWithFreshCache(<Omnibar />);
+      await user.click(screen.getByRole('combobox'));
+      return screen.findByRole('option', { name: /jane doe/i });
+    };
+
+    it('reads the user again just before saving, and keeps every property saved since the recents loaded', async () => {
+      const user = userEvent.setup();
+      const server = serveUserResource({ patientsVisited: `${purgedUuid},${jane.uuid}`, defaultLocale: 'en' });
+      const janeOption = await openRecents(user);
+      // Another app, tab or device saves this user while the recents are on screen.
+      server.userProperties = {
+        patientsVisited: `${firstUuid},${purgedUuid},${jane.uuid}`,
+        defaultLocale: 'fr',
+        defaultLocation: locationUuid,
+      };
+      const requestsBefore = userRequests().length;
+
+      await user.click(janeOption);
+
+      await waitFor(() =>
+        expect(server.userProperties).toEqual({
+          patientsVisited: `${jane.uuid},${firstUuid},${purgedUuid}`,
+          defaultLocale: 'fr',
+          defaultLocation: locationUuid,
+        }),
+      );
+      expect(userRequests().slice(requestsBefore, requestsBefore + 2)).toEqual(['GET', 'POST']);
+    });
+
+    it('saves quick picks one after another, so a later save never drops an earlier visit', async () => {
+      const user = userEvent.setup();
+      const server = serveUserResource({ patientsVisited: jane.uuid, defaultLocale: 'en' });
+      await openRecents(user);
+
+      act(() => {
+        choosePatient(firstUuid);
+        choosePatient(secondUuid);
+      });
+
+      await waitFor(() =>
+        expect(server.userProperties).toEqual({
+          patientsVisited: `${secondUuid},${firstUuid},${jane.uuid}`,
+          defaultLocale: 'en',
+        }),
+      );
+    });
+
+    it('keeps saving visits after one save fails', async () => {
+      const user = userEvent.setup();
+      const server = serveUserResource({ patientsVisited: jane.uuid });
+      await openRecents(user);
+      server.failingSaves = 1;
+
+      act(() => {
+        choosePatient(firstUuid);
+        choosePatient(secondUuid);
+      });
+
+      await waitFor(() => expect(server.userProperties).toEqual({ patientsVisited: `${secondUuid},${jane.uuid}` }));
+    });
   });
 
   it.each([
