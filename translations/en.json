@@ -37,5 +37,9 @@
   "thisChart": "This chart",
   "thisPatient": "this patient",
   "unsourcedAnswer": "This answer is hidden because it didn’t cite any records.",
-  "yes": "Yes"
+  "yes": "Yes",
+  "inThisChartQuerystore": "In this chart (query store)",
+  "querystoreRecordedOnWithCount": "Latest, recorded {{date}} · {{count}} readings",
+  "recentInThisChart": "Recent in this chart",
+  "recordedDate": "Recorded {{date}}"
 }

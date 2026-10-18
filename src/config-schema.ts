@@ -56,6 +56,13 @@ export const configSchema = {
       _default: '${openmrsSpaBase}/patient/${patientUuid}/chart/Results',
       _description: 'Where choosing a chart value goes.',
     },
+    source: {
+      _type: Type.String,
+      _default: 'rest',
+      _description:
+        '"rest" uses the existing chart lookup via FHIR (default, no change). "querystore" replaces it with the querystore index. "both" shows both panels side by side for comparison.',
+      _validators: [validators.oneOf(['rest', 'querystore', 'both'])],
+    },
   },
   chartSearchSuggestion: {
     enabled: {
@@ -168,6 +175,7 @@ export interface OmnibarConfig {
     maxConcepts: number;
     maxCandidates: number;
     resultsUrl: string;
+    source: 'rest' | 'querystore' | 'both';
   };
   chartSearchSuggestion: ChartSearchSuggestionConfig;
   destinations: Array<Destination>;

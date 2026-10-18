@@ -55,7 +55,11 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
   const { t } = useTranslation();
   const { chartLookup } = useConfig<OmnibarConfig>();
   const patientUuid = context.patientUuid;
-  const search = patientUuid ? toConceptSearch(query, chartLookup.minSearchCharacters) : null;
+  // Go idle when querystore is the sole source so the two providers don't duplicate results.
+  const search =
+    patientUuid && chartLookup.source !== 'querystore'
+      ? toConceptSearch(query, chartLookup.minSearchCharacters)
+      : null;
   const active = Boolean(search);
 
   const phrase = useSWR<ConceptResults>(search ? conceptUrl(search.phrase) : null, fetcher);
