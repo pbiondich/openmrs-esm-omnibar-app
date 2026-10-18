@@ -522,6 +522,67 @@ describe('QuerystoreChartProvider', () => {
     });
   });
 
+  describe('malformed answers', () => {
+    const good = makeGroup();
+    const junkHits = [
+      null,
+      'CD4',
+      42,
+      {},
+      { resourceType: 'obs' },
+      { resourceType: 7, resourceUuid: 'r7' },
+      { resourceType: 'obs', resourceUuid: { uuid: 'r8' } },
+    ];
+
+    it('skips search groups that are not objects with a usable latest record, and keeps the good ones', async () => {
+      const groups = [...junkHits, ...junkHits.map((latest) => ({ ...good, latest })), good];
+      mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups } } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('ready'));
+      expect(report.mock.calls.at(-1)[0].results.map((result) => result.title)).toEqual(['CD4 count: 350 cells/µL']);
+    });
+
+    it('skips recent records that are not objects with a text type and uuid, and keeps the good ones', async () => {
+      mockOpenmrsFetch.mockResolvedValue({
+        data: { status: 'indexed', hits: [...junkHits, good.latest] },
+      } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="" context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('ready'));
+      expect(report.mock.calls.at(-1)[0].results.map((result) => result.title)).toEqual(['CD4 count: 350 cells/µL']);
+    });
+
+    it.each([
+      ['cd4', { groups: 'none' }],
+      ['cd4', { groups: { 0: good } }],
+      ['', { hits: 'none' }],
+      ['', { hits: { 0: good.latest } }],
+    ])('reads a list that is not an array as empty (query "%s")', async (query, rows) => {
+      mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', ...rows } } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+      await waitFor(() =>
+        expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready', results: [] })),
+      );
+    });
+
+    it.each(['cd4', ''])('keeps a row whose date is not text, without a date (query "%s")', async (query) => {
+      const undated = { ...good.latest, date: 20260312 };
+      mockOpenmrsFetch.mockResolvedValue({
+        data: { status: 'indexed', groups: [{ ...good, latest: undated }], hits: [undated] },
+      } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].results).toHaveLength(1));
+      expect(report.mock.calls.at(-1)[0].results[0].subtitle).toBeUndefined();
+    });
+  });
+
   it('uses the recent endpoint for empty query and titles the group "Recent in this chart"', async () => {
     mockOpenmrsFetch.mockResolvedValue({
       data: {
