@@ -20,7 +20,8 @@ import { useBoundedPoll } from '../querystore/bounded-poll';
  * indexing" line, rather than waiting, and re-checks a few times with growing delays (see
  * `useBoundedPoll`). Each re-check is a non-waiting request, which also starts a warm on the server,
  * so a chart that opened while every indexing slot was busy catches up. If it still isn't indexed
- * after the last, the line says so and the provider stops asking until the query changes.
+ * after the last, the line says so and the provider stops asking until the query changes: SWR's
+ * focus and reconnect revalidation are off, and an error is retried only twice.
  */
 
 /** As the server reports a chart: being indexed, ready, never indexed, or its last indexing failed. */
@@ -77,6 +78,8 @@ function errorDetail(error: unknown, status: QuerystoreStatus | undefined): Omni
  */
 const dedupeIdFor = (hit: QuerystoreHit, comparing: boolean) =>
   !comparing && hit.resourceType === 'obs' && hit.resourceUuid ? `obs:${hit.resourceUuid}` : undefined;
+
+const swrOptions = { revalidateOnFocus: false, revalidateOnReconnect: false, errorRetryCount: 2 };
 
 const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((r) => r.data);
 
@@ -159,8 +162,8 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
 
   const recentUrl = recents ? `${base}/recent?limit=5&wait=false` : null;
 
-  const searchData = useSWR<SearchResponse>(searchUrl, fetcher);
-  const recentData = useSWR<RecentResponse>(recentUrl, fetcher);
+  const searchData = useSWR<SearchResponse>(searchUrl, fetcher, swrOptions);
+  const recentData = useSWR<RecentResponse>(recentUrl, fetcher, swrOptions);
 
   const current = searching ? searchData : recentData;
   const { exhausted } = useBoundedPoll(
