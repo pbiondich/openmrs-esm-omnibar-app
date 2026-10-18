@@ -1008,6 +1008,20 @@ describe('Omnibar with providers mounted through the slot', () => {
         await waitFor(() => expect(askRow()).not.toBeInTheDocument());
       });
 
+      it('measures the question without the spaces around it, as ChartSearch does', async () => {
+        const report = vi.fn();
+        // The shell trims before providers see the query, so this renders the provider directly.
+        render(
+          <ChartSearchSuggestionProvider
+            query={`  ${questionOfLength(1000)}  `}
+            context={{ scope: 'patient', patientUuid: chartPatientUuid, locale: 'en' }}
+            report={report}
+          />,
+        );
+
+        await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })));
+      });
+
       it("does not wait on ChartSearch's config when its workspace is not registered", async () => {
         mockGetRegisteredWorkspace2Names.mockReturnValue([]);
         renderOmnibar();
