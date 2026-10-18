@@ -4,8 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { formatDate, interpolateUrl, openmrsFetch, restBaseUrl, useConfig } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import {
+  isServerUnreachable,
   looksLikeIdentifier,
   type OmnibarProviderProps,
+  type OmnibarReportDetail,
   type OmnibarResult,
   type OmnibarTarget,
 } from '../omnibar-contract';
@@ -55,6 +57,17 @@ interface SearchResponse {
 interface RecentResponse {
   status: QuerystoreStatus;
   hits: Array<QuerystoreHit>;
+}
+
+/**
+ * How a failure reads in the report. An unreachable server and a chart whose indexing failed each get
+ * their own quiet line; anything else is a plain error. Never the server's message.
+ */
+function errorDetail(error: unknown, status: QuerystoreStatus | undefined): OmnibarReportDetail | undefined {
+  if (error) {
+    return isServerUnreachable(error) ? { state: 'unavailable' } : undefined;
+  }
+  return status === 'failed' ? { state: 'failed' } : undefined;
 }
 
 const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((r) => r.data);
@@ -166,7 +179,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
     if (searching) {
       // A failed chart is an error to show, not an empty one: the server won't retry it on its own.
       if (searchData.error || searchData.data?.status === 'failed') {
-        report({ query, title, status: 'error' });
+        report({ query, title, status: 'error', detail: errorDetail(searchData.error, searchData.data?.status) });
         return;
       }
       const projecting = searchData.data?.status === 'projecting' || searchData.data?.status === 'not_indexed';
@@ -202,11 +215,16 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
     }
 
     // Recent documents path (empty query inside a chart).
+    const recentTitle = t('recentInThisChart', 'Recent in this chart');
     if (recentData.error || recentData.data?.status === 'failed') {
-      report({ query, title, status: 'error' });
+      report({
+        query,
+        title: recentTitle,
+        status: 'error',
+        detail: errorDetail(recentData.error, recentData.data?.status),
+      });
       return;
     }
-    const recentTitle = t('recentInThisChart', 'Recent in this chart');
     const projecting = recentData.data?.status === 'projecting' || recentData.data?.status === 'not_indexed';
     const loading = recentData.isLoading || projecting;
 
