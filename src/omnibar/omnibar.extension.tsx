@@ -68,6 +68,13 @@ interface Selection {
   dedupeId?: string;
 }
 
+/**
+ * The longest a page or destination waits, inside a chart, for the chart's own values before it may
+ * take the default highlight. Chart lookup makes two requests in a row, so this allows for both on a
+ * slow link, and a provider stuck loading can't leave Enter doing nothing for longer.
+ */
+export const chartValuesGraceMs = 1500;
+
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
 const Omnibar: React.FC = () => {
@@ -123,7 +130,7 @@ const Omnibar: React.FC = () => {
   // closed, so closing and opening it start new generations too.
   const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
   const scopePatientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
-  const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(
+  const { getReporter, clear, listGroups, answerGroups, selectable, awaitingRecordDefault } = useResultCollector(
     debouncedQuery,
     providerInfo,
     `${contextKey}:${open ? 'open' : 'closed'}`,
@@ -137,6 +144,17 @@ const Omnibar: React.FC = () => {
     (extensions: Array<AssignedExtension>) => extensions.filter((extension) => providerInfo[extension.name]),
     [providerInfo],
   );
+
+  // Inside a chart, a page doesn't take the default while a provider of chart values is still
+  // searching, so the first Enter on "admission" opens the chart's record rather than the ward page.
+  // Only the automatic default waits, and for at most chartValuesGraceMs per query.
+  const graceKey = `${contextKey}:${open}:${debouncedQuery}`;
+  const [graceOverFor, setGraceOverFor] = useState<string>();
+  useEffect(() => {
+    const timer = setTimeout(() => setGraceOverFor(graceKey), chartValuesGraceMs);
+    return () => clearTimeout(timer);
+  }, [graceKey]);
+  const holdPageDefault = Boolean(scopePatientUuid) && awaitingRecordDefault && graceOverFor !== graceKey;
 
   // The result the user arrowed or pointed to, else the first one that may be the default. When
   // none may, nothing is highlighted and Enter does nothing. The highlight also remembers the record
@@ -174,6 +192,8 @@ const Omnibar: React.FC = () => {
   // highlight whose row is reported again in a way that can't be the default is dropped.
   const { selected, chosen } = useMemo(() => {
     const mayBeDefault = (result: SelectableResult) => result.mayBeDefault;
+    const mayBeDefaultNow = (result: SelectableResult) =>
+      mayBeDefault(result) && !(holdPageDefault && providerInfo[result.providerId]?.lane === 'navigate');
     const same = selection && selectable.find((result) => result.key === selection.key);
     if (same) {
       return { selected: selection.chosen || mayBeDefault(same) ? same : undefined, chosen: selection.chosen };
@@ -192,8 +212,8 @@ const Omnibar: React.FC = () => {
     if (selection?.chosen) {
       return { selected: undefined, chosen: true };
     }
-    return { selected: selectable.find(mayBeDefault), chosen: false };
-  }, [selection, selectable, providerInfo]);
+    return { selected: selectable.find(mayBeDefaultNow), chosen: false };
+  }, [selection, selectable, providerInfo, holdPageDefault]);
   const selectedIndex = selected ? selectable.indexOf(selected) : -1;
   const selectableByKey = useMemo(() => new Map(selectable.map((result) => [result.key, result])), [selectable]);
 

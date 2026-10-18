@@ -404,7 +404,21 @@ export function useResultCollector(
     [listGroups, namesOtherPatient],
   );
 
-  return { getReporter, clear, listGroups, answerGroups, selectable };
+  // A record-lane provider that may take the default and hasn't answered this query yet: no report
+  // for it, or `loading` with nothing to show. Read before dedupe, which drops a group left empty.
+  const awaitingRecordDefault = useMemo(
+    () =>
+      Object.entries(providerInfo).some(([providerId, info]) => {
+        if (info.lane !== 'record' || info.neverDefault) {
+          return false;
+        }
+        const report = reports[providerId];
+        return !report || report.query !== query || (report.status === 'loading' && !report.results?.length);
+      }),
+    [reports, query, providerInfo],
+  );
+
+  return { getReporter, clear, listGroups, answerGroups, selectable, awaitingRecordDefault };
 }
 
 export function getProviderOrder(

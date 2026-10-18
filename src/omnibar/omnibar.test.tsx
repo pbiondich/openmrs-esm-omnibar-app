@@ -2532,9 +2532,8 @@ describe('Omnibar with providers mounted through the slot', () => {
         openChartOnQueryStore({ admission: [admission] });
         const field = screen.getByRole('combobox', { name: /search this chart/i });
 
-        // The first time, the destination answers before the query store's request returns, and the
-        // host pins the default to the first row it lands on. Typed again, the query store answers
-        // from its cache, so both rows arrive together.
+        // Typed again, the query store answers from its cache, so both rows arrive together. The first
+        // time, when the destination answers first, is tested below.
         await user.type(field, 'admission');
         await screen.findByRole('option', { name: /Admission: Ward 3/ });
         await user.keyboard('{Backspace}');
