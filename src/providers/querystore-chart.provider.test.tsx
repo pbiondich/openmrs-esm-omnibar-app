@@ -635,6 +635,44 @@ describe('QuerystoreChartProvider', () => {
       expect(report.mock.calls.at(-1)[0].results.map((result) => result.title)).toEqual(['CD4 count: 350 cells/µL']);
     });
 
+    it('drops a search group with an id that is not text, or nothing to title it with, and keeps the good ones', async () => {
+      const untitled = makeGroup({ conceptUuid: 'c-untitled', resourceUuid: 'r-untitled', snippet: '' });
+      delete untitled.conceptName;
+      delete untitled.latest.conceptName;
+      delete untitled.latest.valueNumeric;
+      const groups = [
+        good,
+        { ...makeGroup({ resourceUuid: 'r-numeric-id' }), conceptUuid: 42 },
+        { ...makeGroup({ resourceUuid: 'r-empty-id' }), conceptUuid: '' },
+        untitled,
+        makeGroup({ conceptUuid: 'c-last', resourceUuid: 'r-last', conceptName: 'Weight', units: 'kg' }),
+      ];
+      mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups } } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('ready'));
+      expect(report.mock.calls.at(-1)[0].results.map((result) => [result.id, result.title])).toEqual([
+        ['cd4-uuid', 'CD4 count: 350 cells/µL'],
+        ['c-last', 'Weight: 350 kg'],
+      ]);
+    });
+
+    it('drops a recent record with an empty uuid or nothing to title it with, and keeps the good ones', async () => {
+      const untitled = { ...good.latest, resourceUuid: 'r-untitled', snippet: 7 };
+      delete untitled.conceptName;
+      delete untitled.valueNumeric;
+      const hits = [good.latest, { ...good.latest, resourceUuid: '' }, untitled];
+      mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', hits } } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="" context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('ready'));
+      expect(report.mock.calls.at(-1)[0].results.map((result) => [result.id, result.title])).toEqual([
+        ['obs-uuid', 'CD4 count: 350 cells/µL'],
+      ]);
+    });
+
     it.each([
       ['cd4', { groups: 'none' }],
       ['cd4', { groups: { 0: good } }],
