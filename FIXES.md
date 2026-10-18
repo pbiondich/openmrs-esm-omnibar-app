@@ -450,3 +450,21 @@ Logged, not fixed:
 
 - Tests before: 180. After: 182 (13 in `src/providers/patients-visited.test.ts`). Failed first on 32f15be: `Tests 2 failed | 11 passed (13)` in that file.
 - `corepack yarn test`: 182 passed. `corepack yarn typescript` and `corepack yarn lint` are clean.
+## Fix: refused ChartSearch launch is no longer silent
+
+If the chart's workspace group closed, or opened for another patient, between drawing the Ask ChartSearch row and picking it, `executeTarget` refused the launch and nothing happened. The bar had already closed, so the clinician saw no feedback.
+
+| Change | Commit |
+| --- | --- |
+| Failing tests first. A capturing listener on `window` changes the group after the row is drawn and before the omnibar handles the click or Enter. This runs for a closed group and for a group opened for another patient | cc02fdc, 2be4e93 (formatting) |
+| `executeTarget` resolves false when it refuses a launch, and true otherwise. The omnibar then shows a warning snackbar with i18n strings `sidePanelNotOpened` and `sidePanelNotOpenedSubtitle`, also added to `translations/en.json`: "Couldn’t open the side panel. This chart’s side panel closed before it could open. Search again to retry." Source links use the same path | db25aa7 |
+| README and `docs/design/omnibar-context-rules.md` describe the snackbar | 9aa0300 |
+
+Why a snackbar and not a reopen: `launchWorkspaceGroup2(groupName, groupProps)` is public, but the patient chart owns the group and its props (patient and visit context). Once the group closes, the store no longer holds those props. Reopening with only `{ patientUuid }` would leave the chart's other workspaces without their props, and the chart's own next launch would see different props and prompt to close the group. `launchWorkspace2` with null group props would open the group with no patient, which fix round 1 ruled out. The omnibar never launches for a different patient: the group check still runs before any launch.
+
+The copy says "side panel", not "chat". `requiresOpenGroup` belongs to the shell, so it has to fit any workspace. For the ChartSearch row, the side panel is the chat.
+
+- Tests before: 166. After: 172 (105 in `src/omnibar/omnibar.test.tsx`).
+- Failed first, on cc02fdc with the old `omnibar.resource.ts` and `omnibar.extension.tsx`: `Tests  5 failed | 167 passed (172)`. `executeTarget` resolved `undefined`, not `true`. In all four pick cases the selection event fired, the bar closed and nothing launched, but `showSnackbar` was called 0 times. The no-snackbar test for an open group passed before and after.
+- `corepack yarn test`: 172 passed. `corepack yarn typescript` and `corepack yarn lint` exit 0.
+- Not tested live. The race depends on the group closing in the moment between a render and a pick, and in tests it is forced through a capturing listener. The snackbar has not been seen on a real chart.
