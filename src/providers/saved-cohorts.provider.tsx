@@ -12,7 +12,7 @@ import { type OmnibarProviderProps } from '../omnibar/types';
  */
 
 interface CohortResponse {
-  results?: Array<{ uuid: string; name?: string; display?: string; description?: string; voided?: boolean }>;
+  results?: Array<{ uuid: string; name?: string; description?: string; voided?: boolean }>;
 }
 
 const maxResults = 5;
@@ -22,7 +22,7 @@ function toCohortHits(data: unknown): Array<SavedSearchHit> {
     .filter((cohort) => !cohort.voided)
     .map((cohort) => ({
       uuid: cohort.uuid,
-      name: cohort.name ?? cohort.display ?? '',
+      name: cohort.name ?? '',
       description: cohort.description,
     }))
     .slice(0, maxResults);
@@ -35,7 +35,7 @@ const SavedCohortsProvider: React.FC<OmnibarProviderProps> = ({ query, context, 
   const url = active
     ? `${restBaseUrl}/cohort?${new URLSearchParams({
         q: query,
-        v: 'custom:(uuid,name,display,description,voided)',
+        v: 'custom:(uuid,name,description,size,voided)',
         limit: '10',
       })}`
     : null;

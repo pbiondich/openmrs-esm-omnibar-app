@@ -112,6 +112,10 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 | Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
 | ChartSearch suggestion | navigate | patient | Local question heuristic; opens a registered workspace |
+| Cohort criteria | navigate | global | Config only: a deterministic parser; see [Cohort search](#cohort-search) |
+| Cohort Builder | navigate | global | None: a fixed row for "cohort", "build cohort", "find patients who…" |
+| Saved cohorts | navigate | global | REST `/cohort?q=` |
+| Saved queries | navigate | global | REST `/reportingrest/dataSetDefinition?q=` |
 
 Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch row appears only for question-like input of at most 1000 characters, only for users with `AI Query Patient Data`, only when `ai-chat-workspace` is registered, and only while that workspace's window group is already open for this patient. It never takes the default highlight.
 
@@ -134,6 +138,74 @@ To hide the row, set `enabled` to false. To open a different registered workspac
 ```
 
 The full design, including how O3's current search works and why each decision was made, is in [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
+
+### Cohort search
+
+Outside a chart, the omnibar can start a population search in the Cohort Builder (`@openmrs/esm-cohort-builder-app`). Inside a chart none of these providers mount: there the bar is about the open patient. The rows only open the builder. The omnibar never calls `reportingrest/adhocquery` and never calls a model.
+
+The URL contract between the two apps is in `contract.md` in the OpenMRS Studio cohort folder (v1): `cohort-builder?cohort=<uuid>`, `?query=<uuid>`, or `?definition=<base64url JSON>`. The builder side of it is a patch to the cohort builder (branch `feat/url-definition`); without that patch the builder opens but ignores the parameter.
+
+| Provider | Shows | Opens | Privileges (all required) |
+| --- | --- | --- | --- |
+| Cohort criteria | One "Build cohort: …" row when the whole query parses | `cohort-builder?definition=…` | Get Patients, Run Reports |
+| Cohort Builder | "Cohort Builder" for `coh…`, `cohort …`, `build cohort`, `find patients who…` | `cohort-builder` | Get Patients, Run Reports |
+| Saved cohorts | Up to 5 cohorts whose name contains the query (2+ characters), from `GET cohort?q=…&v=custom:(uuid,name,description,size,voided)&limit=10` | `cohort-builder?cohort=<uuid>` | Get Patient Cohorts |
+| Saved queries | Up to 5 saved Cohort Builder queries whose name contains the query, from `GET reportingrest/dataSetDefinition?q=…&v=custom:(uuid,name,description)&limit=10` | `cohort-builder?query=<uuid>` | View Reports |
+
+The privileges are the ones the backend checks for each provider's own request (core `CohortService`, reporting's `DefinitionService`, `DataSetDefinitionService` and `CohortDefinitionService`). `reportingrest/adhocquery` evaluates cohort definitions (Get Patients) and a data set definition (Run Reports), so the rows that open a new search ask for both. A routes.json `privileges` array means all of them (esm-extensions passes it to `userHasAccess`, which checks `every`; superusers pass). Saved cohorts and saved queries are separate providers because their lists need different privileges. Opening a saved query in the builder also needs Run Reports; the builder reports that, not the omnibar.
+
+The saved searches wait 250 ms after the omnibar's own debounce, abort a request the user has typed past, remember answers for the session, and drop any result whose uuid the contract wouldn't accept before building a URL. Core's cohort name search includes voided cohorts, so those are dropped. `dataSetDefinition` lists every data set definition, report ones too, so only names with the Cohort Builder's `[AdHocDataExport]` prefix are kept. The prefix isn't sent as the search: there is one `q`, a case-insensitive "contains", and it has to carry what the user typed. The cost is that up to 10 matches come back before filtering, so report definitions with matching names can crowd out saved queries. O3 patient lists live in the same core `cohort` table (the cohort module adds columns to it), so the saved cohorts search already finds them; they open in the Cohort Builder, not the patient list page. Labelling them separately (via `cohortm/cohort?q=`, privilege View Cohorts In Cohort Module) is a possible follow-up.
+
+#### The criteria parser
+
+`parseCohortCriteria(text, config)` in [`src/cohort/parse-cohort-criteria.ts`](src/cohort/parse-cohort-criteria.ts) is a pure function. It returns a v1 definition or null. Every word must be understood or be a stopword (patients, people, all, show, find, list, who, are, with, the, a, and…); one unknown word and there is no row. It never guesses.
+
+| It understands | Examples | Becomes |
+| --- | --- | --- |
+| Gender | women, female(s), girls, men, male(s), boys | demographics `gender` |
+| Age | over 50, older than 65, under 5, younger than 18, aged 15-49, between 18 and 65, 15 to 49, 65+, 65 and over, 18 or younger, at least 18, aged 30, 40 years old | demographics `minAge`/`maxAge`, inclusive: "over 50" is 51 and up |
+| Program | in HIV program, enrolled in TB program, enrolled in the HIV programme, enrolled in hiv | one `enrollment` criterion per program |
+| Drug group, only when `drugCriteriaEnabled` is true | on ARVs, taking antiretrovirals, receiving TLD | one `drugOrder` criterion per group, `activeOnOrAfter: "today"` |
+
+So "female patients aged 15–49 on ARVs" becomes the row **Build cohort: Female patients aged 15–49 on ARVs** (with drug criteria on). Criteria are ANDed. It returns null for IDs and MRN-like input (`100GEJ`, `123456`, `MRN-1234`), a bare number or range (`50+`, `15-49`), "or", negation ("not on ARVs"), conflicting genders or bounds, ages over 150, unknown programs or drugs, and more than five criteria. "in HIV" alone is too vague; it needs "enrolled" or "program".
+
+```json
+{
+  "@openmrs/esm-omnibar-app": {
+    "cohortBuilder": {
+      "drugCriteriaEnabled": false,
+      "programs": [
+        { "uuid": "<program uuid>", "label": "HIV Program", "aliases": ["hiv", "hiv care"] }
+      ],
+      "drugGroups": [
+        {
+          "id": "arv",
+          "label": "ARVs",
+          "aliases": ["arv", "arvs", "art", "antiretroviral", "antiretrovirals"],
+          "drugUuids": ["<Drug uuid>", "..."],
+          "cielConceptUuids": ["84796AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        }
+      ]
+    }
+  }
+}
+```
+
+- `drugCriteriaEnabled` ships **false**, and while it is false the parser treats drug groups as unknown words, so "women on ARVs" offers no row at all. Here's why. The Cohort Builder runs a drug order search as `reporting.library.cohortDefinition.builtIn.drugOrderSearch`, and no reporting release (2.2.0 and main included) defines that key, so the server fails with a 500 instead of running it. Turn it on once the server can run that search: either reporting gains a `drugOrderSearch` built-in (a `DrugOrderCohortDefinition` with `drugs`, `activeOnOrAfter` and friends as parameters), or the cohort builder is changed to use a definition the site installs (for example `configuration/reporting/definitionLibraries/cohort/drugOrderSearch.reportingserializerxml`, which registers under a different key).
+- `programs` ships empty: no RefApp demo program uuids were confirmed. Add your own.
+- `drugUuids` are formulary Drug uuids, which is what the Cohort Builder's drug order search filters on. The shipped ARV group lists the 13 ARV Drug rows on the RefApp demo server (data only; the omnibar never looks drugs up); on other servers they match nothing until replaced. Find yours with `GET /ws/rest/v1/drug?concepts=CIEL:84796,CIEL:78643,…&v=custom:(uuid,display)`. A group with no `drugUuids` is never offered, so the shipped TLD group stays silent (the demo has no TLD Drug).
+- `cielConceptUuids` are a reference for finding Drug uuids. They are not sent. CIEL's "Antiretroviral drugs" set (1085) is out of date (no dolutegravir or TLD) and drug order searches don't expand sets, so the groups list drugs rather than the set.
+
+**AI is a seam, not a feature.** `CohortCriteriaFallbackParser` in [`src/providers/cohort-criteria.provider.tsx`](src/providers/cohort-criteria.provider.tsx) is an interface only. Nothing implements or calls it. If an AI parser is added, it must be opt-in through an explicit row that says it asks AI, picked by the user, never run per keystroke or as a silent fallback.
+
+Known limits:
+
+- Drug criteria are off by default until the server can run drug order searches (see `drugCriteriaEnabled` above).
+- English only. Labels inside the "Build cohort" row are built in English.
+- No "or", no negation, no dates ("enrolled since 2024"), no numbers in words, no conditions or diagnoses, no "children" or "adults". Each is a null, not a guess.
+- "on X and Y" needs the verb repeated: "on ARVs and on TLD".
+- The saved search cache lasts until the page reloads, so a cohort saved after a search appears after a reload or a different query.
+- `?cohort=` relies on the builder patch: the builder's current saved-cohort call (`cohort/<uuid>/member`) doesn't exist in webservices.rest.
 
 ## How to use
 

@@ -8,6 +8,8 @@ import { type CohortCriterion, type CohortDefinition, isContractUuid } from './c
  */
 
 export interface CohortCriteriaConfig {
+  /** When false, drug groups are unknown words, so "on ARVs" makes the whole text unparseable. */
+  drugCriteriaEnabled: boolean;
   programs: Array<CohortProgram>;
   drugGroups: Array<CohortDrugGroup>;
 }
@@ -206,6 +208,8 @@ export function parseCohortCriteria(text: string, config: CohortCriteriaConfig):
   const programs: Array<CohortProgram> = [];
   const drugGroups: Array<CohortDrugGroup> = [];
 
+  const configuredDrugGroups = config.drugCriteriaEnabled ? (config.drugGroups ?? []) : [];
+
   let i = 0;
   while (i < tokens.length) {
     if (STOPWORDS.has(tokens[i])) {
@@ -216,7 +220,7 @@ export function parseCohortCriteria(text: string, config: CohortCriteriaConfig):
       matchGender(tokens, i) ??
       matchAge(tokens, i) ??
       matchProgram(tokens, i, config.programs ?? []) ??
-      matchDrugGroup(tokens, i, config.drugGroups ?? []);
+      matchDrugGroup(tokens, i, configuredDrugGroups);
     if (!match) return null;
 
     const { clause } = match;

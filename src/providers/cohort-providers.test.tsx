@@ -34,6 +34,7 @@ function useTestConfig() {
     ...defaults,
     cohortBuilder: {
       ...defaults.cohortBuilder,
+      drugCriteriaEnabled: true,
       programs: [{ uuid: hiv, label: 'HIV Program', aliases: ['hiv'] }],
       drugGroups: [{ id: 'arv', label: 'ARVs', aliases: ['arvs'], drugUuids: [tdf], cielConceptUuids: [] }],
     },
@@ -59,8 +60,8 @@ describe('cohort providers in routes.json', () => {
   it.each([
     ['omnibar-cohort-criteria-provider', ['Get Patients', 'Run Reports']],
     ['omnibar-cohort-builder-provider', ['Get Patients', 'Run Reports']],
-    ['omnibar-saved-cohorts-provider', ['Get Patient Cohorts', 'Get Patients', 'Run Reports']],
-    ['omnibar-saved-queries-provider', ['View Reports', 'Run Reports', 'Get Patients']],
+    ['omnibar-saved-cohorts-provider', ['Get Patient Cohorts']],
+    ['omnibar-saved-queries-provider', ['View Reports']],
   ])('declares %s for global scope only, with the privileges its backend checks', (name, privileges) => {
     const extension = routes.extensions.find((e) => e.name === name);
     expect(extension.slot).toBe('omnibar-providers-slot');
@@ -122,6 +123,19 @@ describe('CohortCriteriaProvider', () => {
         { type: 'drugOrder', drugs: [tdf], activeOnOrAfter: 'today' },
       ],
     });
+  });
+
+  it('offers nothing for a drug group while drug criteria are off', () => {
+    const config = mockUseConfig();
+    mockUseConfig.mockReturnValue({
+      ...config,
+      cohortBuilder: { ...config.cohortBuilder, drugCriteriaEnabled: false },
+    });
+    const { last, rerender } = renderProvider(CohortCriteriaProvider, 'women aged 15-49 on ARVs');
+    expect(last()).toMatchObject({ status: 'idle' });
+    expect(last().results).toBeUndefined();
+    rerender('women aged 15-49');
+    expect(last().results).toHaveLength(1);
   });
 
   it('offers nothing for text it cannot fully parse, or for a patient id', () => {
@@ -232,7 +246,7 @@ describe('saved cohorts and saved queries', () => {
     expect(raw.startsWith(`${restBaseUrl}/cohort?`)).toBe(true);
     expect(raw).not.toContain('&v=full #x');
     expect(requestedUrl().searchParams.get('q')).toBe(query);
-    expect(requestedUrl().searchParams.get('v')).toBe('custom:(uuid,name,display,description,voided)');
+    expect(requestedUrl().searchParams.get('v')).toBe('custom:(uuid,name,description,size,voided)');
   });
 
   it('waits for typing to pause and asks only for the last query', async () => {

@@ -9,7 +9,8 @@ import { type OmnibarProviderProps } from '../omnibar/types';
 /**
  * Saved cohort builder queries by name, from `GET reportingrest/dataSetDefinition?q=`. That lists
  * every data set definition, report ones too, so only those the cohort builder saved (stored with
- * the "[AdHocDataExport]" name prefix) are kept, and the prefix is not shown.
+ * the "[AdHocDataExport]" name prefix) are kept, and the prefix is not shown. The prefix can't go in
+ * `q` as well: there is one `q`, a "contains" match, and it has to carry what the user typed.
  */
 
 interface DataSetDefinitionResponse {
@@ -38,7 +39,7 @@ const SavedQueriesProvider: React.FC<OmnibarProviderProps> = ({ query, context, 
     ? `${restBaseUrl}/reportingrest/dataSetDefinition?${new URLSearchParams({
         q: query,
         v: 'custom:(uuid,name,description)',
-        limit: '25',
+        limit: '10',
       })}`
     : null;
   const { hits, loading, error } = useSavedSearch(url, toQueryHits);

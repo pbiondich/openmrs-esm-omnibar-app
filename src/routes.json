@@ -56,14 +56,14 @@
       "name": "omnibar-saved-cohorts-provider",
       "component": "savedCohortsProvider",
       "slot": "omnibar-providers-slot",
-      "privileges": ["Get Patient Cohorts", "Get Patients", "Run Reports"],
+      "privileges": ["Get Patient Cohorts"],
       "meta": { "lane": "navigate", "scopes": ["global"], "order": 40 }
     },
     {
       "name": "omnibar-saved-queries-provider",
       "component": "savedQueriesProvider",
       "slot": "omnibar-providers-slot",
-      "privileges": ["View Reports", "Run Reports", "Get Patients"],
+      "privileges": ["View Reports"],
       "meta": { "lane": "navigate", "scopes": ["global"], "order": 50 }
     }
   ]

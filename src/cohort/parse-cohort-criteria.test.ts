@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { type CohortCriterion } from './cohort-definition';
+import { getDefaultsFromConfigSchema } from '@openmrs/esm-framework';
+import { configSchema, type OmnibarConfig } from '../config-schema';
+import { type CohortCriterion, definitionUrl } from './cohort-definition';
 import { type CohortCriteriaConfig, parseCohortCriteria } from './parse-cohort-criteria';
 
 const hiv = '64f950e6-1b07-4ac0-8e7e-f3e148f3463f';
@@ -9,6 +11,7 @@ const efv = '1c9d4d5f-3a0b-4c2f-8e6d-2b3c4d5e6f70';
 const tldDrug = '165086AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const config: CohortCriteriaConfig = {
+  drugCriteriaEnabled: true,
   programs: [
     { uuid: hiv, label: 'HIV Program', aliases: ['hiv', 'hiv care'] },
     { uuid: tb, label: 'TB Program', aliases: ['tb', 'tuberculosis'] },
@@ -145,6 +148,7 @@ describe('parseCohortCriteria', () => {
 
   it('rejects programs and drug groups whose uuids the cohort builder would refuse', () => {
     const broken: CohortCriteriaConfig = {
+      drugCriteriaEnabled: true,
       programs: [{ uuid: 'not-a-uuid', label: 'HIV Program', aliases: ['hiv'] }],
       drugGroups: [{ id: 'arv', label: 'ARVs', aliases: ['arvs'], drugUuids: ['../drug'], cielConceptUuids: [] }],
     };
@@ -155,6 +159,7 @@ describe('parseCohortCriteria', () => {
   it('rejects a drug group with more drugs than the contract allows', () => {
     const drugUuids = Array.from({ length: 51 }, (_, i) => `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`);
     const big: CohortCriteriaConfig = {
+      drugCriteriaEnabled: true,
       programs: [],
       drugGroups: [{ id: 'arv', label: 'ARVs', aliases: ['arvs'], drugUuids, cielConceptUuids: [] }],
     };
@@ -173,7 +178,7 @@ describe('parseCohortCriteria', () => {
       label: name,
       aliases: [`p${name}`],
     }));
-    const many: CohortCriteriaConfig = { programs, drugGroups: [] };
+    const many: CohortCriteriaConfig = { drugCriteriaEnabled: true, programs, drugGroups: [] };
     expect(
       parseCohortCriteria('in pa program in pb program in pc program in pd program in pe program', many),
     ).not.toBeNull();
@@ -184,6 +189,7 @@ describe('parseCohortCriteria', () => {
 
   it('prefers the longest alias', () => {
     const overlapping: CohortCriteriaConfig = {
+      drugCriteriaEnabled: true,
       programs: [
         { uuid: hiv, label: 'HIV Program', aliases: ['hiv'] },
         { uuid: tb, label: 'HIV TB Program', aliases: ['hiv tb'] },
@@ -191,5 +197,48 @@ describe('parseCohortCriteria', () => {
       drugGroups: [],
     };
     expect(parseCohortCriteria('in hiv tb program', overlapping).criteria).toEqual([enrollment(tb)]);
+  });
+
+  describe('with drug criteria turned off', () => {
+    const off = { ...config, drugCriteriaEnabled: false };
+
+    it.each(['on ARVs', 'women on ARVs', 'taking antiretrovirals', 'women aged 15-49 on ARVs'])(
+      'offers nothing for %j',
+      (text) => {
+        expect(parseCohortCriteria(text, off)).toBeNull();
+      },
+    );
+
+    it('still understands everything else', () => {
+      expect(parseCohortCriteria('women aged 15-49 enrolled in HIV program', off).criteria).toEqual([
+        demographics('female', 15, 49),
+        enrollment(hiv),
+      ]);
+    });
+  });
+
+  describe('with the shipped defaults', () => {
+    const { cohortBuilder } = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+
+    it('ships with drug criteria off, so "on ARVs" offers nothing', () => {
+      expect(cohortBuilder.drugCriteriaEnabled).toBe(false);
+      expect(parseCohortCriteria('women aged 15-49 on ARVs', cohortBuilder)).toBeNull();
+      expect(parseCohortCriteria('women aged 15-49', cohortBuilder)).not.toBeNull();
+    });
+
+    it('builds "on ARVs" from the demo formulary once turned on, small enough for the URL', () => {
+      const definition = parseCohortCriteria('women aged 15-49 on ARVs', {
+        ...cohortBuilder,
+        drugCriteriaEnabled: true,
+      });
+      expect(definition.criteria).toHaveLength(2);
+      expect(definition.criteria[1]).toMatchObject({ type: 'drugOrder', activeOnOrAfter: 'today' });
+      expect(definitionUrl(definition)).not.toBeNull();
+    });
+
+    it('stays silent for TLD, which has no Drug on the demo, and for programs, which ship empty', () => {
+      expect(parseCohortCriteria('on TLD', { ...cohortBuilder, drugCriteriaEnabled: true })).toBeNull();
+      expect(parseCohortCriteria('enrolled in HIV program', cohortBuilder)).toBeNull();
+    });
   });
 });

@@ -1,24 +1,50 @@
 import { Type, validator, validators } from '@openmrs/esm-framework';
 
-// TODO(groundwork §3): RefApp demo HIV/TB program uuids. Until known, no programs are configured.
+// Program uuids are site content and no RefApp demo uuids were confirmed, so distros add their own.
 const COHORT_PROGRAMS_DEFAULT = [];
 
-// Drug uuids differ per server, so none are shipped and "on ARVs" stays silent until a distro adds them.
-// TODO(groundwork §3): CIEL concept uuids.
+// Drug uuids are site content. The ARV ones are the formulary rows on the RefApp demo server; elsewhere
+// they match nothing until a distro replaces them. The demo has no TLD Drug, so "on TLD" stays silent.
 const COHORT_DRUG_GROUPS_DEFAULT = [
   {
     id: 'arv',
     label: 'ARVs',
-    aliases: ['arv', 'arvs', 'art', 'antiretroviral', 'antiretrovirals', 'antiretroviral therapy', 'hiv treatment'],
-    drugUuids: [],
-    cielConceptUuids: [],
+    aliases: ['arv', 'arvs', 'art', 'antiretroviral', 'antiretrovirals'],
+    drugUuids: [
+      '8891ef84-08d3-5e23-8d81-f7a528a2591d', // Tenofovir
+      '24c7b6a7-c317-588f-a50c-9ca12535388b', // Lamivudine
+      'bfc93568-c9de-5a7b-998a-a57ea3af7e02', // Efavirenz
+      '0216ff5f-7e98-5425-944b-e4792cfaea8c', // Nevirapine
+      '5e0fb4d1-0a76-570c-aa23-9ab3e68f2d5e', // Abacavir
+      'ff7cbf4a-ceb3-5044-9c02-02808f310dea', // Retrovir (zidovudine)
+      '9247a9cd-6790-51b4-868f-aa83a740d617', // Stavudine
+      '274aae77-31d2-53a0-9a2d-ec941d4e9624', // Didanosine
+      '0800fada-8a96-52ac-ab8a-68f6f5cb119c', // Nelfinavir
+      'b3a3db36-ba89-52fc-b35c-b26eb6b99324', // Lamivudine / zidovudine
+      '8cea863d-e8a5-5b56-8269-162b444c309a', // Lamivudine / nevirapine / stavudine
+      'bf171285-1691-11df-97a5-7038c432aabf', // Triomune-30
+      '4d2618fd-5be3-5a4c-ad4b-58b8b2ed0a13', // Lopinavir / ritonavir
+    ],
+    cielConceptUuids: [
+      '84796AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // tenofovir disoproxil
+      '78643AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // lamivudine
+      '165085AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // dolutegravir
+      'b944c518-10b4-4a93-a928-d0e4d10a66e4', // dolutegravir / lamivudine / tenofovir (CIEL 170671)
+      '75523AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // efavirenz
+      '86663AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // zidovudine
+      '80586AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // nevirapine
+      '794AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // lopinavir / ritonavir
+      '70056AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // abacavir
+      '161361AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // efavirenz / lamivudine / tenofovir
+      '159809AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // atazanavir / ritonavir
+    ],
   },
   {
     id: 'tld',
     label: 'TLD',
-    aliases: ['tld', 'tdf/3tc/dtg', 'tenofovir lamivudine dolutegravir', 'tenofovir/lamivudine/dolutegravir'],
+    aliases: ['tld', 'tenofovir lamivudine dolutegravir'],
     drugUuids: [],
-    cielConceptUuids: [],
+    cielConceptUuids: ['b944c518-10b4-4a93-a928-d0e4d10a66e4'],
   },
 ];
 
@@ -154,6 +180,12 @@ export const configSchema = {
       _default: 2,
       _description: 'Characters needed before saved cohorts and saved queries are searched by name.',
     },
+    drugCriteriaEnabled: {
+      _type: Type.Boolean,
+      _default: false,
+      _description:
+        'Let the cohort parser understand drug groups ("on ARVs"). Off by default: the Cohort Builder searches drug orders with reporting.library.cohortDefinition.builtIn.drugOrderSearch, which no reporting release defines, so the search fails unless the server provides that definition.',
+    },
     programs: {
       _type: Type.Array,
       _description:
@@ -239,6 +271,7 @@ export interface OmnibarConfig {
   destinations: Array<Destination>;
   cohortBuilder: {
     savedSearchMinCharacters: number;
+    drugCriteriaEnabled: boolean;
     programs: Array<CohortProgram>;
     drugGroups: Array<CohortDrugGroup>;
   };
