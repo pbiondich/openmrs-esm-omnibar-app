@@ -3604,6 +3604,42 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(landedOn()).toBe('/openmrs/spa/ward');
       });
 
+      it('keeps the bar working, and strips direction controls, when a patient row sends odd identifiers', async () => {
+        const user = userEvent.setup();
+        mountBeside(
+          sends({
+            title: 'Patients',
+            status: 'ready',
+            results: [
+              {
+                id: 'jane',
+                title: 'Jane Doe',
+                subtitle: '\u202ESeen today',
+                patient: {
+                  uuid: 'not-a-uuid',
+                  identifiers: [
+                    { identifier: '\u202E100GEJ', typeUuid: openmrsIdType, typeName: { text: 'OpenMRS ID' } },
+                    { identifier: '\u2066200\u2069', typeUuid: 'old-id-type', typeName: '\u202EOld ID' },
+                    { identifier: 42, typeUuid: 'numeric-type', typeName: 'Numeric' },
+                  ],
+                },
+                target: { type: 'navigate', to: '/jane' },
+              },
+            ],
+          }),
+        );
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
+        expect(document.body).not.toHaveTextContent(/[\u202A-\u202E\u2066-\u2069\u200E\u200F]/);
+        for (const text of ['100GEJ', '200', 'Seen today']) {
+          expect(screen.getByText(text)).toHaveAttribute('dir', 'auto');
+        }
+        expect(screen.getByText('Old ID:')).toHaveAttribute('dir', 'auto');
+        expect(screen.queryByText('Numeric:')).not.toBeInTheDocument();
+      });
+
       it('draws the quiet line of its own for a note that is not text', async () => {
         const user = userEvent.setup();
         mountBeside(sends({ title: 'Bad', status: 'error', detail: { state: 'unavailable', note: 42 } }));
