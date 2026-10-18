@@ -14,20 +14,22 @@ import {
 
 /**
  * Inside a chart, queries the querystore index for matching concepts (grouped by concept) or
- * recent documents. Active only when chartLookup.source is 'querystore' or 'both'. While
- * indexing is in progress (status 'projecting') the provider reports status 'loading' and
- * re-polls until indexing completes.
+ * recent documents. Active only when chartLookup.source is 'querystore' or 'both'. While the chart
+ * is still being indexed it shows what the server has found so far, with the host's "Still
+ * indexing" line, rather than waiting.
  */
 
 /** As the server reports a chart: being indexed, ready, never indexed, or its last indexing failed. */
 type QuerystoreStatus = 'indexed' | 'projecting' | 'not_indexed' | 'failed';
 
+/** The chart is being indexed, or will be once the server has a slot free, so results may be incomplete. */
+const isIndexing = (status: QuerystoreStatus | undefined) => status === 'projecting' || status === 'not_indexed';
+
 /**
  * Poll again while the chart is being indexed, or isn't yet: the server starts a warm on each
  * non-waiting request, so a chart that opened while every indexing slot was busy catches up.
  */
-const pollWhileIndexing = (data?: { status: QuerystoreStatus }) =>
-  data?.status === 'projecting' || data?.status === 'not_indexed' ? 1500 : 0;
+const pollWhileIndexing = (data?: { status: QuerystoreStatus }) => (isIndexing(data?.status) ? 1500 : 0);
 
 interface QuerystoreHit {
   resourceType: string;
@@ -182,9 +184,6 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
         report({ query, title, status: 'error', detail: errorDetail(searchData.error, searchData.data?.status) });
         return;
       }
-      const projecting = searchData.data?.status === 'projecting' || searchData.data?.status === 'not_indexed';
-      const loading = searchData.isLoading || projecting;
-
       const groups = searchData.data?.groups ?? [];
       const results: Array<OmnibarResult> = groups.map((group) => {
         const latest = group.latest;
@@ -210,7 +209,13 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
         return { id: group.conceptUuid ?? latest.resourceUuid, title: rowTitle, subtitle, target };
       });
 
-      report({ query, title, status: loading ? 'loading' : 'ready', results });
+      report({
+        query,
+        title,
+        status: searchData.isLoading ? 'loading' : 'ready',
+        results,
+        detail: isIndexing(searchData.data?.status) ? { state: 'projecting' } : undefined,
+      });
       return;
     }
 
@@ -225,9 +230,6 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
       });
       return;
     }
-    const projecting = recentData.data?.status === 'projecting' || recentData.data?.status === 'not_indexed';
-    const loading = recentData.isLoading || projecting;
-
     const hits = recentData.data?.hits ?? [];
     const results: Array<OmnibarResult> = hits.map((hit) => {
       const rowTitle = hitTitle(hit, hit.conceptName, t);
@@ -241,7 +243,13 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
       return { id: hit.resourceUuid, title: rowTitle, subtitle, target };
     });
 
-    report({ query, title: recentTitle, status: loading ? 'loading' : 'ready', results });
+    report({
+      query,
+      title: recentTitle,
+      status: recentData.isLoading ? 'loading' : 'ready',
+      results,
+      detail: isIndexing(recentData.data?.status) ? { state: 'projecting' } : undefined,
+    });
   }, [
     query,
     active,
