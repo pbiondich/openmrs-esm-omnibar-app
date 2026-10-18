@@ -2,7 +2,7 @@
   "allPatientResults": "All patient results for “{{query}}”",
   "askChartSearch": "Ask ChartSearch: \"{{query}}\"",
   "backToChart": "Search only {{name}}’s chart",
-  "buildCohort": "Build cohort: {{label}}",
+  "buildCohortPrefix": "Build cohort:",
   "buildCohortSubtitle": "Runs this search in the Cohort Builder",
   "chartSearchSuggestionSubtitle": "AI answer about {{name}}, opens AI Chart Search",
   "clearSearch": "Clear search",

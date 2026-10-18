@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type FetchResponse,
@@ -123,6 +123,23 @@ describe('CohortCriteriaProvider', () => {
         { type: 'drugOrder', drugs: [tdf], activeOnOrAfter: 'today' },
       ],
     });
+  });
+
+  it('shows a config label exactly as written, neither escaped twice nor read as HTML', () => {
+    const config = mockUseConfig();
+    mockUseConfig.mockReturnValue({
+      ...config,
+      cohortBuilder: {
+        ...config.cohortBuilder,
+        programs: [{ uuid: hiv, label: "<b>Mother's</b> clinic", aliases: ['mch'] }],
+      },
+    });
+    const { last } = renderProvider(CohortCriteriaProvider, 'enrolled in mch');
+    const [row] = last().results;
+    expect(row.title).toBe("Build cohort: Patients in <b>Mother's</b> clinic");
+    render(<span>{row.title}</span>);
+    expect(screen.getByText("Build cohort: Patients in <b>Mother's</b> clinic")).toBeInTheDocument();
+    expect(screen.queryByText("Mother's")).not.toBeInTheDocument();
   });
 
   it('offers nothing for a drug group while drug criteria are off', () => {

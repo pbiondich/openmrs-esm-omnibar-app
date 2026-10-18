@@ -45,10 +45,9 @@ const CohortCriteriaProvider: React.FC<OmnibarProviderProps> = ({ query, context
       results: [
         {
           id: 'cohort-definition',
-          title: t('buildCohort', 'Build cohort: {{label}}', {
-            label: offer.label,
-            interpolation: { escapeValue: false },
-          }),
+          // The label comes from config. It is appended as text for React to escape, not interpolated by
+          // i18next, which would either escape it a second time or need escaping turned off.
+          title: `${t('buildCohortPrefix', 'Build cohort:')} ${offer.label}`,
           subtitle: t('buildCohortSubtitle', 'Runs this search in the Cohort Builder'),
           target: { type: 'navigate', to: offer.to },
         },
