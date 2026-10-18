@@ -639,3 +639,49 @@ Tests rewritten because the contract changed:
 - Failed first: ace8f70 9, e5a4bd1 3, 2bd9526 1, cf131cc 3 (the re-report case passed before and stays as a guard), 07408bf 1, 8a5cbf2 1, 6fd1986 1, 6083dbf 2.
 - No test was rewritten. The workspace patient test gained the encoded own-uuid case, and the conformance grep gained `getState` and `workspaceGroupNameOf`, as the brief asks.
 - `yarn verify`: `Tasks: 3 successful, 3 total`.
+
+## Feature: query store "In this chart" provider, on contract 1
+
+Merges the querystore chart provider from `prototype/omnibar-endpoints` (c303127, 95489fe) into main and brings it up to contract 1. It sits behind `chartLookup.source`: `rest` (the default, no change), `querystore` (chart lookup goes idle and the query store answers), or `both` (side by side, for comparison). Paul's decision: while a chart is still indexing, show partial results now rather than wait.
+
+Cherry-picked with Paul's authorship and messages: e35c899 (from c303127) and c731a82 (from 95489fe). Conflicts:
+
+- `src/index.ts`: kept main's `withProviderBoundary` import from `./omnibar-contract` and its `export type * from './omnibar-contract'`, and added `setupWarmOnChartOpen` in `startupApp` and `querystoreChartProvider` wrapped by `bounded(...)`.
+- `src/providers/chart-lookup.provider.tsx`: kept main's phrase-then-words concept search, and made it idle under `source: 'querystore'` by gating `search`, so no SWR request is made.
+- `src/routes.json`: kept main's `contract: 1` metas and added the querystore entry (its meta is fixed below).
+- The cherry-picked test's config lacked main's `chartLookup.maxCandidates`, which `tsc` rejected; added it.
+
+| Change | Commit |
+| --- | --- |
+| Prettier over the cherry-picked files and the merged chart lookup line, so later diffs show only real changes | ed60624 |
+| Contract types and helpers come from `../omnibar-contract` | 1726849 |
+| Meta: `lane: record`, `scopes: [patient]`, `order: 15` (the order registry's number), `contract: 1`, `dedupeKey: chart-values`, `skipIdentifierQueries: true`, and no `defaultInChart`, since chart lookup is the one `chart-values` provider that takes the default. The test compares the whole meta, so `defaultInChart` can't creep back | 1be2751 (test), b351b19 |
+| Identifier-shaped queries stay idle with no request, from `hints.looksLikeIdentifier` or, on hosts without hints, `looksLikeIdentifier(query)` | c6404de (test), 605de5e |
+| Errors: unreachable (`isServerUnreachable`) is `error` with `detail.state: 'unavailable'`; a chart the server says `failed` is `error` with `detail.state: 'failed'`; anything else is a plain `error`. Never the server's message. Both the search and the recent path, and the recent path's error now keeps the "Recent in this chart" heading | 09c12b6 (test), f9d8313 |
+| Partial results: `projecting` and `not_indexed` report `ready` with what came back and `detail.state: 'projecting'`, so the host draws "Still indexing; results may be incomplete", and the heading even with no results. Same for "Recent in this chart". Only the first request, with nothing to show yet, is `loading` | b5d9ca4 (test), 3f069ba |
+| `src/querystore/bounded-poll.ts`: `useBoundedPoll(key, pending, recheck)` re-checks after `POLL_DELAYS_MS` = 1.5, 3, 6, 12 and 24 s (about 46 s) and then gives up. Each delay starts once the previous re-check has answered, so a slow server never has two in flight. A failed re-check still counts. The count starts again for every new key, including going back to an earlier one. `exhausted` turns true only after the last re-check has answered and the chart is still pending | e3ed2e0 (test), 7e9784b |
+| The provider uses it instead of SWR's `refreshInterval`. After the last re-check it keeps the results and `detail.state: 'projecting'` with the note "This chart isn’t fully indexed yet; results may be incomplete" (`querystoreNotFullyIndexed`) | 0b5af7a (test), 081ac9f |
+| Dedupe: obs rows carry `dedupeId: 'obs:<resourceUuid>'`, the form chart lookup sends; other records carry none. In `source: 'both'` no row carries one, so the comparison isn't hidden, and the config description says so | 10454ea (test), 54414a8 |
+| Other patient: every record type (obs, condition, diagnosis, allergy, drug_order, medication_dispense, test_order, referral_order, encounter, visit), an unknown one and a path-like one all land on `context.patientUuid`'s chart, even with the address bar on another patient and the hit naming one. The conformance test now also fails any built-in provider that reads the URL to find the patient | 59e1c04 |
+| Warm on chart open: `Retry-After` is read as 5 s when it's missing, an HTTP date, zero or negative, and capped at 60 s (`Infinity` too). Opening another chart drops a retry still waiting | 3de2663 (test), eeaf74d |
+| A 503 that arrives after the user has moved to another chart schedules no retry, so it can't replace the current chart's waiting retry, which teardown cancels | fc781e3 (guard), b676f4d (test), 7e3e865 |
+
+Found while building: since 95489fe the provider never actually re-polled. Hoisting the `refreshInterval` function to a module constant gave it a stable identity, and SWR evaluates a function `refreshInterval` only when that effect re-runs. It ran once, at mount, with no data, and returned 0. In c303127 the inline arrow re-ran it on every render. The bounded poll replaces it, and 0b5af7a is what showed it: one request where five more were expected.
+
+Tests rewritten, all in the cherry-picked `querystore-chart.provider.test.tsx`, because the decision changed what they expect:
+
+- "reports an error, not empty results, when the chart failed to index" expected a plain `error`; it is now `detail.state: 'failed'`, on both paths.
+- "reports loading while the chart is not indexed yet" and "reports status loading and re-polls when server returns projecting for search" expected `loading`; they are now the partial-results tests.
+
+Translations: `yarn turbo extract-translations` turned `querystoreRecordedOnWithCount` into `_one` and `_other`, because it's called with `count` (only `_other` is used: the row says it only when there are two or more readings), sorted the new keys in, and added `querystoreNotFullyIndexed`. It also added `savedLists` from the conformance test's stand-in app, which main's `en.json` doesn't have; left out.
+
+- Tests: 416 before (11 files). After the cherry-picks, 444 with 1 failing: main's "declares contract 1 for every built-in provider", fixed by b351b19. After: 492 (14 files): 47 in the provider test, 19 in the warm test, 9 in the poll test, and 1 more in the conformance test.
+- Failed first: 1be2751 2, c6404de 5, 09c12b6 6 (the plain-error case passed before and stays as a guard), b5d9ca4 6 (loading-first and indexed-without-detail passed before), e3ed2e0 the module didn't exist, 0b5af7a 4, 10454ea 2 (the comparison mode had no dedupe ids anyway), 3de2663 4 (zero, an HTTP date and missing already gave 5 s), b676f4d 1.
+- Passed first, as guards: 59e1c04 (taking the patient from the URL fails 3 of its tests), fc781e3 (eeaf74d's drop on chart change already covered it; b676f4d is the case that needed 7e3e865).
+- The fake-timer tests advance one delay per `act`, since each next re-check is scheduled by an effect. Five runs in a row passed.
+- `src/omnibar-contract/` is unchanged.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 492 tests.
+- `yarn build`: `Rspack compiled with 1 warning`, the asset size limit on the same two shared fallbacks (`132.js`, `769.js`).
+- No new dependencies, URLs, fonts or CDNs. The provider and the warm call only the OpenMRS server's own `/ws/rest/v1/querystore/...`.
+- The order registry (15) and the `chart-values` row in the contract doc already match; unchanged.
+- Not tested live. Grok's adversarial code and security review comes next.
