@@ -2210,6 +2210,64 @@ describe('Omnibar with providers mounted through the slot', () => {
       warn.mockRestore();
     });
 
+    it('tells every provider whether the query looks like an identifier', async () => {
+      const user = userEvent.setup();
+      const props: Array<OmnibarProviderProps> = [];
+      mountProviders([{ name: 'recorder', meta: recordLane, component: recordProps(props) }]);
+      render(<Omnibar />);
+      const hintsFor = (query: string) => props.findLast((p) => p.query === query)?.hints;
+
+      await user.type(screen.getByRole('combobox'), '100GEJ');
+      expect(hintsFor('100GEJ')).toEqual({ looksLikeIdentifier: true });
+
+      await user.clear(screen.getByRole('combobox'));
+      await user.type(screen.getByRole('combobox'), 'ward');
+      expect(hintsFor('ward')).toEqual({ looksLikeIdentifier: false });
+    });
+
+    it('never mounts a provider that skips identifier queries for one, and drops its group', async () => {
+      const user = userEvent.setup();
+      const skipper: Array<OmnibarProviderProps> = [];
+      const patients: Array<OmnibarProviderProps> = [];
+      mountProviders([
+        { name: 'patients', meta: recordLane, component: recordProps(patients) },
+        {
+          name: 'semantic',
+          meta: { ...navigateLane, order: 100, skipIdentifierQueries: true },
+          component: function Semantic(props) {
+            skipper.push(props);
+            const { query, report } = props;
+            useEffect(
+              () => report(ready(query, 'Found in the record', query ? ['semantic hit'] : [])),
+              [query, report],
+            );
+            return null;
+          },
+        },
+      ]);
+      render(<Omnibar />);
+      const input = screen.getByRole('combobox');
+
+      await user.type(input, 'ward');
+      expect(screen.getByRole('group', { name: 'Found in the record' })).toBeInTheDocument();
+
+      await user.type(input, ' 1234567');
+      expect(screen.queryByRole('group', { name: 'Found in the record' })).not.toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Recorded' })).toBeInTheDocument();
+      expect(skipper.map((p) => p.query)).not.toContain('ward 1234567');
+      expect(skipper.every((p) => p.hints?.looksLikeIdentifier === false)).toBe(true);
+      expect(patients.at(-1)).toEqual(
+        expect.objectContaining({ query: 'ward 1234567', hints: { looksLikeIdentifier: true } }),
+      );
+    });
+
+    it('skips identifier queries for the ChartSearch row, and never for patient search', () => {
+      const metaOf = (name: string) =>
+        routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
+      expect(metaOf('omnibar-chartsearch-suggestion-provider').skipIdentifierQueries).toBe(true);
+      expect(metaOf('omnibar-patient-search-provider').skipIdentifierQueries).toBeUndefined();
+    });
+
     describe('the chart side panel', () => {
       const chartPatientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
       const setOpenedGroup = (openedGroup: { groupName: string; props: object | null } | null) =>
