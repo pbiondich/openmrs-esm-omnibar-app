@@ -34,6 +34,11 @@ export interface ProviderInfo {
 
 const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 2 };
 
+/** A failed or unavailable group shows only its heading and one line, so its results are dropped. */
+export function isCollapsed(report: OmnibarReport): boolean {
+  return report.detail?.state === 'failed' || report.detail?.state === 'unavailable';
+}
+
 /**
  * Collects reports from providers for the current query. A report for any other query is dropped,
  * so a slow response to "cd" can never overwrite results for "cd4".
@@ -64,7 +69,12 @@ export function useResultCollector(query: string, providerInfo: Record<string, P
     () =>
       Object.entries(reports)
         .filter(([providerId, report]) => report.query === query && providerInfo[providerId])
-        .map(([providerId, report]) => ({ ...report, providerId, ...providerInfo[providerId] }))
+        .map(([providerId, report]) => ({
+          ...report,
+          results: isCollapsed(report) ? [] : report.results,
+          providerId,
+          ...providerInfo[providerId],
+        }))
         .sort((a, b) => laneRank[a.lane] - laneRank[b.lane] || a.order - b.order),
     [reports, query, providerInfo],
   );

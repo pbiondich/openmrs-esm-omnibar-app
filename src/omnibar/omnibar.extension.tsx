@@ -20,6 +20,7 @@ import {
   announceSelection,
   executeTarget,
   getProviderOrder,
+  isCollapsed,
   type ProviderInfo,
   type SelectableResult,
   speaksContractOf,
@@ -35,6 +36,7 @@ import {
   type OmnibarProviderMeta,
   type OmnibarProviderProps,
   type OmnibarQueryHints,
+  type OmnibarReport,
   type OmnibarTarget,
 } from './types';
 import { looksLikeIdentifier } from '../omnibar-contract';
@@ -292,6 +294,21 @@ const Omnibar: React.FC = () => {
   // Never the provider's own error: a server's message can quote the query or the record.
   const providerError = t('providerError', 'Couldn’t load results');
 
+  // The quiet line under a group's heading for the state of its source. A provider's note replaces
+  // the host's words. It is plain text, never a live region: a source going away isn't urgent.
+  const detailLine = (group: OmnibarReport) => {
+    switch (group.detail?.state) {
+      case 'unavailable':
+        return group.detail.note ?? t('providerUnavailable', 'Unavailable right now');
+      case 'failed':
+        return group.detail.note ?? providerError;
+      case 'projecting':
+        return group.detail.note ?? t('providerProjecting', 'Still indexing; results may be incomplete');
+      default:
+        return null;
+    }
+  };
+
   const stillLoading = listGroups.some((g) => g.status === 'loading');
   const hasListResults = selectable.length > 0;
   const showNoMatches = Boolean(debouncedQuery) && !stillLoading && !hasListResults && !answerGroups.length;
@@ -440,7 +457,9 @@ const Omnibar: React.FC = () => {
           <ul id={listboxId} role="listbox" className={styles.listbox} aria-label={placeholder}>
             {listGroups.map((group) => {
               const headingId = `${listboxId}-${group.providerId}-heading`;
-              if (group.status === 'idle' || (group.status === 'ready' && !group.results?.length)) {
+              const collapsed = isCollapsed(group);
+              const line = detailLine(group);
+              if (group.status === 'idle' || (group.status === 'ready' && !group.results?.length && !collapsed)) {
                 return null;
               }
               return (
@@ -448,10 +467,11 @@ const Omnibar: React.FC = () => {
                   <div id={headingId} className={styles.groupHeading}>
                     {group.title}
                   </div>
-                  {group.status === 'loading' && !group.results?.length && (
+                  {group.status === 'loading' && !group.results?.length && !collapsed && (
                     <InlineLoading className={styles.groupLoading} description={t('searching', 'Searching')} />
                   )}
-                  {group.status === 'error' && <p className={styles.groupError}>{providerError}</p>}
+                  {group.status === 'error' && !collapsed && <p className={styles.groupError}>{providerError}</p>}
+                  {line && <p className={styles.groupNote}>{line}</p>}
                   <ul role="group" aria-labelledby={headingId}>
                     {(group.results ?? []).map((result) => {
                       const key = `${group.providerId}:${result.id}`;

@@ -17,6 +17,8 @@
   "otherPatients": "Other patients",
   "patients": "Patients",
   "providerError": "Couldn’t load results",
+  "providerProjecting": "Still indexing; results may be incomplete",
+  "providerUnavailable": "Unavailable right now",
   "recentPatients": "Recent patients",
   "recordedOn": "Latest, recorded {{date}}",
   "removePatientContext": "Remove {{name}} context",

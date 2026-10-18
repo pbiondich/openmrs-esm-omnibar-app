@@ -208,6 +208,7 @@ $omnibar-max-width: 48rem;
 }
 
 .groupError,
+.groupNote,
 .emptyState {
   @include type.type-style(body-compact-01);
   margin: 0;

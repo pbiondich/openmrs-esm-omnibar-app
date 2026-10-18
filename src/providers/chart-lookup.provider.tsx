@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { fhirBaseUrl, formatDate, interpolateUrl, openmrsFetch, restBaseUrl, useConfig } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps, type OmnibarResult } from '../omnibar/types';
+import { isServerUnreachable } from '../omnibar-contract';
 import { type ConceptHit, pickValueConcepts, toConceptSearch } from './chart-lookup-search';
 
 /**
@@ -91,8 +92,14 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
       report({ query, title, status: 'idle' });
       return;
     }
-    if (phrase.error || words.error || observations.error) {
-      report({ query, title, status: 'error' });
+    const error = phrase.error || words.error || observations.error;
+    if (error) {
+      report({
+        query,
+        title,
+        status: 'error',
+        detail: isServerUnreachable(error) ? { state: 'unavailable' } : undefined,
+      });
       return;
     }
     const loading = phrase.isLoading || words.isLoading || (candidates.length > 0 && observations.isLoading);

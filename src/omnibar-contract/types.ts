@@ -151,6 +151,27 @@ export interface OmnibarReport {
   title: string;
   results?: Array<OmnibarResult>;
   answer?: OmnibarAnswer;
+  /**
+   * The state of the source behind the results, drawn as one quiet line under the heading. A
+   * provider that can't reach its server reports `status: 'error'` with `detail.state: 'unavailable'`
+   * (see `isServerUnreachable`). Hosts from before contract 1 was published ignore it.
+   */
+  detail?: OmnibarReportDetail;
+}
+
+export interface OmnibarReportDetail {
+  /**
+   * - projecting: the results so far, with "Still indexing; results may be incomplete"
+   * - indexed: drawn like a report with no detail
+   * - failed: the group collapses to its heading and "Couldn't load results"; results are dropped
+   * - unavailable: the group collapses to its heading and "Unavailable right now"; results are dropped
+   */
+  state: 'projecting' | 'indexed' | 'failed' | 'unavailable';
+  /**
+   * Shown instead of the host's line, already translated. Never put a server's message here: it can
+   * quote the query or the record.
+   */
+  note?: string;
 }
 
 /** Props every provider extension receives. */
