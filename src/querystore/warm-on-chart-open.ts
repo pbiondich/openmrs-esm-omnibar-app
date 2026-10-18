@@ -35,7 +35,8 @@ export function setupWarmOnChartOpen(moduleName: string): () => void {
   const warm = (uuid: string, retriesLeft: number) => {
     openmrsFetch(`${restBaseUrl}/querystore/patient/${uuid}/warm`, { method: 'POST' }).catch((error) => {
       const response: Response | undefined = error?.response;
-      if (retriesLeft > 0 && response?.status === 503) {
+      // Only for the chart the user is in, so there's never more than one retry waiting.
+      if (retriesLeft > 0 && response?.status === 503 && uuid === lastUuid) {
         retry = setTimeout(
           () => {
             if (getPatientUuidFromPath(window.location.pathname) === uuid) {
