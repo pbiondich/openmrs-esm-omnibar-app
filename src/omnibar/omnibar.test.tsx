@@ -405,8 +405,13 @@ describe('Omnibar with providers mounted through the slot', () => {
     numeric('systolic-uuid', 'Systolic blood pressure'),
     numeric('diastolic-uuid', 'Diastolic blood pressure'),
     numeric('temperature-uuid', 'Temperature (c)'),
+    numeric('height-uuid', 'Height (cm)'),
     numeric('weight-uuid', 'Weight (kg)'),
     numeric('pulse-uuid', 'Pulse'),
+    numeric('spo2-uuid', 'Blood oxygen saturation'),
+    numeric('muac-uuid', 'Mid-upper arm circumference'),
+    numeric('respiratory-rate-uuid', 'Respiratory rate'),
+    numeric('karnofsky-uuid', 'Karnofsky performance score'),
   ];
   const dictionary: Array<{ names: Array<string>; concept: object; setMembers?: Array<object> }> = [
     ...vitalSigns.map((concept) => ({ names: [concept.display], concept })),
@@ -420,12 +425,14 @@ describe('Omnibar with providers mounted through the slot', () => {
       setMembers: vitalSigns,
     },
   ];
+  // Like the chart in the bug report: no blood pressure, height or MUAC, but pulse, SpO2 and respiratory rate.
   const latestValues: Record<string, { value: number; unit: string }> = {
-    'systolic-uuid': { value: 120, unit: 'mmHg' },
-    'diastolic-uuid': { value: 80, unit: 'mmHg' },
     'temperature-uuid': { value: 36.8, unit: '°C' },
     'weight-uuid': { value: 70, unit: 'kg' },
     'pulse-uuid': { value: 72, unit: 'beats/min' },
+    'spo2-uuid': { value: 97, unit: '%' },
+    'respiratory-rate-uuid': { value: 18, unit: 'breaths/min' },
+    'karnofsky-uuid': { value: 90, unit: '%' },
   };
   const words = (text: string) => text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   /**
@@ -1633,16 +1640,17 @@ describe('Omnibar with providers mounted through the slot', () => {
     it.each([
       ['weight', ['weight'], ['Weight (kg): 70 kg']],
       ['latest weight', ['weight'], ['Weight (kg): 70 kg']],
+      ['view weight', ['weight'], ['Weight (kg): 70 kg']],
       ["what's her current weight?", ['weight'], ['Weight (kg): 70 kg']],
       [
         'show vitals',
         ['vitals'],
         [
-          'Systolic blood pressure: 120 mmHg',
-          'Diastolic blood pressure: 80 mmHg',
           'Temperature (c): 36.8 °C',
           'Weight (kg): 70 kg',
           'Pulse: 72 beats/min',
+          'Blood oxygen saturation: 97 %',
+          'Respiratory rate: 18 breaths/min',
         ],
       ],
       ['last pulse and weight', ['pulse weight', 'pulse', 'weight'], ['Pulse: 72 beats/min', 'Weight (kg): 70 kg']],
@@ -1659,6 +1667,18 @@ describe('Omnibar with providers mounted through the slot', () => {
       );
       expect(within(chart).getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');
       expect(conceptSearches()).toEqual(searched);
+    });
+
+    it('asks for the latest values of every vital sign, for this patient only, in one request', async () => {
+      await searchChart('show vitals');
+
+      await screen.findByRole('option', { name: /Respiratory rate: 18/ });
+      const lastn = mockOpenmrsFetch.mock.calls
+        .map(([path]) => new URL(path, 'http://localhost'))
+        .filter((url) => url.pathname.endsWith('/Observation/$lastn'));
+      expect(lastn).toHaveLength(1);
+      expect(lastn[0].searchParams.get('subject')).toBe(`Patient/${chartPatient}`);
+      expect(lastn[0].searchParams.get('code').split(',')).toEqual(vitalSigns.map(({ uuid }) => uuid));
     });
 
     it('searches the concept dictionary for an ID as before, and still lists the patient it matches', async () => {

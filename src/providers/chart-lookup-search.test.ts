@@ -18,6 +18,7 @@ describe('toConceptSearch', () => {
     ['a contraction with a curly apostrophe', 'what’s her current weight?', { phrase: 'weight', words: [] }],
     ['mixed case filler', 'Show Me The Latest Weight', { phrase: 'Weight', words: [] }],
     ['a trailing question mark', 'weight?', { phrase: 'weight', words: [] }],
+    ['view before a concept', 'view weight', { phrase: 'weight', words: [] }],
     ['a hyphenated concept', 'last covid-19 result', { phrase: 'covid-19', words: [] }],
     ['a question with pronouns', 'when did she start ART?', { phrase: 'start ART', words: ['start', 'ART'] }],
     ['a two-word concept', 'last blood pressure', { phrase: 'blood pressure', words: ['blood', 'pressure'] }],
@@ -59,9 +60,14 @@ describe('pickValueConcepts', () => {
     ['keeps search order', [[concept('weight'), concept('height')]], ['weight', 'height']],
     ['drops concepts that hold no value', [[concept('weight gain', 'N/A'), concept('weight')]], ['weight']],
     [
-      'puts a set’s members in place of a set that holds no value',
+      'puts a set’s members after the concepts the searches found directly',
       [[concept('vital signs', 'N/A', [concept('systolic'), concept('pulse')]), concept('weight')]],
-      ['systolic', 'pulse', 'weight'],
+      ['weight', 'systolic', 'pulse'],
+    ],
+    [
+      'caps a large set',
+      [[concept('big set', 'N/A', 'abcdefgh'.split('').map((uuid) => concept(uuid)))]],
+      ['a', 'b', 'c', 'd', 'e'],
     ],
     [
       'merges searches without repeats',
