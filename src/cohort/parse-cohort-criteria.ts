@@ -246,6 +246,10 @@ export function parseCohortCriteria(text: string, config: CohortCriteriaConfig):
   if (maxAge === 0) {
     return null;
   }
+  // "0+" on its own bounds nothing, so it isn't a criterion: "at least 0" alone offers no cohort.
+  if (minAge === 0 && maxAge == null) {
+    minAge = undefined;
+  }
   if (!programs.every((program) => isContractUuid(program.uuid))) {
     return null;
   }
