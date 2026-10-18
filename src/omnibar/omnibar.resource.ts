@@ -2,6 +2,7 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import { interpolateUrl, launchWorkspace2, navigate } from '@openmrs/esm-framework';
 import { decodeSegment, patientIdsInPath, patientIdsInText } from './patient-path';
 import { getWorkspace2Store, workspaceGroupIsOpen } from './workspace-group';
+import { looksLikeIdentifier } from '../omnibar-contract';
 import {
   OMNIBAR_CONTRACT_VERSION,
   OMNIBAR_SELECTED_EVENT,
@@ -22,6 +23,7 @@ export interface ProviderGroup extends OmnibarReport {
   lane: OmnibarLane;
   order: number;
   neverDefault?: boolean;
+  defaultsToSolePatient?: boolean;
   dedupeKey?: string;
 }
 
@@ -31,10 +33,14 @@ export interface SelectableResult extends OmnibarResult {
   key: string;
   /**
    * It may take the default highlight: its provider may inside a chart, and it doesn't name another
-   * patient than the chart's. Otherwise only an arrow key or the pointer selects it.
+   * patient than the chart's; or it is the one patient row its group allows by `defaultsToSolePatient`.
+   * Otherwise only an arrow key or the pointer selects it.
    */
   mayBeDefault: boolean;
-  /** Its target names another patient than the chart's. A highlight never moves onto it by itself. */
+  /**
+   * Its target names another patient than the chart's. A highlight never moves onto it from another
+   * row by itself; only the scanned patient row (see `defaultsToSolePatient`) can land on it first.
+   */
   namesOtherPatient: boolean;
 }
 
@@ -43,8 +49,20 @@ export interface ProviderInfo {
   order: number;
   /** Its results are never highlighted by default, only by an arrow key or the pointer. */
   neverDefault?: boolean;
+  /**
+   * Its one patient row may be the default even so, whichever patient it names, under the checks in
+   * `scannedPatientRow`. The host sets this only for its own patient search, inside a chart, for a
+   * query that looks like an identifier: Enter then opens a scanned wristband's patient.
+   */
+  defaultsToSolePatient?: boolean;
   dedupeKey?: string;
 }
+
+/** The host's own patient search: the only provider whose one patient row the host vouches for. */
+export const builtInPatientSearch = {
+  name: 'omnibar-patient-search-provider',
+  moduleName: '@openmrs/esm-omnibar-app',
+};
 
 const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 2 };
 
@@ -301,6 +319,56 @@ function dropCopies(
 }
 
 /**
+ * True when a result names no patient outside `uuids` (lower case), by its target or its patient, and
+ * its target can be read.
+ */
+function namesNoOneBut(result: OmnibarResult, uuids: Array<string>): boolean {
+  const named = patientsNamedBy(result.target);
+  return (
+    named !== null &&
+    [...named, ...(result.patient ? [result.patient.uuid] : [])].every((uuid) => uuids.includes(uuid.toLowerCase()))
+  );
+}
+
+/**
+ * The patient row the group with `defaultsToSolePatient` may make the default: the only patient row
+ * of a group that has finished searching, holding exactly the query or an ID-shaped word of it (in
+ * any case), and
+ * linking on this site to that patient and no one else. None while any other row on screen names
+ * someone besides that patient and the chart's, so Enter never picks between two people. Rows that
+ * aren't a patient, such as "All patient results", don't count.
+ */
+function scannedPatientRow(
+  groups: Array<ProviderGroup>,
+  query: string,
+  chartPatientUuid: string | undefined,
+): OmnibarResult | undefined {
+  const group = groups.find((candidate) => candidate.defaultsToSolePatient);
+  const patients = group?.status === 'ready' ? (group.results ?? []).filter((result) => result.patient) : [];
+  if (patients.length !== 1) {
+    return undefined;
+  }
+  const [row] = patients;
+  const typed = [query, ...query.split(/\s+/).filter(looksLikeIdentifier)]
+    .map((text) => text.trim().toLowerCase())
+    .filter(Boolean);
+  const holdsTyped = row.patient.identifiers?.some(({ identifier }) =>
+    typed.includes(identifier.trim().toLowerCase()),
+  );
+  const patient = row.patient.uuid.toLowerCase();
+  const vouchedFor = [patient, chartPatientUuid?.toLowerCase()].filter(Boolean);
+  const others = groups.flatMap((candidate) => candidate.results ?? []).filter((result) => result !== row);
+  return holdsTyped &&
+    row.target.type === 'navigate' &&
+    leadsOnThisSite(row.target.to) &&
+    patientsNamedBy(row.target)?.length &&
+    namesNoOneBut(row, [patient]) &&
+    others.every((result) => namesNoOneBut(result, vouchedFor))
+    ? row
+    : undefined;
+}
+
+/**
  * Collects reports from providers for the current query. A report for any other query is dropped,
  * so a slow response to "cd" can never overwrite results for "cd4".
  *
@@ -401,19 +469,18 @@ export function useResultCollector(
     [groups],
   );
 
-  const selectable = useMemo<Array<SelectableResult>>(
-    () =>
-      listGroups.flatMap((group) =>
-        (group.results ?? []).map((result) => ({
-          ...result,
-          providerId: group.providerId,
-          key: `${group.providerId}:${result.id}`,
-          mayBeDefault: !group.neverDefault && !namesOtherPatient(result),
-          namesOtherPatient: namesOtherPatient(result),
-        })),
-      ),
-    [listGroups, namesOtherPatient],
-  );
+  const selectable = useMemo<Array<SelectableResult>>(() => {
+    const scanned = scannedPatientRow(listGroups, query, chartPatientUuid);
+    return listGroups.flatMap((group) =>
+      (group.results ?? []).map((result) => ({
+        ...result,
+        providerId: group.providerId,
+        key: `${group.providerId}:${result.id}`,
+        mayBeDefault: result === scanned || (!group.neverDefault && !namesOtherPatient(result)),
+        namesOtherPatient: namesOtherPatient(result),
+      })),
+    );
+  }, [listGroups, query, chartPatientUuid, namesOtherPatient]);
 
   // The record-lane providers that may take the default and haven't answered this query yet: no
   // report for it, `loading` with nothing to show, or still indexing (`projecting`) with nothing to
@@ -510,6 +577,15 @@ export function targetNamesOtherPatient(target: OmnibarTarget, chartPatientUuid:
 }
 
 const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;
+
+/** True when a link, once interpolated, stays on this site. False for one that can't be read. */
+function leadsOnThisSite(to: string): boolean {
+  try {
+    return isOnThisSite(new URL(interpolateUrl(to), window.location.href));
+  } catch {
+    return false;
+  }
+}
 
 /**
  * The only place a result turns into an action. Resolves false when it refuses: a link off this site

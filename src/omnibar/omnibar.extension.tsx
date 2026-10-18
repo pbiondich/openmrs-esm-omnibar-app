@@ -18,6 +18,7 @@ import {
 } from '@openmrs/esm-framework';
 import {
   announceSelection,
+  builtInPatientSearch,
   executeTarget,
   getProviderOrder,
   isCollapsed,
@@ -126,6 +127,14 @@ const Omnibar: React.FC = () => {
           lane: meta.lane,
           order: getProviderOrder(meta, context.scope),
           neverDefault: context.scope === 'patient' && !meta.defaultInChart,
+          // Inside a chart, the one patient an ID finds may still be the default, so Enter opens a
+          // scanned wristband's patient. Only the host's own patient search, whose rows the host vouches
+          // for; it asks for at least two patients for an ID, so a second one with the same ID shows.
+          defaultsToSolePatient:
+            context.scope === 'patient' &&
+            hints.looksLikeIdentifier &&
+            extension.name === builtInPatientSearch.name &&
+            extension.moduleName === builtInPatientSearch.moduleName,
           dedupeKey: meta.dedupeKey,
         };
       }
@@ -211,8 +220,9 @@ const Omnibar: React.FC = () => {
   // never when it names another patient: the user chose this patient's row, not that one. A default
   // highlight whose row is reported again in a way that can't be the default is dropped. Inside a
   // chart, a default highlight moves up to a chart row from a record-lane provider that ranks before
-  // its own once one arrives, such as the chart's admission over the ward page, and steps aside while
-  // such a provider hasn't answered; a row the user chose stays.
+  // its own once one arrives, such as the chart's admission over the ward page, but never up to a row
+  // that names another patient, and steps aside while such a provider hasn't answered; a row the user
+  // chose stays.
   const { selected, chosen } = useMemo(() => {
     const infoOf = (result: SelectableResult) => providerInfo[result.providerId];
     const mayBeDefault = (result: SelectableResult) => result.mayBeDefault;
@@ -225,7 +235,10 @@ const Omnibar: React.FC = () => {
         !selection.chosen &&
         selectable.find(
           (result) =>
-            infoOf(result).lane === 'record' && ranksBefore(infoOf(result), infoOf(same)) && mayBeDefaultNow(result),
+            infoOf(result).lane === 'record' &&
+            !result.namesOtherPatient &&
+            ranksBefore(infoOf(result), infoOf(same)) &&
+            mayBeDefaultNow(result),
         );
       if (earlierChartRow) {
         return { selected: earlierChartRow, chosen: false };

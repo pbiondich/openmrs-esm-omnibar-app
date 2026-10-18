@@ -817,3 +817,72 @@ The S1 tests use the real query store provider and real delays:
 - The pointer test failed once in a full-suite run right after 8eee4c5's change, then passed alone and in three full runs. The likely cause is its tight timing under load: the ward highlighted at 1.5 s, the chart row due at 2.2 s. Its slow answer is now 3 s, so the pointer move always lands first.
 - The host, provider and query store tests passed three runs in a row after the last change.
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 574 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+
+## Fix: a scanned ID inside a chart highlights its one patient, and the query store's SNAPSHOT builds
+
+Reported from a test server: inside a chart, typing an identifier such as 4273MO-2 listed the patient, but nothing was highlighted, even after 12 s, so Enter did nothing. ArrowDown then Enter worked, and from the home page it worked too.
+
+Root cause. Inside a chart, `providerInfo` sets `neverDefault` for every provider without `defaultInChart`, and `selectable` sets `mayBeDefault: !group.neverDefault && !namesOtherPatient(result)`. Patient search doesn't declare `defaultInChart`, on purpose (7f0fcc9, "Never highlight another patient by default inside a chart"), so none of its rows could ever be the default in a chart. That holds whether the row is another patient or the chart's own, and whether or not the chart-values wait has ended. The wait isn't part of it. For an ID-shaped query the query store provider isn't mounted (`skipIdentifierQueries`). Chart lookup is idle on `source: querystore` and answers or times out at 1.5 s on `rest`, and patient search itself never enters the wait, so it can't hang. The REST test below gets past "nothing before 1.5 s" and fails only at "highlighted after".
+
+Not new in e6a2dcc. 8f0565d has the same two lines, and its own test "lists the patient an ID matches, but opens their chart only once the user arrows to them" asserted this behaviour. The new test, dropped into a worktree at 8f0565d with a 2 s real wait in place of the grace period, which that commit doesn't have, failed the same way: `Tests  1 failed`, `aria-selected` was `false`.
+
+The change (Paul's call, narrow on purpose): for an ID-shaped query inside a chart, the host's own patient search may make its one patient row the default, whichever patient that is. The host keys this to its own provider by extension name and module (`builtInPatientSearch`), with no contract or meta change. Review round 1 then narrowed it to a finished search with room for a second match, exactly the typed identifier, a link on this site, and no one else on screen. The full rule is in [the default highlight](docs/design/omnibar-provider-contract.md#the-default-highlight).
+
+| Change | Commit |
+| --- | --- |
+| Failing test first: `isVersionSatisfied` (as the framework calls it, with prereleases included) accepts 1.0.0-SNAPSHOT, 1.0.0 and 1.2.0-SNAPSHOT, and still flags 0.9.0. Then `optionalBackendDependencies.querystore` goes from `>=1.0.0` to `>=1.0.0-SNAPSHOT`, so the version mismatch popup no longer takes keyboard focus from the bar | 3f9717b |
+| Failing tests first: one patient for an ID, as another patient and as the chart's own, with chart lookup idle; the wait for chart lookup on REST, before and after 1.5 s; chart lookup finding nothing; a name with one patient; two patients; global scope; a row the user arrowed or pointed to; another provider's patient row. Three existing tests change: "lists the patient an ID matches…" becomes "opens the one patient an ID matches on Enter…", "searches the concept dictionary for an ID…" now expects the highlight, and "forgets the highlight when the user moves to another chart" types a name, so the new chart's default doesn't hide what it tests | 90fcdd0 |
+| `ProviderInfo.defaultsToSolePatient`, set by the host only in patient scope, for an ID-shaped query, on `omnibar-patient-search-provider` from `@openmrs/esm-omnibar-app`. Patient search stays `neverDefault`, so it never enters the wait and dedupe is unchanged. Guard tests: the same name from another module gets nothing, and the host's name matches the provider's `providerId`, `routes.json` and `package.json` | 03573e1 |
+| AGENTS.md, the contract, the context rules, the README and `docs/decisions.md` | 850c851 |
+
+`src/omnibar-contract/` is unchanged. Item 3 of the brief, the "Unknown config key chartLookup" warning, is the framework's load order and was left alone.
+
+### Review round 1 (Claude code, Claude security): APPROVE WITH NITS, no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| should (code): `earlierChartRow` could move a default highlight from a page up onto the patient row when patient search answered later, so Enter changed to another patient's chart under the user | `earlierChartRow` skips rows that name another patient. Test: a page with `defaultInChart` keeps the highlight when the patient arrives 300 ms later | e336a0d (test), a280d3a |
+| should (code and security): nothing checked that the patient holds the identifier. Any all-digit query is ID-shaped, and the server can match by prefix or name, so "120" or a half-typed ID could default to a stranger | The patient must hold an identifier equal to the query or a word of it, in any case. Tests: 4273MO-2 against 4273MO-20, and 120 against 1200; the lower-case query still matches | e336a0d, a280d3a |
+| should (security): another provider listing a second patient left the built-in one as the default, with two people on screen | No default while any other row on screen names anyone but that patient and the chart's own, or has a link the host can't read. Test with a registry provider listing another patient | e336a0d, a280d3a |
+| should (security): with `patientSearch.maxResults` at 1, a second patient with the same ID is always cut off | The exception needs `maxResults` of at least 2. Test | e336a0d, a280d3a |
+| nit (security): a target off this site, or a workspace, could be the default and then be refused | The row must be a `navigate` link on this site. Test with `patientChartUrl` on another origin | e336a0d, a280d3a |
+| nit (security): SWR serves a repeated query from its cache as `ready` while it searches again, so a rescan could default to a stale single match | Patient search reports `loading` while it revalidates an ID-shaped query, and the exception needs `ready`. Test: a rescan after a second patient got the same ID is never highlighted | e336a0d, a280d3a |
+| nit (code): the "another provider" test passed because of `neverDefault`, not the new rule | Its provider now sets `defaultInChart` | e336a0d |
+| nit (code): missing tests for a second patient arriving and for a later chart value | Both added: the highlight steps aside for a second patient and moves up to CD4 when it arrives after the grace period | e336a0d |
+| nit (code): the REST grace test checked at 1 s of 1.5 s, leaving 0.5 s of real time before `shouldAdvanceTime` could flip it | It checks at 0.5 s | e336a0d |
+| nit (code and security): the docs said a highlight never moves onto another patient's row "by itself", and promised a wristband "opens on Enter" | The contract says "Apart from that…" and lists every condition. All docs say the Enter after the scanner's own opens the patient, since that one arrives before the 200 ms debounce | 011c5d8 |
+
+Every new guard was checked by removing it: each removal fails its own test, and only that one.
+
+- Tests: 574 before, 600 after.
+- Failed first: 3f9717b 1 (1.0.0-SNAPSHOT); 90fcdd0 6 of the in-chart tests, every one that expects a highlight, while the guards passed; e336a0d 7 (both partial IDs, the cached rescan, the other provider, the page pin, `maxResults` 1 and the off-site link). The second-patient and later-chart-value tests passed before a280d3a and stay as guards.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 600 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+- Not tested live. A real scanner and the duplicate-ID cases have not been tried on a server.
+
+### Review round 2 (Claude code, Claude security): APPROVE WITH NITS, no blockers
+
+Both reviewers confirmed every round 1 fix. Findings:
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| nit (security): any word of the query could match an identifier, such as "Moyo" in "Moyo 4273MO-2" | Only the whole query or an ID-shaped word of it (`looksLikeIdentifier`) counts. Test | bb297cf (test), 989da7d |
+| nit (security): the host read `patientSearch.maxResults` from its own config, while a slot-level override could still give the provider a limit of 1 | Patient search asks for at least two patients for an ID, whatever its limit. Test on the `limit` it sends, for an ID and for a name | bb297cf, 989da7d |
+| nit (code): after that, the host's `maxResults > 1` check only blocked the default for no reason | Dropped. The limit test now expects the default with a limit of 1. Grok's r1 said the check could stay; it was dropped because the provider's own request is what guarantees a second match shows | f993fa3 (test), d691a3d |
+| nit (code): SWR reports a cached answer as `ready` for one frame before revalidating | Said in the contract. An Enter would have to land in that frame, right after the 200 ms debounce | d691a3d |
+| nit (code): "never moves onto it" was true only for another patient | Contract reworded (and again in Grok r1 below) | d691a3d, 3726e1f |
+| nit (code): a trailing "?" or a scanner's `*…*` framing blocks the match | Not fixed: it fails closed, and the contract says so | d691a3d |
+| nit (security): the cross-provider check can't see answer-lane groups, patients a link names in a way the host doesn't parse (such as `?patientId=`), or a provider that hasn't reported yet | Not fixed: these are limits of what the host can see, and the reviewer recommended accepting them. A slow third-party patient provider can still show a second patient after Enter has opened the first | none |
+
+### Grok r1: CHANGES REQUESTED, no blocker
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| should: the ID-shaped-word and at-least-two changes were uncommitted when Grok read the branch, and the contract said "or a word of it" | 989da7d had committed them; the contract says "an ID-shaped word" since d691a3d | 989da7d, d691a3d |
+| should: a repeated ID inside SWR's 2 s deduping window is answered from the cache alone, without `isValidating`, so a rescan after closing the bar defaulted to a stale single match. The rescan test hid it by setting `dedupingInterval: 0` | Patient search sets `dedupingInterval: 0` for an ID-shaped query. The rescan test now runs with SWR's own deduping, and failed first | 8cb4c64 (test), 54a9324 |
+| nit: the contract said a default page never moves onto the wristband row, but the code moves it when that row is the chart's own patient | Docs only: the contract now says it moves up only for the chart's own patient | 3726e1f |
+
+No further reviewer round of our own, as asked; Grok re-checks.
+
+- Tests: 600 after round 1, 603 now (574 before the branch).
+- Failed first: bb297cf 2; f993fa3 1; 8cb4c64 1.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 603 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.

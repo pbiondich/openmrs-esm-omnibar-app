@@ -25,6 +25,6 @@ Inside a patient chart (patient scope)
 
 Always
 - Queries that look like a medical record number / patient ID show matching patient candidates, as today, in any scope. The shell works out `looksLikeIdentifier` once per query and passes it to every provider as `hints`. Providers that declare `skipIdentifierQueries`, such as the ChartSearch row, aren't mounted for such a query at all. Patient search never declares it.
-- Default highlight never lands on another patient's result while in chart scope. Enter alone must not open another chart.
+- Default highlight never lands on another patient's result while in chart scope. Enter alone must not open another chart. The one exception is a scanned wristband: for an ID-shaped query, the one patient the built-in patient search finds may be the default, after the usual wait for chart values, if they hold exactly that identifier and no one else is on screen. Two or more patients, a partial ID, or a name give no default. A scanner's own Enter usually comes too early, so the next Enter opens the patient. See [the default highlight](omnibar-provider-contract.md#the-default-highlight).
 - Enter picks the first real result. A suggestion row is never the default, even when it is the only row. Enter does nothing when that row is the only result.
 - Suggestion rows are results with a target (workspace launch / navigate), still no onSelect.

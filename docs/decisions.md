@@ -69,6 +69,9 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **Contributor and agent conventions live in AGENTS.md, not the README.** `CLAUDE.md` imports `AGENTS.md`. The README is for people learning what the omnibar is and how to use it.
 *Why:* the README was serving three audiences at once, and agents need the conventions in a place they read automatically.
 
+**Inside a chart, a scanned ID that finds one patient opens them on Enter.** For an ID-shaped query, the one patient the built-in patient search finds may take the default highlight, whether it's this chart's patient or another one, if they hold exactly that identifier and no one else is on screen. A name, a partial ID, two or more patients, and other providers' patient rows stay fail-closed. It still waits for chart values, at most 1.5 s. A scanner's own Enter usually arrives before the query settles, so it's the next Enter that opens the patient.
+*Why:* scanning a wristband from inside a chart showed the patient but left Enter doing nothing, which is the one case where the fail-closed rule cost more than it protected. An ID that matches exactly one patient is as deliberate as arrowing to them. It's narrow on purpose and keyed to the host's own provider, so no provider can claim it.
+
 **Program material lives in this repo.** Decisions go here, briefs given to agents in [briefs/](briefs/), and verification and benchmark summaries in [results/](results/). Raw outputs, logs and anything not fit for a public repo go in the gitignored `scratch/` folder.
 *Why:* one folder per workspace, decisions next to the code they explain, and a public record of the reasoning when this goes to the community.
 
