@@ -44,6 +44,8 @@ import {
   type OmnibarProviderMeta,
   type OmnibarProviderProps,
   type OmnibarReport,
+  type OmnibarResult,
+  type OmnibarTarget,
 } from './types';
 
 // The framework mock's ExtensionSlot renders a render-function child as a React child, and its
@@ -2821,6 +2823,150 @@ describe('Omnibar with providers mounted through the slot', () => {
           expect.stringContaining('Weight (kg): 70 kg'),
           'weight loss note',
         ]);
+      });
+    });
+
+    describe('a result that names another patient inside a chart', () => {
+      const chartPatient = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+      const otherPatient = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      const inChart: OmnibarProviderMeta = { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true };
+      const reportsRows = (title: string, rows: Array<OmnibarResult>): React.FC<OmnibarProviderProps> =>
+        function ReportsRows({ query, report }) {
+          useEffect(() => report({ query, title, status: 'ready', results: query ? rows : [] }), [query, report]);
+          return null;
+        };
+
+      beforeEach(() => window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Results`));
+      afterEach(() => window.history.pushState({}, '', '/'));
+
+      it.each([
+        ['a link to their chart', { type: 'navigate', to: '${openmrsSpaBase}/patient/' + otherPatient + '/chart' }],
+        [
+          'a link with their uuid in capitals',
+          { type: 'navigate', to: `/openmrs/spa/patient/${otherPatient.toUpperCase()}/chart/Results` },
+        ],
+        [
+          'workspace props',
+          { type: 'workspace', workspaceName: 'notes', workspaceProps: { patientUuid: otherPatient } },
+        ],
+        ['window props', { type: 'workspace', workspaceName: 'notes', windowProps: { patientUuid: otherPatient } }],
+        ['group props', { type: 'workspace', workspaceName: 'notes', groupProps: { patientUuid: otherPatient } }],
+      ] as Array<[string, OmnibarTarget]>)(
+        'is never the default when it names them through %s, even from a provider with defaultInChart',
+        async (_, target) => {
+          const user = userEvent.setup();
+          mountProviders([
+            {
+              name: 'chart',
+              meta: inChart,
+              component: reportsRows('In this chart', [
+                { id: 'theirs', title: 'Their weight', target },
+                {
+                  id: 'ours',
+                  title: 'Our weight',
+                  target: { type: 'navigate', to: '${openmrsSpaBase}/patient/' + chartPatient + '/chart/Results' },
+                },
+              ]),
+            },
+          ]);
+          render(<Omnibar />);
+
+          await user.type(screen.getByRole('combobox'), 'weight');
+
+          expect(screen.getByRole('option', { name: 'Their weight' })).toHaveAttribute('aria-selected', 'false');
+          expect(screen.getByRole('option', { name: 'Our weight' })).toHaveAttribute('aria-selected', 'true');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+          expect(launchWorkspace2).not.toHaveBeenCalled();
+        },
+      );
+
+      it("keeps the chart's own copy of a value over a higher-ranked copy that names another patient", async () => {
+        const user = userEvent.setup();
+        mountProviders([
+          {
+            name: 'impostor',
+            meta: { ...inChart, order: 1, dedupeKey: 'chart-values' },
+            component: reportsRows('Early index', [
+              {
+                id: 'weight elsewhere',
+                title: 'weight elsewhere',
+                dedupeId: 'obs:1',
+                target: { type: 'navigate', to: `/openmrs/spa/patient/${otherPatient}/chart/` },
+              },
+            ]),
+          },
+          {
+            name: 'chart',
+            meta: { ...inChart, dedupeKey: 'chart-values' },
+            component: reportsRows('In this chart', [
+              {
+                id: 'weight 70 kg',
+                title: 'weight 70 kg',
+                dedupeId: 'obs:1',
+                target: { type: 'navigate', to: '/weight' },
+              },
+            ]),
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/weight');
+      });
+    });
+
+    describe('a highlighted row whose provider reports it again with another target', () => {
+      const mountRecorder = () => {
+        const mounted = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'values',
+            meta: recordLane,
+            component: function Recorder(props: OmnibarProviderProps) {
+              mounted.set(props.query, props);
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+        return (to: string) =>
+          act(() =>
+            mounted.get('weight').report({
+              query: 'weight',
+              title: 'Values',
+              status: 'ready',
+              results: [
+                { id: 'weight', title: 'Weight 70 kg', target: { type: 'navigate', to } },
+                { id: 'height', title: 'Height 170 cm', target: { type: 'navigate', to: '/height' } },
+              ],
+            }),
+          );
+      };
+
+      it.each([
+        ['the default', ''],
+        ['arrowed to', '{ArrowDown}{ArrowUp}'],
+      ])('opens nothing on Enter, and announces nothing, when it was %s', async (_, keys) => {
+        const user = userEvent.setup();
+        const selected = vi.fn();
+        window.addEventListener(OMNIBAR_SELECTED_EVENT, selected);
+        const reportWeightAt = mountRecorder();
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportWeightAt('/weight');
+        if (keys) await user.keyboard(keys);
+        expect(screen.getByRole('option', { name: 'Weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+
+        reportWeightAt('/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/');
+        await user.keyboard('{Enter}');
+
+        expect(navigate).not.toHaveBeenCalled();
+        expect(selected).not.toHaveBeenCalled();
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+        window.removeEventListener(OMNIBAR_SELECTED_EVENT, selected);
       });
     });
 
