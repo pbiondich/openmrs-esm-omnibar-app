@@ -28,6 +28,7 @@ import {
 } from './omnibar.resource';
 import { PatientRow } from './patient-row';
 import { useOmnibarContext } from './use-omnibar-context';
+import { useOpenedWorkspaceGroup } from './workspace-group';
 import { type OmnibarConfig } from '../config-schema';
 import {
   OMNIBAR_CONTRACT_VERSION,
@@ -99,6 +100,11 @@ const Omnibar: React.FC = () => {
     setSelectedKey(null);
   }, [clear, context]);
   const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
+
+  // The side panel opening or closing isn't a change of chart, so it stays out of `context` above:
+  // providers re-render with the new group, and the results, the selection and the mounts stay.
+  const workspaceGroup = useOpenedWorkspaceGroup();
+  const providerContext = useMemo(() => ({ ...context, workspaceGroup }), [context, workspaceGroup]);
 
   const selected =
     selectable.find((r) => r.key === selectedKey) ?? selectable.find((r) => !providerInfo[r.providerId].neverDefault);
@@ -252,7 +258,7 @@ const Omnibar: React.FC = () => {
       if (!state) {
         state = {
           query: debouncedQuery,
-          context,
+          context: providerContext,
           report: getReporter(providerId),
           contractVersion: OMNIBAR_CONTRACT_VERSION,
         };
@@ -260,7 +266,7 @@ const Omnibar: React.FC = () => {
       }
       return state;
     };
-  }, [debouncedQuery, context, getReporter]);
+  }, [debouncedQuery, providerContext, getReporter]);
 
   const placeholder =
     context.scope === 'patient'

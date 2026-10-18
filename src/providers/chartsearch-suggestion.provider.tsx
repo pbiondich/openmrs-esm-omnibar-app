@@ -11,7 +11,12 @@ import {
 } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
-import { getWorkspace2Store, workspaceGroupIsOpen, type Workspace2Snapshot } from '../omnibar/workspace-group';
+import {
+  getWorkspace2Store,
+  groupNameForWorkspace,
+  workspaceGroupIsOpen,
+  type Workspace2Snapshot,
+} from '../omnibar/workspace-group';
 import { defaultMaxQuestionLength, looksLikeChartSearchQuestion, maxQuestionLengthFrom } from './chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
@@ -65,7 +70,13 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
   const workspaceName = chartSearchSuggestion.workspaceName.trim();
   const workspaceRegistered = Boolean(workspaceName && getRegisteredWorkspace2Names().includes(workspaceName));
   const maxQuestionLength = useChartSearchMaxQuestionLength(workspaceRegistered);
-  const chartGroupIsOpen = useStore(
+  // The registry says which group the workspace opens in; the host says which group is open. A host
+  // from before contract 1 was published doesn't say, so then the store answers both.
+  const chartGroupName = useStore(
+    workspace2Store,
+    useCallback((state: Workspace2Snapshot) => groupNameForWorkspace(state, workspaceName) ?? null, [workspaceName]),
+  );
+  const chartGroupIsOpenInStore = useStore(
     workspace2Store,
     useCallback(
       (state: Workspace2Snapshot) =>
@@ -73,6 +84,16 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
       [patientUuid, workspaceName],
     ),
   );
+  const openGroup = context.workspaceGroup;
+  const chartGroupIsOpen =
+    openGroup === undefined
+      ? chartGroupIsOpenInStore
+      : Boolean(
+          patientUuid &&
+            chartGroupName &&
+            openGroup?.groupName === chartGroupName &&
+            openGroup.patientUuid === patientUuid,
+        );
   const offered =
     chartSearchSuggestion.enabled &&
     Boolean(patientUuid) &&

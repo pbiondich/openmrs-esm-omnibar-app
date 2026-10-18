@@ -27,6 +27,18 @@ export interface OmnibarContext {
   /** Set only when scope is 'patient'. */
   patientUuid?: string;
   locale: string;
+  /**
+   * The workspace group that is open, such as the chart's side panel, and for which patient. Null
+   * when none is. Opening or closing it re-renders providers with the new value, but never clears
+   * the results or remounts providers. Hosts from before contract 1 was published don't pass it.
+   */
+  workspaceGroup?: OmnibarWorkspaceGroup | null;
+}
+
+export interface OmnibarWorkspaceGroup {
+  groupName: string;
+  /** Set only when the group was opened with a string `patientUuid` prop. */
+  patientUuid?: string;
 }
 
 /**
