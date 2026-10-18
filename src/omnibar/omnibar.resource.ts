@@ -405,7 +405,8 @@ export function useResultCollector(
   );
 
   // A record-lane provider that may take the default and hasn't answered this query yet: no report
-  // for it, or `loading` with nothing to show. Read before dedupe, which drops a group left empty.
+  // for it, or `loading` or still indexing (`projecting`) with nothing to show. Read before dedupe,
+  // which drops a group left empty.
   const awaitingRecordDefault = useMemo(
     () =>
       Object.entries(providerInfo).some(([providerId, info]) => {
@@ -413,7 +414,8 @@ export function useResultCollector(
           return false;
         }
         const report = reports[providerId];
-        return !report || report.query !== query || (report.status === 'loading' && !report.results?.length);
+        const pending = report?.status === 'loading' || report?.detail?.state === 'projecting';
+        return !report || report.query !== query || (pending && !report.results?.length);
       }),
     [reports, query, providerInfo],
   );
