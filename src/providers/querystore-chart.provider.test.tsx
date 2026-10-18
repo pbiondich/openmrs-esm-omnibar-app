@@ -4,7 +4,7 @@ import { render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type FetchResponse, getDefaultsFromConfigSchema, openmrsFetch, useConfig } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
-import { type OmnibarContext, type OmnibarProviderProps, type OmnibarReport } from '../omnibar/types';
+import { type OmnibarContext, type OmnibarReport } from '../omnibar-contract';
 import ChartLookupProvider from './chart-lookup.provider';
 import QuerystoreChartProvider from './querystore-chart.provider';
 

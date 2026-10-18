@@ -3,7 +3,7 @@ import useSWR from 'swr';
 import { useTranslation } from 'react-i18next';
 import { formatDate, interpolateUrl, openmrsFetch, restBaseUrl, useConfig } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
-import { type OmnibarProviderProps, type OmnibarResult, type OmnibarTarget } from '../omnibar/types';
+import { type OmnibarProviderProps, type OmnibarResult, type OmnibarTarget } from '../omnibar-contract';
 
 /**
  * Inside a chart, queries the querystore index for matching concepts (grouped by concept) or
