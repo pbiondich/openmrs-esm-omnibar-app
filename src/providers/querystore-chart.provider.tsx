@@ -115,6 +115,10 @@ const isHit = (value: unknown): value is QuerystoreHit =>
 const isGroup = (value: unknown): value is QuerystoreGroup =>
   typeof value === 'object' && value !== null && isHit((value as QuerystoreGroup).latest);
 
+/** A row with a text id and title, neither empty: one the host can draw rather than drop later. */
+const isShowable = (result: OmnibarResult) =>
+  typeof result.id === 'string' && result.id !== '' && typeof result.title === 'string' && result.title !== '';
+
 /** The usable entries of a list from the server, so one bad entry doesn't cost the good ones. */
 const usable = <T,>(list: unknown, keep: (entry: unknown) => entry is T): Array<T> =>
   Array.isArray(list) ? list.filter(keep) : [];
@@ -267,35 +271,37 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
         return;
       }
       const groups = usable(searchData.data?.groups, isGroup).filter((group) => mayRead(group.latest));
-      const results: Array<OmnibarResult> = groups.map((group) => {
-        const latest = group.latest;
-        const rowTitle = hitTitle(latest, group.conceptName, t);
-        const target = targetForHit(latest, patientUuid, resultsUrl);
+      const results: Array<OmnibarResult> = groups
+        .map((group) => {
+          const latest = group.latest;
+          const rowTitle = hitTitle(latest, group.conceptName, t);
+          const target = targetForHit(latest, patientUuid, resultsUrl);
 
-        let subtitle: string | undefined;
-        const formattedDate = formatDay(latest.date);
-        if (formattedDate) {
-          subtitle =
-            group.count > 1
-              ? t('querystoreRecordedOnWithCount', 'Latest, recorded {{date}} · {{count}} readings', {
-                  date: formattedDate,
-                  count: group.count,
-                  interpolation: { escapeValue: false },
-                })
-              : t('recordedOn', 'Latest, recorded {{date}}', {
-                  date: formattedDate,
-                  interpolation: { escapeValue: false },
-                });
-        }
+          let subtitle: string | undefined;
+          const formattedDate = formatDay(latest.date);
+          if (formattedDate) {
+            subtitle =
+              group.count > 1
+                ? t('querystoreRecordedOnWithCount', 'Latest, recorded {{date}} · {{count}} readings', {
+                    date: formattedDate,
+                    count: group.count,
+                    interpolation: { escapeValue: false },
+                  })
+                : t('recordedOn', 'Latest, recorded {{date}}', {
+                    date: formattedDate,
+                    interpolation: { escapeValue: false },
+                  });
+          }
 
-        return {
-          id: group.conceptUuid ?? latest.resourceUuid,
-          title: rowTitle,
-          subtitle,
-          target,
-          dedupeId: dedupeIdFor(latest, chartLookup.source === 'both'),
-        };
-      });
+          return {
+            id: group.conceptUuid ?? latest.resourceUuid,
+            title: rowTitle,
+            subtitle,
+            target,
+            dedupeId: dedupeIdFor(latest, chartLookup.source === 'both'),
+          };
+        })
+        .filter(isShowable);
 
       report({
         query,
@@ -319,21 +325,23 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
       return;
     }
     const hits = usable(recentData.data?.hits, isHit).filter(mayRead);
-    const results: Array<OmnibarResult> = hits.map((hit) => {
-      const rowTitle = hitTitle(hit, hit.conceptName, t);
-      const target = targetForHit(hit, patientUuid, resultsUrl);
-      const date = formatDay(hit.date);
-      const subtitle = date
-        ? t('recordedDate', 'Recorded {{date}}', { date, interpolation: { escapeValue: false } })
-        : undefined;
-      return {
-        id: hit.resourceUuid,
-        title: rowTitle,
-        subtitle,
-        target,
-        dedupeId: dedupeIdFor(hit, chartLookup.source === 'both'),
-      };
-    });
+    const results: Array<OmnibarResult> = hits
+      .map((hit) => {
+        const rowTitle = hitTitle(hit, hit.conceptName, t);
+        const target = targetForHit(hit, patientUuid, resultsUrl);
+        const date = formatDay(hit.date);
+        const subtitle = date
+          ? t('recordedDate', 'Recorded {{date}}', { date, interpolation: { escapeValue: false } })
+          : undefined;
+        return {
+          id: hit.resourceUuid,
+          title: rowTitle,
+          subtitle,
+          target,
+          dedupeId: dedupeIdFor(hit, chartLookup.source === 'both'),
+        };
+      })
+      .filter(isShowable);
 
     report({
       query,
