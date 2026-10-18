@@ -3336,6 +3336,107 @@ describe('Omnibar with providers mounted through the slot', () => {
       });
     });
 
+    describe('the target behind a row', () => {
+      const mountRecorder = () => {
+        const mounted = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'values',
+            meta: recordLane,
+            component: function Recorder(props: OmnibarProviderProps) {
+              mounted.set(props.query, props);
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+        return (results: Array<OmnibarResult>) =>
+          act(() => mounted.get('weight').report({ query: 'weight', title: 'Values', status: 'ready', results }));
+      };
+
+      it('is the same target written with its keys in another order, so one Enter opens it', async () => {
+        const user = userEvent.setup();
+        const reportRows = mountRecorder();
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportRows([{ id: 'weight', title: 'Weight 70 kg', target: { type: 'navigate', to: '/weight' } }]);
+        expect(screen.getByRole('option', { name: 'Weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+
+        reportRows([
+          { id: 'weight', title: 'Weight 70 kg', target: { to: '/weight', type: 'navigate' } as OmnibarTarget },
+        ]);
+        await user.keyboard('{Enter}');
+
+        expect(landedOn()).toBe('/weight');
+      });
+
+      it('is the one reported, even if the provider changes its object afterwards without reporting', async () => {
+        const user = userEvent.setup();
+        const reportRows = mountRecorder();
+        const target = { type: 'navigate' as const, to: '/weight' };
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportRows([{ id: 'weight', title: 'Weight 70 kg', target }]);
+
+        target.to = '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/';
+        await user.keyboard('{Enter}');
+
+        expect(landedOn()).toBe('/weight');
+      });
+
+      it('changes only when reported again, and then the first Enter opens nothing', async () => {
+        const user = userEvent.setup();
+        const reportRows = mountRecorder();
+        const rows = [{ id: 'weight', title: 'Weight 70 kg', target: { type: 'navigate' as const, to: '/weight' } }];
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportRows(rows);
+
+        rows[0].target.to = '/height';
+        reportRows(rows);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/height');
+      });
+
+      it('settles when a provider reports a target with circular props on every render', async () => {
+        const user = userEvent.setup();
+        const limit = 500;
+        let reports = 0;
+        const Circular: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+          useEffect(() => {
+            if (reports < limit) {
+              reports += 1;
+              const workspaceProps: Record<string, unknown> = { note: 'x' };
+              workspaceProps.self = workspaceProps;
+              report({
+                query,
+                title: 'Circular',
+                status: 'ready',
+                results: query
+                  ? [
+                      {
+                        id: 'note',
+                        title: 'Write a note',
+                        target: { type: 'workspace', workspaceName: 'notes', workspaceProps },
+                      },
+                    ]
+                  : [],
+              });
+            }
+          });
+          return null;
+        };
+        mountProviders([{ name: 'circular', meta: recordLane, component: Circular }]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'note');
+        await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+
+        expect(screen.getByRole('option', { name: 'Write a note' })).toBeInTheDocument();
+        expect(reports).toBeLessThan(50);
+      });
+    });
+
     describe('a highlighted row whose provider reports it again with another target', () => {
       const mountRecorder = () => {
         const mounted = new Map<string, OmnibarProviderProps>();
