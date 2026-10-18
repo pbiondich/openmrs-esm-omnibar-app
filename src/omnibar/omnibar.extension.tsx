@@ -353,10 +353,11 @@ const Omnibar: React.FC = () => {
 
   // Chrome sends mousemove when rows shift under a pointer that hasn't moved, so a row is picked only
   // when the browser reports movement for the event. Rows moving under a still pointer report none, and
-  // a browser that reports nothing counts as no movement.
+  // a browser that reports nothing counts as no movement. Pointing at the row already highlighted by
+  // default picks it too, so a chart row arriving later doesn't take the highlight from under the pointer.
   const pointAt = (event: React.MouseEvent, result: SelectableResult) => {
     const moved = Boolean(event.movementX || event.movementY);
-    if (moved && resultsAreCurrent && selected?.key !== result.key) {
+    if (moved && resultsAreCurrent && (selected?.key !== result.key || !chosen)) {
       setSelection(selectionOf(result, true));
     }
   };

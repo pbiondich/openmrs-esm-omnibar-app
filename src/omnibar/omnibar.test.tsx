@@ -2713,14 +2713,14 @@ describe('Omnibar with providers mounted through the slot', () => {
 
         it('leaves an automatically highlighted destination alone once the user points at it', async () => {
           const user = userEvent.setup();
-          openChartIndexing([admission], 2200);
+          openChartIndexing([admission], 3000);
 
           await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
           await screen.findByRole('option', { name: /^Ward/ });
           await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'), { timeout: 2000 });
           fireEvent.mouseMove(ward(), { movementX: 4, movementY: 2 });
 
-          const record = await screen.findByRole('option', { name: /Admission: Ward 3/ }, { timeout: 3000 });
+          const record = await screen.findByRole('option', { name: /Admission: Ward 3/ }, { timeout: 4000 });
           await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
           expect(record).toHaveAttribute('aria-selected', 'false');
           expect(ward()).toHaveAttribute('aria-selected', 'true');
