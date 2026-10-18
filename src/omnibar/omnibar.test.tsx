@@ -857,10 +857,17 @@ describe('Omnibar with providers mounted through the slot', () => {
     describe('when the chart group changes between seeing the row and picking it', () => {
       const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
 
+      const removeListeners: Array<() => void> = [];
+      const listen = (eventType: string, listener: (event: Event) => void, options?: AddEventListenerOptions) => {
+        window.addEventListener(eventType, listener, options);
+        removeListeners.push(() => window.removeEventListener(eventType, listener, options));
+      };
+      afterEach(() => removeListeners.splice(0).forEach((remove) => remove()));
+
       // A capturing listener on window runs before React's own listener on the root, so the store
       // changes after the row was drawn and before the omnibar handles the pick.
       const changeGroupOn = (eventType: 'click' | 'keydown', patientUuid: string | null) =>
-        window.addEventListener(eventType, () => openChartGroup(patientUuid), { capture: true, once: true });
+        listen(eventType, () => openChartGroup(patientUuid), { capture: true, once: true });
 
       it.each([
         ['closes', 'a click', null],
@@ -870,7 +877,7 @@ describe('Omnibar with providers mounted through the slot', () => {
       ] as const)('warns in a snackbar and opens nothing when the group %s before %s', async (_, how, patientUuid) => {
         const user = userEvent.setup();
         const selected = vi.fn();
-        window.addEventListener(OMNIBAR_SELECTED_EVENT, selected);
+        listen(OMNIBAR_SELECTED_EVENT, selected);
         mountProviders([provider]);
         render(<Omnibar />);
 
@@ -894,9 +901,9 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(showSnackbar).toHaveBeenCalledWith({
           kind: 'warning',
           title: 'Couldn’t open the side panel',
-          subtitle: 'This chart’s side panel closed before it could open. Search again to retry.',
+          subtitle:
+            'The side panel was closed or opened for another patient. Open it again on this chart, then search again.',
         });
-        window.removeEventListener(OMNIBAR_SELECTED_EVENT, selected);
       });
 
       it('shows no snackbar when the group is still open', async () => {
