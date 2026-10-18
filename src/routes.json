@@ -45,7 +45,7 @@
       "name": "omnibar-querystore-chart-provider",
       "component": "querystoreChartProvider",
       "slot": "omnibar-providers-slot",
-      "privileges": ["Get Patients"],
+      "privileges": ["Get Observations"],
       "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true }
     }
   ]
