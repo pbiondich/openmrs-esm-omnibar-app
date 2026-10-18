@@ -230,6 +230,23 @@ describe('setupWarmOnChartOpen', () => {
       expect(signal.aborted).toBe(true);
     });
 
+    it.each([
+      ['the config', () => mockGetConfig.mockRejectedValueOnce(new Error('config'))],
+      ['the session', () => mockGetCurrentUser.mockRejectedValueOnce(new Error('session'))],
+    ])('warms once on the next move within the chart when %s failed to load', async (_, fail) => {
+      fail();
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      await settle();
+      expect(mockOpenmrsFetch).not.toHaveBeenCalled();
+
+      fireRoutingEvent(`/openmrs/spa/patient/${patientUuid}/chart/Conditions`);
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+      fireRoutingEvent(`/openmrs/spa/patient/${patientUuid}/chart/Results`);
+      await settle();
+      expect(mockOpenmrsFetch.mock.calls.map(([url]) => url)).toEqual([warmUrl(patientUuid)]);
+    });
+
     it('replaces an earlier setup rather than stacking a second listener', async () => {
       const first = setupWarmOnChartOpen(moduleName);
       teardown = setupWarmOnChartOpen(moduleName);
