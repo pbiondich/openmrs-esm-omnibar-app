@@ -2787,13 +2787,12 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(landedOn()).toBe('/Wristband%20printing');
       });
 
-      it('never highlights the patient when the search may have cut off a second one, at one result', async () => {
+      it('highlights the one patient an ID finds with patient search limited to one result, which asks for two', async () => {
         const { user } = await search(scanned, [john], { source: 'querystore', patientSearch: { maxResults: 1 } });
 
-        await wait(chartIndexingGraceMs);
-        expect(highlighted()).toEqual([]);
+        expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
         await user.keyboard('{Enter}');
-        expect(navigate).not.toHaveBeenCalled();
+        expect(landedOn()).toBe(chartOf(john));
       });
 
       it("never highlights the patient when the patient's chart is configured on another site", async () => {
