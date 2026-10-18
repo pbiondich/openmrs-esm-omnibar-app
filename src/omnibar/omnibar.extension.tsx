@@ -55,12 +55,25 @@ function capNote(note: string | undefined): string | undefined {
   return characters.length > maxNoteLength ? `${characters.slice(0, maxNoteLength - 1).join('')}…` : note;
 }
 
-/** The highlighted row. `chosen` when the user arrowed or pointed to it, rather than it being the default. */
+/**
+ * The highlighted row. `chosen` when the user arrowed or pointed to it, rather than it being the
+ * default. `target` is the target it had when it was highlighted, as `signatureOf` writes it.
+ */
 interface Selection {
   key: string;
   chosen: boolean;
+  target?: string;
   dedupeKey?: string;
   dedupeId?: string;
+}
+
+/** Compares targets by value. Undefined for one that can't be written out, such as circular props. */
+function signatureOf(target: OmnibarTarget): string | undefined {
+  try {
+    return JSON.stringify(target);
+  } catch {
+    return undefined;
+  }
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -120,6 +133,7 @@ const Omnibar: React.FC = () => {
     debouncedQuery,
     providerInfo,
     contextKey,
+    context.scope === 'patient' ? context.patientUuid : undefined,
   );
 
   // Out-of-scope providers are dropped with `select`, never by returning null from the slot's render
@@ -138,6 +152,7 @@ const Omnibar: React.FC = () => {
     (result: SelectableResult, chosen: boolean): Selection => ({
       key: result.key,
       chosen,
+      target: signatureOf(result.target),
       dedupeKey: providerInfo[result.providerId]?.dedupeKey,
       dedupeId: result.dedupeId,
     }),
@@ -160,12 +175,13 @@ const Omnibar: React.FC = () => {
 
   // A highlighted row that is gone but showed a deduped record moves to the copy still on screen, or
   // to nothing, never to the default: that would be another record, and Enter would open it. The kept
-  // copy takes over a highlight the user chose, or one it could have taken as the default anyway.
+  // copy takes over a highlight the user chose, or one it could have taken as the default anyway. A
+  // default highlight whose row is reported again in a way that can't be the default is dropped.
   const { selected, chosen } = useMemo(() => {
-    const mayBeDefault = (result: SelectableResult) => !providerInfo[result.providerId].neverDefault;
+    const mayBeDefault = (result: SelectableResult) => result.mayBeDefault;
     const same = selection && selectable.find((result) => result.key === selection.key);
     if (same) {
-      return { selected: same, chosen: selection.chosen };
+      return { selected: selection.chosen || mayBeDefault(same) ? same : undefined, chosen: selection.chosen };
     }
     if (selection?.dedupeKey && selection.dedupeId) {
       const copy = selectable.find(
@@ -180,6 +196,7 @@ const Omnibar: React.FC = () => {
     return { selected: selectable.find(mayBeDefault), chosen: false };
   }, [selection, selectable, providerInfo]);
   const selectedIndex = selected ? selectable.indexOf(selected) : -1;
+  const selectableByKey = useMemo(() => new Map(selectable.map((result) => [result.key, result])), [selectable]);
 
   // Pin the default highlight to the result it first lands on, so a slower provider that sorts above
   // it can't move it to another row just before the user presses Enter.
@@ -246,15 +263,21 @@ const Omnibar: React.FC = () => {
   );
 
   // The results on screen may still be for an earlier query, e.g. recents while a scanner types an
-  // ID, so nothing on screen can be chosen, by key or by pointer, until they catch up.
+  // ID, so nothing on screen can be chosen, by key or by pointer, until they catch up. A provider can
+  // also report the highlighted row again, under the same id, with another target. Only the target
+  // that was highlighted is run; a changed one clears the highlight and opens nothing.
   const choose = useCallback(
     (result: SelectableResult) => {
       if (!resultsAreCurrent) return;
+      if (selection?.key === result.key && selection.target !== signatureOf(result.target)) {
+        setSelection(null);
+        return;
+      }
       announceSelection({ providerId: result.providerId, resultId: result.id });
       closeBar();
       void runTarget(result.target);
     },
-    [closeBar, resultsAreCurrent, runTarget],
+    [closeBar, resultsAreCurrent, runTarget, selection],
   );
 
   const openSource = useCallback(
@@ -536,6 +559,10 @@ const Omnibar: React.FC = () => {
                   <ul role="group" aria-labelledby={headingId}>
                     {(group.results ?? []).map((result) => {
                       const key = `${group.providerId}:${result.id}`;
+                      const item = selectableByKey.get(key);
+                      if (!item) {
+                        return null;
+                      }
                       const isSelected = selected?.key === key;
                       return (
                         <li
@@ -548,9 +575,9 @@ const Omnibar: React.FC = () => {
                             [styles.optionSelected]: isSelected,
                             [styles.patientOption]: result.patient,
                           })}
-                          onMouseMove={(event) => pointAt(event, { ...result, providerId: group.providerId, key })}
+                          onMouseMove={(event) => pointAt(event, item)}
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => choose({ ...result, providerId: group.providerId, key })}
+                          onClick={() => choose(item)}
                         >
                           {result.patient ? (
                             <PatientRow name={result.title} patient={result.patient} note={result.subtitle} />

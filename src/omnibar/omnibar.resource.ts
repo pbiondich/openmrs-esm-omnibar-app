@@ -25,6 +25,11 @@ export interface SelectableResult extends OmnibarResult {
   providerId: string;
   /** Stable across re-renders, so selection follows the item rather than the row index. */
   key: string;
+  /**
+   * It may take the default highlight: its provider may inside a chart, and it doesn't name another
+   * patient than the chart's. Otherwise only an arrow key or the pointer selects it.
+   */
+  mayBeDefault: boolean;
 }
 
 export interface ProviderInfo {
@@ -43,20 +48,29 @@ export function isCollapsed(report: OmnibarReport): boolean {
 }
 
 /**
- * Among providers that share a dedupe key, shows each record (`dedupeId`) once. The copy kept is the
- * first, in rank order, from a provider whose results may take the default highlight. Only when no
- * copy may is it simply the first. So a provider a chart never highlights, which could point
- * anywhere, can't push out the chart's own row by ranking above it. A group left with nothing is
- * dropped too. Groups must already be in rank order.
+ * Among providers that share a dedupe key, shows each record (`dedupeId`) once. Groups must already
+ * be in rank order (lane, then order). The copy kept is the first that may take the default
+ * highlight; failing that, the first that at least stays on the chart's patient; failing that, the
+ * first of all. So a row a chart never highlights, which could point anywhere, can't push out the
+ * chart's own row by ranking above it. A group left with nothing is dropped too.
  */
-function dropCopies(groups: Array<ProviderGroup>): Array<ProviderGroup> {
-  const keeper = new Map<string, ProviderGroup>();
+function dropCopies(
+  groups: Array<ProviderGroup>,
+  namesOtherPatient: (result: OmnibarResult) => boolean,
+): Array<ProviderGroup> {
+  const preference = (group: ProviderGroup, result: OmnibarResult) =>
+    namesOtherPatient(result) ? 2 : group.neverDefault ? 1 : 0;
+  const keeper = new Map<string, { result: OmnibarResult; preference: number }>();
   for (const group of groups) {
-    for (const { dedupeId } of (group.dedupeKey && group.results) || []) {
-      const record = dedupeId && `${group.dedupeKey}\n${dedupeId}`;
-      const kept = record && keeper.get(record);
-      if (record && (!kept || (kept.neverDefault && !group.neverDefault))) {
-        keeper.set(record, group);
+    for (const result of (group.dedupeKey && group.results) || []) {
+      const record = result.dedupeId && `${group.dedupeKey}\n${result.dedupeId}`;
+      if (!record) {
+        continue;
+      }
+      const kept = keeper.get(record);
+      const rank = preference(group, result);
+      if (!kept || rank < kept.preference) {
+        keeper.set(record, { result, preference: rank });
       }
     }
   }
@@ -65,7 +79,7 @@ function dropCopies(groups: Array<ProviderGroup>): Array<ProviderGroup> {
       return [group];
     }
     const results = group.results.filter(
-      ({ dedupeId }) => !dedupeId || keeper.get(`${group.dedupeKey}\n${dedupeId}`) === group,
+      (result) => !result.dedupeId || keeper.get(`${group.dedupeKey}\n${result.dedupeId}`)?.result === result,
     );
     if (!results.length) {
       return [];
@@ -84,7 +98,13 @@ function dropCopies(groups: Array<ProviderGroup>): Array<ProviderGroup> {
  * never cancelled and for the same query. Generations move on during render, before the providers
  * are handed their new `report`.
  */
-export function useResultCollector(query: string, providerInfo: Record<string, ProviderInfo>, contextKey = '') {
+export function useResultCollector(
+  query: string,
+  providerInfo: Record<string, ProviderInfo>,
+  contextKey = '',
+  /** The chart's patient, in patient scope only. A result that names another one is never the default. */
+  chartPatientUuid?: string,
+) {
   const [reports, setReports] = useState<Record<string, OmnibarReport>>({});
   const queryRef = useRef(query);
   queryRef.current = query;
@@ -141,7 +161,18 @@ export function useResultCollector(query: string, providerInfo: Record<string, P
     [reports, query, providerInfo],
   );
 
-  const listGroups = useMemo(() => dropCopies(groups.filter((group) => group.lane !== 'answer')), [groups]);
+  const namesOtherPatient = useCallback(
+    (result: OmnibarResult) => Boolean(chartPatientUuid) && targetNamesOtherPatient(result.target, chartPatientUuid),
+    [chartPatientUuid],
+  );
+  const listGroups = useMemo(
+    () =>
+      dropCopies(
+        groups.filter((group) => group.lane !== 'answer'),
+        namesOtherPatient,
+      ),
+    [groups, namesOtherPatient],
+  );
   const answerGroups = useMemo(
     () => groups.filter((group) => group.lane === 'answer' && group.status !== 'idle'),
     [groups],
@@ -154,9 +185,10 @@ export function useResultCollector(query: string, providerInfo: Record<string, P
           ...result,
           providerId: group.providerId,
           key: `${group.providerId}:${result.id}`,
+          mayBeDefault: !group.neverDefault && !namesOtherPatient(result),
         })),
       ),
-    [listGroups],
+    [listGroups, namesOtherPatient],
   );
 
   return { getReporter, clear, listGroups, answerGroups, selectable };
@@ -189,6 +221,34 @@ export function speaksContractOf(extensionName: string, meta: Pick<OmnibarProvid
     );
   }
   return false;
+}
+
+const patientInPath = /\/patient\/([0-9a-f-]{36})(?=\/|$)/gi;
+
+/**
+ * The patients a target names: by UUID in a link's path, as in /patient/<uuid>/chart, or as a string
+ * `patientUuid` in any of a workspace's props. Null for a link that can't be read, which names no
+ * one this host can vouch for.
+ */
+function patientsNamedBy(target: OmnibarTarget): Array<string> | null {
+  if (target.type === 'navigate') {
+    let url: URL;
+    try {
+      url = new URL(interpolateUrl(target.to), window.location.href);
+    } catch {
+      return null;
+    }
+    return Array.from(url.pathname.matchAll(patientInPath), ([, uuid]) => uuid);
+  }
+  return [target.workspaceProps, target.windowProps, target.groupProps]
+    .map((props) => (props as { patientUuid?: unknown } | undefined)?.patientUuid)
+    .filter((uuid): uuid is string => typeof uuid === 'string');
+}
+
+/** True when the target names a patient other than the chart's, or can't be read. */
+export function targetNamesOtherPatient(target: OmnibarTarget, chartPatientUuid: string): boolean {
+  const named = patientsNamedBy(target);
+  return named === null || named.some((uuid) => uuid.toLowerCase() !== chartPatientUuid.toLowerCase());
 }
 
 const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;

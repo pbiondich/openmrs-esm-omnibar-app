@@ -1072,7 +1072,8 @@ describe('Omnibar with providers mounted through the slot', () => {
       render(<Omnibar />);
 
       await user.type(screen.getByRole('combobox'), 'what happened');
-      await user.keyboard('{Enter}');
+      // A row that names another patient is never the default in a chart, so the user arrows to it.
+      await user.keyboard('{ArrowDown}{Enter}');
 
       await waitFor(() => expect(showSnackbar).toHaveBeenCalledTimes(1));
       expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' }));
