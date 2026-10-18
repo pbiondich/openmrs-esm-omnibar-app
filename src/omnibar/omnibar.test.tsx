@@ -2792,6 +2792,42 @@ describe('Omnibar with providers mounted through the slot', () => {
         },
       );
 
+      it("always says the host's own words for a failed group, whatever note it sends", async () => {
+        const user = userEvent.setup();
+        mountWith(withDetail({ state: 'failed', note: 'Server responded with 500 for Jane Doe, 100GEJ' }, 'error'));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Couldn’t load results')).toBeInTheDocument();
+        expect(screen.queryByText(/Jane Doe|100GEJ|500/)).not.toBeInTheDocument();
+      });
+
+      it.each([
+        ['projecting', 'ready'],
+        ['unavailable', 'error'],
+      ] as const)('cuts the note of a group that is %s to 200 characters', async (state, status) => {
+        const user = userEvent.setup();
+        const long = `${'Indexing the visit notes. '.repeat(11)}tail`;
+        expect(long.length).toBeGreaterThan(200);
+        mountWith(withDetail({ state, note: long }, status));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        const line = screen.getByText((text) => text.startsWith('Indexing the visit notes.'));
+        expect(Array.from(line.textContent)).toHaveLength(200);
+        expect(line.textContent).toBe(`${long.slice(0, 199)}…`);
+      });
+
+      it('shows a note of exactly 200 characters whole', async () => {
+        const user = userEvent.setup();
+        const exact = 'n'.repeat(200);
+        mountWith(withDetail({ state: 'unavailable', note: exact }, 'error'));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText(exact)).toBeInTheDocument();
+      });
+
       it('shows the results of a group still indexing, with a quiet line saying they may be incomplete', async () => {
         const user = userEvent.setup();
         mountWith(withDetail({ state: 'projecting' }));
