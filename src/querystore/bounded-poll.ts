@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 
 /**
  * How long to wait before each re-check of a chart the query store is still indexing, in order:
- * about 47 seconds in all, then no more until the query or chart changes. Each re-check is a
- * non-waiting request, which also asks the server to index the chart. The first comes after half a
- * second, so a chart that finishes indexing just after the first answer is found while the omnibar
- * still holds the default highlight for chart values (`chartValuesGraceMs`).
+ * about 46 seconds in all, then no more until the query or chart changes. Each re-check is a
+ * non-waiting request, which also asks the server to index the chart. While the chart is indexing
+ * with nothing found, the omnibar holds the default highlight for up to `chartIndexingGraceMs`, so
+ * the first re-checks are in time to take it.
  */
-export const POLL_DELAYS_MS: ReadonlyArray<number> = [500, 1500, 3000, 6000, 12000, 24000];
+export const POLL_DELAYS_MS: ReadonlyArray<number> = [1500, 3000, 6000, 12000, 24000];
 
 /**
  * Calls `recheck` while `pending`, after each delay in turn, and gives up after the last. Each delay
