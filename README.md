@@ -87,7 +87,7 @@ The omnibar is a thin shell, and capabilities live in the apps that own the data
 
 Every capability is a **provider**: an ordinary O3 extension, registered in `omnibar-providers-slot`, that renders nothing. While the panel is open, the shell mounts the providers that declare the current scope and passes each one the debounced `query`, the `context` (scope, patient, locale, and the open side panel) and a `report` function. The provider calls `report` whenever it has something to say.
 
-Because providers are extensions, they get lazy loading, privilege gating, feature flags, display expressions, config and translations from the existing framework, and can use SWR and their app's existing hooks. Nothing new is asked of esm-framework. Feature apps such as Cohort Builder, ChartSearch and the query store are meant to register their own providers from their own `routes.json`, rather than adding code to this repo.
+Because providers are extensions, they get lazy loading, privilege gating, feature flags, display expressions, config and translations from the existing framework, and can use SWR and their app's existing hooks. Nothing new is asked of esm-framework. Feature apps such as Cohort Builder and ChartSearch are meant to register their own providers from their own `routes.json`, rather than adding code to this repo. The query store is a deliberate exception, described under Built-in providers.
 
 ### Design rules
 
@@ -163,8 +163,8 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 - Aliases come from three places: the provider's `routes.json` (English defaults), the provider's translation files (localized aliases), and implementer config (custom names, such as `/vl` for viral load). The shell merges them into one table for the user's locale.
 - Any alias resolves to the id. The chip shows the command's label in the user's language, whichever alias was typed.
 - URLs carry the id, not the alias (`?cmd=lab&q=cd4`), so a bookmarked query works in any language.
-- When a command is given, only that command's provider runs.
-- If two providers claim the same alias, provider order decides, and the conflict is reported to implementers rather than silently shadowed.
+- When a command is given, only the providers that declare it run. More than one provider can declare the same command: chart lookup and the query store provider would both answer `/lab`.
+- If the same alias is claimed for two different commands, provider order decides, and the conflict is reported to implementers rather than silently shadowed.
 
 ### Built-in providers
 
@@ -176,6 +176,9 @@ These live in this repo as defaults for now. See [`src/routes.json`](src/routes.
 | Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale) on the query without filler words such as "latest" or "show", a concept set standing for its members, then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
 | ChartSearch suggestion | navigate | patient | Local question heuristic; opens a registered workspace |
+| Query store chart | record | patient | Query store REST: `/querystore/patient/{uuid}/search` (keyword mode, one row per concept) while typing, `/recent` for an empty field. Off unless `chartLookup.source` is `querystore` or `both` |
+
+The query store chart provider is built in on purpose, although the light-omnibar rule would normally put it in the query store's own app. The query store has no frontend app, and this provider replaces chart lookup's data source rather than adding a new capability. It should move if the query store gains other frontend consumers. See [`docs/decisions.md`](docs/decisions.md).
 
 Inside a chart, chart lookup comes first and patient search drops to "Other patients". When a server can't be reached, a group shrinks to its heading and "Unavailable right now"; any other failure shows "Couldn't load results".
 
@@ -313,11 +316,11 @@ Open questions:
 - [ ] Can the results viewer accept a deep link to a specific test, so chart lookup lands on the value?
 - [ ] How does CIEL represent drug groupings such as antiretrovirals, and can that seed drug groups for cohort questions?
 - [ ] Does the tablet sheet work on real devices?
-- [ ] Where should the query store's and Cohort Builder's providers live? The light-omnibar rule says each belongs to the app that owns the data, but the query store has no frontend app of its own.
+- [ ] Should the Cohort Builder's provider live in the Cohort Builder's own app, as the light-omnibar rule suggests? (The query store's provider is built in, as a recorded exception.)
 
 ## Contributing
 
-Read [AGENTS.md](AGENTS.md) before changing anything, whether you're a person or an agent. It covers the architecture rules, the contract conventions people most often get wrong, the review policy, how commits and pushes work, and how to verify a change. Check every change against the [design rules](#design-rules).
+Read [AGENTS.md](AGENTS.md) before changing anything, whether you're a person or an agent. It covers the architecture rules, the contract conventions people most often get wrong, the review policy, how commits and pushes work, and how to verify a change. Check every change against the [design rules](#design-rules). Decisions and the reasons for them are in [`docs/decisions.md`](docs/decisions.md), and the briefs given to agents are in [`docs/briefs/`](docs/briefs/).
 
 ## License
 

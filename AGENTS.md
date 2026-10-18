@@ -13,9 +13,9 @@ The omnibar is a thin shell, and capabilities live in the apps that own the data
 - the **selection event**, `openmrs:omnibar-selected`;
 - the **contract**, in [`src/omnibar-contract/`](src/omnibar-contract/).
 
-Feature apps such as Cohort Builder, ChartSearch and the query store **register their own providers** in `omnibar-providers-slot` from their own `routes.json`. Each app also declares its own page. New capabilities go into the owning app as a provider, not into this repo.
+Feature apps such as Cohort Builder and ChartSearch **register their own providers** in `omnibar-providers-slot` from their own `routes.json`. Each app also declares its own page. New capabilities go into the owning app as a provider, not into this repo.
 
-The omnibar keeps these built-in providers as defaults for now: patient search with recently viewed patients, chart lookup, destinations, the ChartSearch suggestion row, and the query store chart provider, which is off unless `chartLookup.source` is `querystore` or `both` (see [`src/routes.json`](src/routes.json)). See the [design rules](README.md#design-rules) in the README and [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
+The omnibar keeps these built-in providers as defaults for now: patient search with recently viewed patients, chart lookup, destinations, the ChartSearch suggestion row, and the query store chart provider, which is off unless `chartLookup.source` is `querystore` or `both` (see [`src/routes.json`](src/routes.json)). The query store provider is a recorded exception to the rule above: the query store has no frontend app of its own, and the provider replaces chart lookup's data source rather than adding a capability. Move it if the query store gains other frontend consumers. See [`docs/decisions.md`](docs/decisions.md). See the [design rules](README.md#design-rules) in the README and [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
 
 ## Contract v1, in brief
 
@@ -77,4 +77,7 @@ yarn test     # vitest only, while iterating
 - [docs/design/chartsearch-row.md](docs/design/chartsearch-row.md) and [docs/design/patient-row-photos.md](docs/design/patient-row-photos.md): detail on those two features.
 - [docs/design/omnibar-concept.md](docs/design/omnibar-concept.md): the original concept and design rationale.
 - [FIXES.md](FIXES.md): every review round, its findings and fixes.
+- [docs/decisions.md](docs/decisions.md): dated decisions and why they were made. Check it before reopening a settled question.
+- [docs/briefs/](docs/briefs/): the briefs given to agents, as given, with their status.
+- [docs/results/](docs/results/): verification and benchmark summaries. Raw outputs, logs and anything not fit for a public repo go in `scratch/`, which is gitignored.
 - [docs/upstream/](docs/upstream/): proposed patches to other apps, not merged work.
