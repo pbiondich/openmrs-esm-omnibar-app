@@ -210,6 +210,26 @@ describe('setupWarmOnChartOpen', () => {
       expect(mockOpenmrsFetch).toHaveBeenCalledTimes(3);
     });
 
+    it('never schedules a retry for a chart the user left while its warm was on its way', async () => {
+      let answerFirst: (error: unknown) => void;
+      mockOpenmrsFetch
+        .mockReturnValueOnce(new Promise((_, reject) => (answerFirst = reject)))
+        .mockResolvedValue({ data: { status: 'indexed' } } as FetchResponse);
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+      fireRoutingEvent(chartUrl(otherUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2));
+
+      // The first chart's 503 arrives while the user is in the second.
+      answerFirst(unavailable('10'));
+      await vi.advanceTimersByTimeAsync(0);
+      fireRoutingEvent(chartUrl(patientUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(3));
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(3);
+    });
+
     it('does not retry other failures', async () => {
       mockOpenmrsFetch.mockRejectedValue(
         Object.assign(new Error('403'), { response: { status: 403, headers: { get: () => null } } }),
