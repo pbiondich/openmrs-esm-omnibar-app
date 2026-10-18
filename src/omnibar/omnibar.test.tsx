@@ -2486,6 +2486,55 @@ describe('Omnibar with providers mounted through the slot', () => {
         });
       });
 
+      it('never lets a default highlight follow its copy onto a row that cannot be the default in a chart', async () => {
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const user = userEvent.setup();
+        const mounted = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'other-patients-index',
+            meta: { lane: 'record', scopes: ['patient'], order: 10, dedupeKey: 'chart-values' },
+            component: function OtherPatientsIndex(props) {
+              mounted.set(props.query, props);
+              return null;
+            },
+          },
+          {
+            name: 'chart',
+            meta: { lane: 'record', scopes: ['patient'], order: 15, dedupeKey: 'chart-values', defaultInChart: true },
+            component: function Chart({ query, report }) {
+              useEffect(
+                () =>
+                  report({
+                    query,
+                    title: 'In this chart',
+                    status: 'ready',
+                    results: query ? [result('weight 70 kg', 'obs:1')] : [],
+                  }),
+                [query, report],
+              );
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+        expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+        act(() =>
+          mounted.get('weight').report({
+            query: 'weight',
+            title: 'Indexed',
+            status: 'ready',
+            results: [result('weight from the index', 'obs:1')],
+          }),
+        );
+
+        expect(screen.getByRole('option', { name: 'weight from the index' })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
       it('shows nothing for a group whose every result is a copy', async () => {
         const user = userEvent.setup();
         const reportsOne =
