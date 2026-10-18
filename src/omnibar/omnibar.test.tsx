@@ -66,6 +66,8 @@ vi.mock('@openmrs/esm-framework', async (importOriginal) => {
     // Missing from the framework mock; the real one, as the app shell provides it.
     formatPartialDate: (await import('@openmrs/esm-utils')).formatPartialDate,
     getRegisteredWorkspace2Names: vi.fn(),
+    // ChartSearch's config with its default limit, so no test depends on the schema the config mock last saw.
+    getConfig: vi.fn(() => Promise.resolve({ maxQuestionLength: 1000 })),
     ExtensionSlot: ({ name, select = (extensions) => extensions, children, state }) =>
       select(framework.useAssignedExtensions(name)).map((extension) =>
         createElement(
@@ -608,7 +610,6 @@ describe('Omnibar with providers mounted through the slot', () => {
         isLoading: false,
         error: null,
       });
-      vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 1000 });
     });
 
     afterEach(() => window.history.pushState({}, '', '/'));
