@@ -10,6 +10,8 @@
   "closeSearch": "Close search",
   "cohortBuilder": "Cohort Builder",
   "cohortBuilderSubtitle": "Find patients by age, gender, program, drug orders and more",
+  "cohortMemberCount_one": "{{count}} member",
+  "cohortMemberCount_other": "{{count}} members",
   "cohorts": "Cohorts",
   "conceptValue": "{{concept}}: {{value}}",
   "ctrlK": "Ctrl K",

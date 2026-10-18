@@ -12,6 +12,8 @@ export interface SavedSearchHit {
   uuid: string;
   name: string;
   description?: string;
+  /** Members, for saved cohorts. */
+  size?: number;
 }
 
 export const savedSearchDelayMs = 250;

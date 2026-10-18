@@ -206,7 +206,7 @@ describe('saved cohorts and saved queries', () => {
   it('lists saved cohorts that open in the cohort builder, skipping voided ones and bad uuids', async () => {
     respond({
       results: [
-        { uuid: cohortUuid, name: 'HIV clinic', description: 'Everyone in care', voided: false },
+        { uuid: cohortUuid, name: 'HIV clinic', description: 'Everyone in care', size: 42, voided: false },
         { uuid: '2e9f6d2b-0c41-4b7e-9d0b-9f7c3b0d1a11', name: 'Old list', voided: true },
         { uuid: '../../../ws/rest/v1/session?leak=1', name: 'Forged', voided: false },
       ],
@@ -225,9 +225,26 @@ describe('saved cohorts and saved queries', () => {
       {
         id: `cohort:${cohortUuid}`,
         title: 'HIV clinic',
-        subtitle: 'Everyone in care',
+        subtitle: 'Everyone in care · 42 members',
         target: { type: 'navigate', to: `\${openmrsSpaBase}/cohort-builder?cohort=${cohortUuid}` },
       },
+    ]);
+  });
+
+  it('says how many members a saved cohort has', async () => {
+    respond({
+      results: [
+        { uuid: cohortUuid, name: 'One', size: 1 },
+        { uuid: '2e9f6d2b-0c41-4b7e-9d0b-9f7c3b0d1a11', name: 'None', size: 0 },
+        { uuid: '3f0a7e3c-1d52-4c8f-8e1c-0a8d4c1e2b22', name: 'Unknown' },
+      ],
+    });
+    const { last } = renderProvider(SavedCohortsProvider, fresh('size'));
+    await settle();
+    expect(last().results.map((result) => result.subtitle)).toEqual([
+      '1 member',
+      '0 members',
+      'Open in the Cohort Builder',
     ]);
   });
 

@@ -13,7 +13,7 @@ import { hasIdentifierShape } from './chartsearch-question';
  */
 
 interface CohortResponse {
-  results?: Array<{ uuid: string; name?: string; description?: string; voided?: boolean }>;
+  results?: Array<{ uuid: string; name?: string; description?: string; size?: number; voided?: boolean }>;
 }
 
 const maxResults = 5;
@@ -25,6 +25,7 @@ function toCohortHits(data: unknown): Array<SavedSearchHit> {
       uuid: cohort.uuid,
       name: cohort.name ?? '',
       description: cohort.description,
+      size: cohort.size,
     }))
     .slice(0, maxResults);
 }
@@ -61,7 +62,18 @@ const SavedCohortsProvider: React.FC<OmnibarProviderProps> = ({ query, context, 
       results: hits.map((hit) => ({
         id: `cohort:${hit.uuid}`,
         title: hit.name,
-        subtitle: hit.description || t('openInCohortBuilder', 'Open in the Cohort Builder'),
+        subtitle:
+          [
+            hit.description,
+            Number.isInteger(hit.size) &&
+              t('cohortMemberCount', {
+                count: hit.size,
+                defaultValue_one: '{{count}} member',
+                defaultValue_other: '{{count}} members',
+              }),
+          ]
+            .filter(Boolean)
+            .join(' · ') || t('openInCohortBuilder', 'Open in the Cohort Builder'),
         target: { type: 'navigate', to: savedCohortUrl(hit.uuid) },
       })),
     });
