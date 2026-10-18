@@ -517,3 +517,32 @@ Nit 4 is left: the fixed 300 ms wait in the negative case.
 - Tests: 192 before, 193 after (112 in `src/omnibar/omnibar.test.tsx`, 50 in `src/providers/chartsearch-question.test.ts`, 31 in `src/providers/chart-lookup-search.test.ts`).
 - Failed first, on d4a02d7 with the old comparison: the padded question was reported `idle`, not `ready`. `Tests  1 failed | 192 passed (193)`.
 - `corepack yarn test`, `corepack yarn typescript` and `corepack yarn lint` pass.
+
+## Feature: provider contract 1
+
+Step 1 of the provider-registration plan. The omnibar publishes its provider contract as a folder other apps copy, and the host gains what the cohort, ChartSearch and querystore providers need before they move out. All of it is additive: every built-in provider stays, and users see no change except the unavailable line and Patient lists no longer answering "cohort".
+
+| Change | Commit |
+| --- | --- |
+| `src/omnibar-contract/` holds the types, `withProviderBoundary`, `looksLikeIdentifier`, `isServerUnreachable`, `OMNIBAR_CONTRACT_VERSION` and a README ("copy this folder; bump only with the host"). `src/omnibar/types.ts` re-exports it, and `index.ts` exports the types and the boundary from it. A test fails if the folder imports anything but `react`, `react-i18next`, the framework and its own files | 1506746 (test), f918b7b |
+| Contract version 1. `meta.contract` (missing means 1), `contractVersion` in the props, `"contract": 1` on all four built-in providers. A provider built for a newer major isn't mounted, and the console names its extension once per page load, never the query | d4c3d91 (test), 092f91c |
+| `context.workspaceGroup`: the open workspace group (the chart's side panel) and its patient, read once from the `workspace2` store, with `patientUuid` only when it's a string. It is added to the context providers get, after the context that clears and remounts, so the panel opening or closing re-renders providers and keeps the results, the highlight and the mounts. The ChartSearch row checks it against the group its workspace opens in, and reads the store only when no host passed it | 6bcc5f3 (test), 95fa8f0 |
+| `hints.looksLikeIdentifier`, worked out once per debounced query. The heuristic moved from `chartsearch-question.ts` to the contract unchanged, and the ChartSearch question check calls it from there. `meta.skipIdentifierQueries`: such a provider isn't mounted for an ID-shaped query, so its group disappears and nothing reaches its server. The ChartSearch row sets it; patient search doesn't | 8ac2a13 (test), 75d12b0 |
+| `report.detail: { state, note? }`. `unavailable` and `failed` collapse the group to its heading and one quiet line ("Unavailable right now", "Couldn’t load results"), with no results to pick. `projecting` keeps the results and adds "Still indexing; results may be incomplete". `indexed` looks like no detail. The line is plain text, not a live region. Patient search and chart lookup report `status: 'error'` with `detail.state: 'unavailable'` when fetch fails outright or the status is 0, 502, 503 or 504, and a plain error otherwise | 296c8e6 (test), 2dd33f7 |
+| `meta.dedupeKey` and `result.dedupeId`. Among providers that share a key, the copy from the one that ranks first (lane, then order) is kept, whichever reported first, and a group left empty isn't drawn. The highlight moves to the kept row. Chart lookup declares `chart-values` and sends `obs:<obs uuid>` | 80599e0 (test), dfff0f5 |
+| "cohort" no longer finds Patient lists; "list" still does | 58ec867 (test), 39756f2 |
+| Conformance test: a saved-lists provider that imports only React, react-i18next and the contract folder, registered as another app's extension and mounted through the slot. It checks the navigate result and selection event, the props, the unavailable line, `skipIdentifierQueries`, dedupe against the real chart lookup, and the version check | a22c03f |
+| `docs/design/omnibar-provider-contract.md`: meta, props, context, hints, report, detail, results, targets, dedupe, errors, versioning, the order registry, the dedupe key registry, and how to copy the folder. README and context rules updated | 6794b79, 8ee3a65, 70249ab |
+
+Why `workspaceGroup` sits in `context` and still doesn't clear anything: the plan names it `context.workspaceGroup`, but a new `context` used to clear the results, drop the highlight and remount every provider. The host now keeps two: the scope context (scope, patient, locale) drives the clear and the slot key, as before, and the context providers receive adds the group on top.
+
+Why `isServerUnreachable` is in the contract: the cohort providers have to go unavailable on the same failures as patient search and chart lookup (decision 2). One copy of the rule keeps them agreeing.
+
+- Tests before: 277 (123 in `src/omnibar/omnibar.test.tsx`). After: 346 (150 in `src/omnibar/omnibar.test.tsx`, 36 in `src/conformance/`, 6 in `src/omnibar/workspace-group.test.ts`).
+- No existing test was rewritten. One import line in `omnibar.test.tsx` now takes `withProviderBoundary` from `../omnibar-contract`, because the file moved.
+- Failed first: 1506746, the folder didn't exist. d4c3d91: 4 failed. 6bcc5f3: 9 failed; the side panel test failed on `workspaceGroup` being undefined. 8ac2a13: 18 failed; the skip test still showed the skipped group. 296c8e6: 22 failed; the `indexed` case passed before and after. 80599e0: 5 failed. 58ec867: 1 failed.
+- The conformance test passed on its first run, since it came after the features. Breaking each feature in turn fails it: no dedupe, no `skipIdentifierQueries`, no unavailable line, no version check. The first version of the skip case didn't catch its mutation, because the fake provider also stays quiet on `hints`; it now checks that the host never renders the provider with an ID-shaped query.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 346 tests.
+- `yarn build`: `Rspack compiled with 1 warning`, the asset size limit on the same two shared fallbacks (`132.js`, `769.js`).
+- No new dependencies, URLs, fonts or CDNs.
+- Not tested live.
