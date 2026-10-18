@@ -553,7 +553,9 @@ const Omnibar: React.FC = () => {
               const headingId = `${listboxId}-${group.providerId}-heading`;
               const collapsed = isCollapsed(group);
               const line = detailLine(group);
-              if (group.status === 'idle' || (group.status === 'ready' && !group.results?.length && !collapsed)) {
+              // A ready group with nothing in it is left out, unless it says why: still indexing, say.
+              const empty = group.status === 'ready' && !group.results?.length;
+              if (group.status === 'idle' || (empty && !collapsed && group.detail?.state !== 'projecting')) {
                 return null;
               }
               return (
