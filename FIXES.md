@@ -327,3 +327,31 @@ Not fixed: the omnibar's 1000-character limit is ChartSearch's default `maxQuest
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`. Tests: 127 passed.
 - `corepack yarn build`: `Rspack compiled with 1 warning in 14.11 s` (asset size limit on `132.js` at 605.971 KiB and `769.js` at 755.256 KiB).
 
+
+## Hotfix 3
+
+Inside a chart, two-word queries such as "latest weight" or "show vitals" showed no "In this chart" rows. Only single words such as "weight" matched. The chart lookup sent the whole query to `/concept?q=`, and no concept is named "latest weight". On the public dev3 demo's CIEL dictionary, `q=latest weight` and `q=show vitals` return nothing, and `q=weight` returns Weight (kg). `q=vitals` returns only the Vital signs set, whose N/A datatype the lookup drops.
+
+| Change | Commit |
+| --- | --- |
+| Failing tests first. A fake concept search matches the way the REST search does: every word of `q` starts a word of a name | 4154a25 |
+| `src/providers/chart-lookup-search.ts` holds the rule. It drops filler words (latest, last, recent, current, show, see, view, get, find, what, what's, is, are, was, his, her, their, the, a, an, of, for, any, my, me, please, value(s), result(s), and a few more such as and, most, level(s), and pronouns after review) and searches what is left as one phrase. When that phrase finds no concept that can hold a value, it searches each remaining word on its own, at most two. So one query makes at most three concept requests, and usually one. A query of only filler words searches nothing. `chartLookup.minSearchCharacters` applies to what is left, and `chartLookup.maxConcepts` caps the merged concepts. A single word or an ID goes to the concept search as before, without edge punctuation (`weight?` searches `weight`) | 1fa1ef6 |
+| "Vitals" has no synonym map. The concept representation now includes `setMembers`, so a set that matches stands for its members in the same request. On CIEL, "vitals" finds the Vital signs set, and "cbc" finds Complete blood count. `maxConcepts` (default 5) still applies before values are looked up, so on CIEL "show vitals" looks up only the first five members: systolic and diastolic pressure, temperature, height and weight. Pulse, oxygen saturation, MUAC, respiratory rate and Karnofsky are left out. A distribution can raise `maxConcepts` to cover all ten | 1fa1ef6 |
+| README and `docs/design/omnibar-context-rules.md` describe the rule | 1fa1ef6 |
+| From the review: he, she, they, him, them, it, its, do, doing, to, in, on, with and about are filler too. Before, "how is he doing" searched "he" on its own, which prefix-matches Height and Hemoglobin and could put an unrelated value above the ChartSearch row as the default. The two new table cases failed on 1fa1ef6 | 41cbeeb |
+
+Unchanged: requests are still debounced and use the same two endpoints. An ID still lists the patients it matches with no "In this chart" rows. Another patient is never the default. "In this chart" sorts above Suggestions. The ChartSearch row still appears for question-shaped text and is never the default.
+
+ChartSearch is not admin-only. The demo roles keep `AI Query Patient Data`. README, FIXES and the docs say only that the row needs that privilege, and none say admin-only.
+
+- Tests before: 127. After: 166 (99 in `src/omnibar/omnibar.test.tsx`, 36 in `src/providers/chartsearch-question.test.ts`, 31 in `src/providers/chart-lookup-search.test.ts`).
+- Failed first, on 4154a25 with the old provider: "latest weight", "what's her current weight?", "show vitals" and "last pulse and weight" found no "In this chart" group. "show latest" sent `q=show latest`. "what is his latest weight?" found no Weight row above the ChartSearch row. "weight" and the `100GEJ` ID test passed before and after.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`. Tests: 166 passed.
+- `corepack yarn build`: `Rspack compiled with 1 warning in 11.37 s` (asset size limit on `132.js` at 605.969 KiB and `769.js` at 755.256 KiB).
+
+### Hotfix 3 review (one quick pass, Claude): APPROVE WITH NITS
+
+The pronoun nit is fixed above, because it put a wrong value in the default row. The rest is logged, not fixed (small-hotfix rule: one review, fix only blockers):
+- NIT `src/providers/chart-lookup-search.ts`: the word fallback searches the first two remaining words, not the most useful ones. "when did she start ART?" searches "start ART", then "start" and "ART". A longer question can miss its concept word.
+- NIT `src/providers/chart-lookup-search.ts`: a set's members take the set's place in the hit list, so a set that ranks first can fill `maxConcepts` ahead of a direct hit that ranks later.
+- NIT `src/providers/chart-lookup.provider.tsx`: the concept representation returns every member of each matched set, with no limit on members. A query that matches a large CIEL set returns a larger response per debounced search.
