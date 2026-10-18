@@ -48,3 +48,4 @@ These came up but aren't decided yet.
 - **Two values on the same date.** When a patient has two results for the same concept on the same date, should the dropdown show the most recently entered one, or say "2 results on this date"?
 - **Query results layout.** One merged page with a section per provider, or tabs by kind (values, notes, orders, answer)?
 - **Where the Cohort Builder's provider lives.** The light-omnibar rule suggests the Cohort Builder's own app.
+- **Whether the query store becomes the default chart lookup.** Round 1 found it about twice as fast, but its ranking often put an older value first and its cold starts were slow. Waiting on [round 2](briefs/2026-10-18-querystore-benchmark-round-2.md).
