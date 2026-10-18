@@ -62,6 +62,63 @@ const plainText = (text: string) => text.replace(directionControls, '');
 const textOrNothing = (value: unknown) => (typeof value === 'string' ? value : undefined);
 const plainTextOrNothing = (value: unknown) => (typeof value === 'string' ? plainText(value) : undefined);
 
+/**
+ * A value written out with its object keys sorted, so two writings of the same target or report
+ * compare equal. Throws on a cycle.
+ */
+function canonicalJson(value: unknown, ancestors: Array<object> = []): string {
+  if (!isObject(value)) {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (ancestors.includes(value)) {
+    throw new TypeError('A circular value has no canonical form');
+  }
+  const inside = [...ancestors, value];
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item, inside)).join(',')}]`;
+  }
+  const fields = Object.keys(value)
+    .sort()
+    .filter((key) => value[key] !== undefined && typeof value[key] !== 'function')
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key], inside)}`);
+  return `{${fields.join(',')}}`;
+}
+
+/** A target compared by value. Undefined for one that can't be written out, such as circular props. */
+export function targetSignature(target: OmnibarTarget): string | undefined {
+  try {
+    return canonicalJson(target);
+  } catch {
+    return undefined;
+  }
+}
+
+const copyOf = (props: unknown) => (isObject(props) ? { ...props } : undefined);
+
+/**
+ * The bar's own copy of a target, so a provider changing its object after reporting it changes
+ * nothing on screen or on Enter. Its props are copied one level deep.
+ */
+function copyTarget(target: OmnibarTarget): OmnibarTarget {
+  if (target.type === 'navigate') {
+    return { type: 'navigate', to: target.to };
+  }
+  const required: unknown = target.requiresOpenGroup;
+  return {
+    type: 'workspace',
+    workspaceName: target.workspaceName,
+    workspaceProps: copyOf(target.workspaceProps),
+    windowProps: copyOf(target.windowProps),
+    groupProps: copyOf(target.groupProps),
+    requiresOpenGroup: isObject(required)
+      ? ({ workspaceName: required.workspaceName, patientUuid: required.patientUuid } as {
+          workspaceName: string;
+          patientUuid: string;
+        })
+      : undefined,
+  };
+}
+
 function isKnownTarget(target: unknown): target is OmnibarTarget {
   return (
     isObject(target) &&
@@ -75,10 +132,12 @@ function cleanPatient(patient: unknown): OmnibarPatient | undefined {
     return undefined;
   }
   const identifiers = Array.isArray(patient.identifiers)
-    ? patient.identifiers.filter(
-        (identifier): identifier is NonNullable<OmnibarPatient['identifiers']>[number] =>
-          isObject(identifier) && typeof identifier.identifier === 'string',
-      )
+    ? patient.identifiers
+        .filter(
+          (identifier): identifier is NonNullable<OmnibarPatient['identifiers']>[number] =>
+            isObject(identifier) && typeof identifier.identifier === 'string',
+        )
+        .map(({ identifier, typeUuid, typeName }) => ({ identifier, typeUuid, typeName }))
     : undefined;
   return {
     uuid: patient.uuid,
@@ -100,7 +159,7 @@ function cleanResult(result: unknown): OmnibarResult | null {
     title: plainText(result.title),
     subtitle: plainTextOrNothing(result.subtitle),
     patient: cleanPatient(result.patient),
-    target: result.target,
+    target: copyTarget(result.target),
     dedupeId: textOrNothing(result.dedupeId),
   };
 }
@@ -141,7 +200,7 @@ export function cleanReport(report: unknown): OmnibarReport | null {
                   (source): source is OmnibarSource =>
                     isObject(source) && typeof source.label === 'string' && isKnownTarget(source.target),
                 )
-                .map((source) => ({ label: plainText(source.label), target: source.target }))
+                .map((source) => ({ label: plainText(source.label), target: copyTarget(source.target) }))
             : [],
         }
       : undefined,
@@ -157,18 +216,31 @@ export function isCollapsed(report: OmnibarReport): boolean {
   return report.detail?.state === 'failed' || report.detail?.state === 'unavailable';
 }
 
+/** A report without its targets, which are what can hold props that can't be written out. */
+const withoutTargets = (report: OmnibarReport) => ({
+  ...report,
+  results: report.results?.map(({ target, ...rest }) => rest),
+  answer: report.answer && { ...report.answer, sources: report.answer.sources.map(({ label }) => label) },
+});
+
 /**
  * True when two cleaned reports draw the same: query, status, heading, detail, and every result's id,
- * text, record and target, or the answer. A report that can't be written out is never the same.
+ * text, record and target, or the answer, whatever order their keys are in. When the targets can't
+ * be compared, such as for circular props, the rest of the report decides, and when nothing can be,
+ * the stored report stays. Either way such a provider can't keep the bar re-rendering.
  */
 function sameReport(stored: OmnibarReport | undefined, report: OmnibarReport): boolean {
   if (!stored) {
     return false;
   }
   try {
-    return JSON.stringify(stored) === JSON.stringify(report);
+    return canonicalJson(stored) === canonicalJson(report);
   } catch {
-    return false;
+    try {
+      return canonicalJson(withoutTargets(stored)) === canonicalJson(withoutTargets(report));
+    } catch {
+      return true;
+    }
   }
 }
 

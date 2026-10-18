@@ -24,6 +24,7 @@ import {
   type ProviderInfo,
   type SelectableResult,
   speaksContractOf,
+  targetSignature,
   useOmnibarShortcut,
   useResultCollector,
 } from './omnibar.resource';
@@ -57,7 +58,7 @@ function capNote(note: unknown): string | undefined {
 
 /**
  * The highlighted row. `chosen` when the user arrowed or pointed to it, rather than it being the
- * default. `target` is the target it had when it was highlighted, as `signatureOf` writes it.
+ * default. `target` is the target it had when it was highlighted, as `targetSignature` writes it.
  */
 interface Selection {
   key: string;
@@ -65,15 +66,6 @@ interface Selection {
   target?: string;
   dedupeKey?: string;
   dedupeId?: string;
-}
-
-/** Compares targets by value. Undefined for one that can't be written out, such as circular props. */
-function signatureOf(target: OmnibarTarget): string | undefined {
-  try {
-    return JSON.stringify(target);
-  } catch {
-    return undefined;
-  }
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -153,7 +145,7 @@ const Omnibar: React.FC = () => {
     (result: SelectableResult, chosen: boolean): Selection => ({
       key: result.key,
       chosen,
-      target: signatureOf(result.target),
+      target: targetSignature(result.target),
       dedupeKey: providerInfo[result.providerId]?.dedupeKey,
       dedupeId: result.dedupeId,
     }),
@@ -284,7 +276,7 @@ const Omnibar: React.FC = () => {
   const choose = useCallback(
     (result: SelectableResult) => {
       if (!resultsAreCurrent) return;
-      if (selection?.key === result.key && selection.target !== signatureOf(result.target)) {
+      if (selection?.key === result.key && selection.target !== targetSignature(result.target)) {
         setSelection(null);
         return;
       }
