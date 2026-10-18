@@ -546,3 +546,25 @@ Why `isServerUnreachable` is in the contract: the cohort providers have to go un
 - `yarn build`: `Rspack compiled with 1 warning`, the asset size limit on the same two shared fallbacks (`132.js`, `769.js`).
 - No new dependencies, URLs, fonts or CDNs.
 - Not tested live.
+
+## Fix: Header field fills the gap
+
+Measured on o3 (51ce76c) with Playwright. At 1600px the omnibar's slot entry spanned the whole gap between the location picker and the icons (x=303..1408), but the field inside was capped at 48rem and pushed right by `justify-content: flex-end`, so about 330px sat empty on its left, and more at 1920. At 768px the field-shaped button had a fixed `clamp(9rem, 38vw, 20rem)` and nothing in the slot could shrink, so the header overflowed by about 27px and the app menu sat off screen at x=795.
+
+| Change | Commit |
+| --- | --- |
+| In the `@supports selector(:has(*))` block, the slot (only when it holds the omnibar), the omnibar's entry and the desktop field grow to fill, and the slot and entry may shrink (`min-width: 0`). The 48rem cap and `justify-content: flex-end` are gone. The desktop field keeps `min-width: 18rem`. The tablet and phone button grows and shrinks (`flex: 1 1 auto`, `width: auto`, `min-width` 3rem), its label ellipsises, and it keeps its margin. The slot's other icons keep `flex-shrink: 0`. The closed icon-mode magnifier gets `margin-inline-start: auto`, because without `flex-end` it would have moved to the left end of the gap. Browsers without `:has` keep the old fixed widths. The full-screen sheet and the panel are unchanged | 289b329 |
+
+Checked in a stand-in header (fixed logo and location picker, the slot with two icons, an app menu) with Chromium and the built CSS, old and new. The stand-in's neighbours aren't o3's real widths, so the numbers show the direction, not o3's exact figures:
+
+| Viewport | Field before | Field after |
+| --- | --- | --- |
+| 1600 | 672..1440, 369px empty on the left | 319..1440 |
+| 1920 | 992..1760 | 319..1760 |
+| 768 | 324..616 | 311..616 |
+| 360 | page 607px wide | page 399px wide; the field shrank to 48px, and the stand-in's fixed neighbours alone are 447px |
+| 1600, icon mode | magnifier at 1408..1456 | the same |
+
+- No unit tests. The change is CSS only, and the tests don't render real layout. Tests: 346 before and after.
+- `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the same asset size warning as before.
+- Not checked on o3 itself.
