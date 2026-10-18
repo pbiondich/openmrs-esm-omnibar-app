@@ -94,6 +94,31 @@ describe('QuerystoreChartProvider', () => {
     expect(mockOpenmrsFetch).not.toHaveBeenCalled();
   });
 
+  it('never sends a query the host says looks like an identifier', () => {
+    const report = vi.fn();
+    render(
+      <QuerystoreChartProvider
+        query="cd4"
+        context={patientContext}
+        report={report}
+        hints={{ looksLikeIdentifier: true }}
+        contractVersion={1}
+      />,
+    );
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'cd4', status: 'idle' }));
+    expect(mockOpenmrsFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['100GEJ', 'MRN-1234', '1234567', patientUuid])(
+    'works out that %s looks like an identifier on a host that passes no hints',
+    (query) => {
+      const report = vi.fn();
+      render(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+      expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ query, status: 'idle' }));
+      expect(mockOpenmrsFetch).not.toHaveBeenCalled();
+    },
+  );
+
   it('search URL carries mode=keyword&collapse=concept&limit=5&wait=false', async () => {
     mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups: [] } } as FetchResponse);
     const report = vi.fn();
