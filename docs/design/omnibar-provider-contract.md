@@ -170,13 +170,13 @@ Inside a chart, chart values come first:
 
 One exception lets a patient row be the default inside a chart: the scanned wristband. When `hints.looksLikeIdentifier` is true for the query, the host's own patient search (`omnibar-patient-search-provider`, registered by this app's module) may make its one patient row the default, whether it is this chart's patient or another one. All of these must hold:
 
-- the search has finished (`ready`). A cached answer is reported `loading` while the search runs again, so a patient given the same ID since isn't missed (SWR shows the cache for one frame before it starts that search, too short for an Enter to land);
+- the search has finished (`ready`). For an ID, patient search always searches again, even within SWR's deduping window, and reports a cached answer as `loading` until it has, so a patient given the same ID since isn't missed (SWR shows the cache for one frame before it starts that search, too short for an Enter to land);
 - it found exactly one patient. For an ID, patient search asks for at least two, whatever `patientSearch.maxResults` says, so a second patient with the same ID can't be cut off;
 - one of that patient's identifiers is exactly the query, or an ID-shaped word of it, in any case. A partial ID such as "4273" or "120" that the server matched by prefix or name doesn't count, and neither does a trailing "?" or a scanner's framing characters, which give no default;
 - the row's link stays on this site and names that patient and no one else;
 - no other row on screen, from any provider, names anyone but that patient and the chart's own.
 
-Its "All patient results" row is never the default. The patient row still waits for chart values as above, at most 1.5 seconds for one still loading, and a chart value that arrives later takes the highlight from it. A highlight already on another row, such as a page, never moves onto it when it is another patient's. Everything else stays as it was: a query that doesn't look like an identifier, two or more patients, and patient rows from any other provider are never the default, and dedupe is unchanged. The host keys this to its own provider by extension name and module; no provider can declare it.
+Its "All patient results" row is never the default. The patient row still waits for chart values as above, at most 1.5 seconds for one still loading, and a chart value that arrives later takes the highlight from it. A default highlight already on a page moves up onto it only when it is the chart's own patient, as onto any chart row; a highlight never moves onto another patient's row. Everything else stays as it was: a query that doesn't look like an identifier, two or more patients, and patient rows from any other provider are never the default, and dedupe is unchanged. The host keys this to its own provider by extension name and module; no provider can declare it.
 
 A scanner's own Enter usually arrives before the query settles (200 ms), when nothing can be picked yet, so it's the next Enter, once the row is highlighted, that opens the patient.
 
