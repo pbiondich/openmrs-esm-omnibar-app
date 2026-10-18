@@ -3068,6 +3068,30 @@ describe('Omnibar with providers mounted through the slot', () => {
       });
     });
 
+    it('settles when a provider reports the same thing on every render', async () => {
+      const user = userEvent.setup();
+      // Without a limit, a host that re-renders on every report would never stop.
+      const limit = 500;
+      let reports = 0;
+      const Chatty: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => {
+          if (reports < limit) {
+            reports += 1;
+            report(ready(query, 'Chatty', query ? ['same row'] : []));
+          }
+        });
+        return null;
+      };
+      mountProviders([{ name: 'chatty', meta: recordLane, component: Chatty }]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'ward');
+      await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+
+      expect(screen.getByRole('option', { name: 'same row' })).toBeInTheDocument();
+      expect(reports).toBeLessThan(50);
+    });
+
     describe('a provider that sends a bad report', () => {
       const sends = (bad: object): React.FC<OmnibarProviderProps> =>
         function Bad({ query, report }) {
