@@ -52,6 +52,29 @@ export const configSchema = {
       _description: 'Where choosing a chart value goes.',
     },
   },
+  chartSearchSuggestion: {
+    enabled: {
+      _type: Type.Boolean,
+      _default: true,
+      _description: 'Offer an explicit ChartSearch workspace destination for question-like queries.',
+    },
+    minWords: {
+      _type: Type.Number,
+      _default: 3,
+      _description: 'Words needed for a query to count as a question without a question word or question mark.',
+      _validators: [
+        validator(
+          (value: number) => Number.isInteger(value) && value >= 2,
+          'ChartSearch minWords must be a whole number of at least 2.',
+        ),
+      ],
+    },
+    workspaceName: {
+      _type: Type.String,
+      _default: 'ai-chat-workspace',
+      _description: 'Registered ChartSearch workspace opened by the suggestion row.',
+    },
+  },
   destinations: {
     _type: Type.Array,
     _description: 'Pages and apps the omnibar can open. Adjust to match the apps in your distribution.',
@@ -113,6 +136,12 @@ export interface Destination {
   privilege: string;
 }
 
+export interface ChartSearchSuggestionConfig {
+  enabled: boolean;
+  minWords: number;
+  workspaceName: string;
+}
+
 export interface OmnibarConfig {
   appearance: 'field' | 'icon';
   patientSearch: {
@@ -127,5 +156,6 @@ export interface OmnibarConfig {
     maxConcepts: number;
     resultsUrl: string;
   };
+  chartSearchSuggestion: ChartSearchSuggestionConfig;
   destinations: Array<Destination>;
 }
