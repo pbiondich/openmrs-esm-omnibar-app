@@ -92,9 +92,11 @@ const isGroup = (value: unknown): value is QuerystoreGroup =>
 const usable = <T,>(list: unknown, keep: (entry: unknown) => entry is T): Array<T> =>
   Array.isArray(list) ? list.filter(keep) : [];
 
-/** A day-precision date from the server, formatted, or nothing when it isn't text. */
-const formatDay = (date: unknown) =>
-  typeof date === 'string' && date ? formatDate(parseDay(date), { time: false }) : undefined;
+/** A day-precision date from the server, formatted, or nothing when it isn't a real `YYYY-MM-DD` day. */
+const formatDay = (date: unknown) => {
+  const day = parseDay(date);
+  return day ? formatDate(day, { time: false }) : undefined;
+};
 
 const swrOptions = { revalidateOnFocus: false, revalidateOnReconnect: false, errorRetryCount: 2 };
 
@@ -107,11 +109,18 @@ function formatNumeric(v: number): string {
 
 /**
  * The server sends day-precision ISO dates ("2026-03-12"). `new Date(iso)` reads those as UTC midnight,
- * which renders as the previous day anywhere west of Greenwich, so build a local date instead.
+ * which renders as the previous day anywhere west of Greenwich, so build a local date instead. Anything
+ * else, a timestamp or a day that doesn't exist such as 2026-02-31, is no date: an invalid one would
+ * make formatDate throw, and an impossible one would roll over into another day.
  */
-function parseDay(iso: string): Date {
-  const [year, month, day] = iso.split('-').map(Number);
-  return new Date(year, month - 1, day);
+function parseDay(value: unknown): Date | undefined {
+  const match = typeof value === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return undefined;
+  }
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : undefined;
 }
 
 function hitTitle(
