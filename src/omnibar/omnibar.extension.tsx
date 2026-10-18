@@ -400,7 +400,10 @@ const Omnibar: React.FC = () => {
     }
   };
 
-  const stillLoading = listGroups.some((g) => g.status === 'loading');
+  // A group still indexing is drawn even with nothing found yet, so the search isn't over either.
+  const stillLoading = listGroups.some(
+    (g) => g.status === 'loading' || (g.status !== 'idle' && g.detail?.state === 'projecting'),
+  );
   const hasListResults = selectable.length > 0;
   const showNoMatches = Boolean(debouncedQuery) && !stillLoading && !hasListResults && !answerGroups.length;
 
