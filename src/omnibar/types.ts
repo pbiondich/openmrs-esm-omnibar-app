@@ -64,7 +64,8 @@ export type OmnibarTarget =
       /**
        * When set, the launch is refused unless this workspace's window group is already open
        * for this patient. Null group props stay null so an existing group is left alone.
-       * A refused launch is silent: the selection event has already fired and the bar has already closed.
+       * The selection event has already fired and the bar has already closed, so the omnibar shows
+       * a warning snackbar when it refuses.
        */
       requiresOpenGroup?: {
         workspaceName: string;

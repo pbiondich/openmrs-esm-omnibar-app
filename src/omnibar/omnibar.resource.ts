@@ -98,8 +98,11 @@ export function getProviderOrder(
 
 const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;
 
-/** The only place a result turns into an action. */
-export async function executeTarget(target: OmnibarTarget): Promise<void> {
+/**
+ * The only place a result turns into an action. Resolves false when a workspace launch is refused
+ * because its required group is no longer open for that patient, and true otherwise.
+ */
+export async function executeTarget(target: OmnibarTarget): Promise<boolean> {
   switch (target.type) {
     case 'navigate': {
       // A result only moves the user around this site. Another origin, however the URL spells it
@@ -114,7 +117,7 @@ export async function executeTarget(target: OmnibarTarget): Promise<void> {
         throw new Error('Omnibar results can only link to pages on this site');
       }
       navigate({ to });
-      return;
+      return true;
     }
     case 'workspace': {
       const required = target.requiresOpenGroup;
@@ -122,7 +125,7 @@ export async function executeTarget(target: OmnibarTarget): Promise<void> {
         required &&
         !workspaceGroupIsOpen(getWorkspace2Store().getState(), required.workspaceName, required.patientUuid)
       ) {
-        return;
+        return false;
       }
       await launchWorkspace2(
         target.workspaceName,
@@ -130,7 +133,7 @@ export async function executeTarget(target: OmnibarTarget): Promise<void> {
         target.windowProps ?? null,
         target.groupProps ?? null,
       );
-      return;
+      return true;
     }
   }
 }

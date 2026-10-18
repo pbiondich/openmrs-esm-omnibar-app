@@ -8,6 +8,7 @@ import {
   Extension,
   ExtensionSlot,
   isDesktop,
+  showSnackbar,
   useAssignedExtensions,
   useConfig,
   useDebounce,
@@ -143,6 +144,24 @@ const Omnibar: React.FC = () => {
   useOmnibarShortcut(openBar, inputRef);
   const containerRef = useOnClickOutside<HTMLDivElement>(closeBar, open && desktop);
 
+  // A workspace whose chart group closed after its row was drawn is refused. The bar has closed by
+  // then, so a snackbar says why nothing opened.
+  const runTarget = useCallback(
+    async (target: OmnibarTarget) => {
+      if (!(await executeTarget(target))) {
+        showSnackbar({
+          kind: 'warning',
+          title: t('sidePanelNotOpened', 'Couldn’t open the side panel'),
+          subtitle: t(
+            'sidePanelNotOpenedSubtitle',
+            'This chart’s side panel closed before it could open. Search again to retry.',
+          ),
+        });
+      }
+    },
+    [t],
+  );
+
   // The results on screen may still be for an earlier query, e.g. recents while a scanner types an
   // ID, so nothing on screen can be chosen, by key or by pointer, until they catch up.
   const choose = useCallback(
@@ -150,18 +169,18 @@ const Omnibar: React.FC = () => {
       if (!resultsAreCurrent) return;
       announceSelection({ providerId: result.providerId, resultId: result.id });
       closeBar();
-      void executeTarget(result.target);
+      void runTarget(result.target);
     },
-    [closeBar, resultsAreCurrent],
+    [closeBar, resultsAreCurrent, runTarget],
   );
 
   const openSource = useCallback(
     (target: OmnibarTarget) => {
       if (!resultsAreCurrent) return;
       closeBar();
-      void executeTarget(target);
+      void runTarget(target);
     },
-    [closeBar, resultsAreCurrent],
+    [closeBar, resultsAreCurrent, runTarget],
   );
 
   // Chrome sends mousemove when rows shift under a pointer that hasn't moved, so a row is picked only

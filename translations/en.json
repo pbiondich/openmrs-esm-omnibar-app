@@ -25,6 +25,8 @@
   "searchEverything": "Search patients and pages",
   "searching": "Searching",
   "searchThisChart": "Search this chart, patients or pages",
+  "sidePanelNotOpened": "Couldn’t open the side panel",
+  "sidePanelNotOpenedSubtitle": "This chart’s side panel closed before it could open. Search again to retry.",
   "sources": "Sources",
   "suggestions": "Suggestions",
   "thinking": "Working on an answer",
