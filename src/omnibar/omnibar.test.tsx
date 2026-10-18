@@ -2657,6 +2657,30 @@ describe('Omnibar with providers mounted through the slot', () => {
         },
       );
 
+      it('never matches the identifier against a word of the query that is not ID-shaped', async () => {
+        const { user } = await search(`Moyo ${scanned}`, [{ ...john, identifiers: withId('Moyo') }], {
+          source: 'querystore',
+        });
+
+        await wait(chartIndexingGraceMs);
+        expect(highlighted()).toEqual([]);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        [scanned, '2'],
+        ['john', '1'],
+      ])('asks patient search, limited to one result, for at least two patients for an ID: "%s" asks for %s', async (query, limit) => {
+        await search(query, [john], { source: 'querystore', patientSearch: { maxResults: 1 } });
+
+        const limits = mockOpenmrsFetch.mock.calls
+          .map(([path]) => new URL(path, 'http://localhost'))
+          .filter((url) => url.pathname.endsWith('/patient'))
+          .map((url) => url.searchParams.get('limit'));
+        expect(limits).toEqual([limit]);
+      });
+
       it('highlights none of the patients when it finds two', async () => {
         const { user } = await search(scanned, [john, chartOwner], { source: 'querystore' });
 
