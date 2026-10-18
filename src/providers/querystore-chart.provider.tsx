@@ -70,6 +70,14 @@ function errorDetail(error: unknown, status: QuerystoreStatus | undefined): Omni
   return status === 'failed' ? { state: 'failed' } : undefined;
 }
 
+/**
+ * The record a row shows, in the `chart-values` form chart lookup also sends, so the host shows an
+ * obs both found once. Left out in the side-by-side comparison mode, where hiding one copy would
+ * defeat the comparison.
+ */
+const dedupeIdFor = (hit: QuerystoreHit, comparing: boolean) =>
+  !comparing && hit.resourceType === 'obs' && hit.resourceUuid ? `obs:${hit.resourceUuid}` : undefined;
+
 const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((r) => r.data);
 
 /** Drop the trailing ".0" the server puts on integers (e.g. "350.0" -> "350"). */
@@ -218,7 +226,13 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
                 });
         }
 
-        return { id: group.conceptUuid ?? latest.resourceUuid, title: rowTitle, subtitle, target };
+        return {
+          id: group.conceptUuid ?? latest.resourceUuid,
+          title: rowTitle,
+          subtitle,
+          target,
+          dedupeId: dedupeIdFor(latest, chartLookup.source === 'both'),
+        };
       });
 
       report({
@@ -252,7 +266,13 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
             interpolation: { escapeValue: false },
           })
         : undefined;
-      return { id: hit.resourceUuid, title: rowTitle, subtitle, target };
+      return {
+        id: hit.resourceUuid,
+        title: rowTitle,
+        subtitle,
+        target,
+        dedupeId: dedupeIdFor(hit, chartLookup.source === 'both'),
+      };
     });
 
     report({

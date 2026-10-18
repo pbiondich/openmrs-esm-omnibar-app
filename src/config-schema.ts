@@ -60,7 +60,7 @@ export const configSchema = {
       _type: Type.String,
       _default: 'rest',
       _description:
-        '"rest" uses the existing chart lookup via FHIR (default, no change). "querystore" replaces it with the querystore index. "both" shows both panels side by side for comparison.',
+        '"rest" uses the existing chart lookup via FHIR (default, no change). "querystore" replaces it with the querystore index. "both" shows both panels side by side for comparison, and leaves the query store rows out of dedupe so a value both find shows twice.',
       _validators: [validators.oneOf(['rest', 'querystore', 'both'])],
     },
   },
