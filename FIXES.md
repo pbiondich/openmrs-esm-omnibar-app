@@ -579,3 +579,17 @@ Checked in a stand-in header (fixed logo and location picker, the slot with two 
 - Failed first, on e51cbfa: `Tests  2 failed`. After the user arrowed to "projected weight", the highlight went to "height 170 cm", the first of the winner's three rows. With no copy left, it went to "chest pain note".
 - The guard test passed before the fix too, because the old fallback found no default row in that case. Without the guard it fails, since the highlight follows onto the never-default row.
 - `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning` (the same asset size warning).
+
+### Review round 1b (Cursor security): APPROVE WITH NITS
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 | SHOULD-FIX. Dedupe kept the first-ranked copy and its target. A provider ranked above chart lookup, without `defaultInChart`, could drop chart lookup's row for the same obs. Its own row, which can point anywhere on the site (another patient's chart included), was then the only one, and a click followed it | For each record, the copy kept is the first, by lane then order, from a provider whose results may take the default highlight. Only when no copy may is it the first of all. A never-default row can no longer drop a later `defaultInChart` row. The round 1 guard test staged a never-default copy pushing out the chart's own, which this fix rules out, so it now reaches the guard another way: the chart's row goes away on re-report and brings back the index copy, which still doesn't take the highlight. It still fails without the guard | b0f9859 (test), 87fbcb5 |
+| 2 | NIT. `workspaceProps.patientUuid` wasn't tied to `requiresOpenGroup` | `executeTarget` returns false when both are strings and they differ, so the omnibar shows the refused-launch snackbar as today. Props without a patient string launch as before | b95dc7c (test), 8674e6e |
+| 3 | NIT. `detail.note` was shown as is | `note` replaces the host's line only for `projecting` and `unavailable`, cut to 200 characters (199 and an ellipsis, counted in code points). A `failed` group always says "Couldn’t load results", which settles open question 1 from the contract build | 5f2bacd (test), e0e64b4 |
+
+Types, the contract doc and the README say the same.
+
+- Tests: 349 before, 357 after.
+- Failed first: b0f9859, 2 failed (the collector kept the index copies and dropped chart lookup's; the chart row was missing). b95dc7c, 2 failed (the mismatched launch went ahead). 5f2bacd, 3 failed (the failed group showed its note; both long notes were shown whole). The exact-200 case passed before and after.
+- `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning` (the same asset size warning).

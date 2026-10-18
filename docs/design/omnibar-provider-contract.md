@@ -113,7 +113,7 @@ Drawn as one quiet line under the heading: plain text, not a live region, and it
 | `failed` | The heading and "Couldn't load results" | Dropped |
 | `unavailable` | The heading and "Unavailable right now" | Dropped |
 
-`note`, when set, replaces the host's line. It is shown as it is, so it must already be translated, and it must never carry a server's message: that can quote the query or the record.
+`note`, when set, replaces the host's line for `projecting` and `unavailable`. It is shown as plain text, cut to 200 characters, so it must already be translated, and it must never carry a server's message: that can quote the query or the record. A `failed` group ignores `note` and always says "Couldn't load results", as for any error.
 
 **When the server is out of reach**, report `status: 'error'` with `detail: { state: 'unavailable' }`. There is no separate status for it. `isServerUnreachable(error)` in the contract folder decides: a `TypeError` from fetch (as when offline), or a response with status 0, 502, 503 or 504. Any other failure is a plain `status: 'error'`. The built-in patient search and chart lookup follow this rule.
 
@@ -133,7 +133,7 @@ Drawn as one quiet line under the heading: plain text, not a live region, and it
 | `type` | Fields | What the host does |
 | --- | --- | --- |
 | `navigate` | `to` | `navigate()` to a page on this site. `${openmrsSpaBase}` and the other placeholders work. Any other origin, credentials in the URL, or a `javascript:` or `data:` URL is refused |
-| `workspace` | `workspaceName`, `workspaceProps?`, `windowProps?`, `groupProps?`, `requiresOpenGroup?` | `launchWorkspace2`. With `requiresOpenGroup: { workspaceName, patientUuid }`, the launch is refused unless that workspace's group is still open for that patient, and a warning snackbar says so |
+| `workspace` | `workspaceName`, `workspaceProps?`, `windowProps?`, `groupProps?`, `requiresOpenGroup?` | `launchWorkspace2`. With `requiresOpenGroup: { workspaceName, patientUuid }`, the launch is refused unless that workspace's group is still open for that patient. It is also refused when `workspaceProps.patientUuid` is a string naming a different patient. Either way a warning snackbar says so |
 
 After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT`) on `window` with `{ providerId, resultId }`.
 
@@ -141,7 +141,7 @@ After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT
 
 When two mounted providers share a `dedupeKey` and both report a result with the same `dedupeId`:
 
-- the host keeps the copy from the provider that ranks first: lane, then order, whichever reported first
+- the host keeps the first copy, by lane then order, from a provider whose results may take the default highlight, whichever reported first. Only when no copy may (inside a chart, no provider with `defaultInChart` has it) does it keep the first copy of all. So a provider that a chart never highlights can't push out the chart's own row by ranking above it
 - the other copy is dropped, and a group left with nothing isn't drawn
 - results without a `dedupeId`, and providers with another key or none, are never touched
 - the highlight follows the record: if the highlighted row is dropped, the highlight moves to the copy that is kept. If no copy is left on screen, nothing is highlighted and Enter does nothing until the user picks a row. A default highlight (one the user didn't arrow or point to) moves only onto a copy that may itself be the default
