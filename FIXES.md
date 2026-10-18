@@ -307,3 +307,12 @@ Logged, not fixed (small-hotfix rule: one review, fix only blockers):
 - `corepack yarn verify` is green (`Tasks: 3 successful, 3 total`).
 - `corepack yarn build` is green. `Rspack compiled with 1 warning` (asset size limit on `132.js` at 605.971 KiB and `769.js` at 755.256 KiB).
 
+### Fix round 1
+
+The row is offered only while the workspace's window group is already the open group for this chart patient. `launchWorkspace2` still receives null window and group props. `requiresOpenGroup` on the workspace target makes `executeTarget` refuse the launch if that group has closed or changed. An all-digit token is an identifier only when it is the whole query. The result id is the constant `ask-chartsearch`. Queries longer than 1000 characters are not offered, and the initial-question patch clamps a prefilled question to `maxQuestionLength`. Chart-open warmup is a separate patch. The unpatched Ask AI button still POSTs `/warmup` when a chart opens.
+
+- Tests before this round: 112. After: 122 (90 in `src/omnibar/omnibar.test.tsx`, 32 in `src/providers/chartsearch-question.test.ts`).
+- Failed first: `why is her hemoglobin 7` and `what happened in 2024` were rejected as identifiers. The row was offered with no open group, another group, or a different patient. Closing the group left a launchable row. `executeTarget` still called `launchWorkspace2` after the group closed. A 1001-character question was offered. The selection event carried the query in `resultId`.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`. Tests: 122 passed.
+- `corepack yarn build`: `Rspack compiled with 1 warning in 14.28 s` (asset size limit on `132.js` at 605.971 KiB and `769.js` at 755.256 KiB).
+

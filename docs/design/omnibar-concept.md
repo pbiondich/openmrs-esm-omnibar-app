@@ -125,7 +125,7 @@ Four providers ship with the prototype.
 | Destinations | navigate | global, patient | `ward`, `triage` | Pages and apps, matched on label then keywords, filtered by privilege | Config: label, path, keywords, privilege |
 | ChartSearch suggestion | navigate | patient | `why was ART switched last year` | A non-default row that opens AI Chart Search with the question filled in | Local heuristic; no ChartSearch request |
 
-Inside a chart, chart lookup comes first and patient search drops to "Other patients", through `patientScopeOrder`. Patient search doesn't declare `defaultInChart`, so an ID typed in a chart still finds the patient, but Enter alone never opens their chart. The ChartSearch provider also omits `defaultInChart`, so an arrow key or click is always required. It checks the runtime privilege and workspace registration before reporting, and it never calls the model. ChartSearch owns errors and has no client timeout. The upstream patch prefills the existing input only when the workspace patient matches. Without that patch the workspace opens and the question is not filled in. If the workspace is already open, a different question replaces it. The patient transcript remains and unsent input is lost.
+Inside a chart, chart lookup comes first and patient search drops to "Other patients", through `patientScopeOrder`. Patient search doesn't declare `defaultInChart`, so an ID typed in a chart still finds the patient, but Enter alone never opens their chart. The ChartSearch provider also omits `defaultInChart`, so an arrow key or click is always required. It checks the runtime privilege, workspace registration, and that the workspace's window group is already open for this patient. It never calls the model. ChartSearch owns errors and has no client timeout. The initial-question patch prefills the existing input, clamped to `maxQuestionLength`, only when the workspace patient matches. Without that patch the workspace opens only when that chart group is already open, and the question is not filled in. If the chat was already opened from Ask AI, choosing the row restores that window and the question is dropped.
 
 ## Visible by default
 
@@ -204,5 +204,6 @@ Source files is a snapshot from before the ChartSearch suggestion. The table bel
 | `src/providers/chartsearch-question.ts` | Pure question and patient-ID heuristic |
 | `src/providers/chartsearch-suggestion.provider.tsx` | Privilege-gated ChartSearch workspace destination |
 | `src/omnibar/omnibar.test.tsx` | Unit tests, with providers mounted through the slot |
-| `docs/upstream/esm-chartsearchai-initial-question.patch` | Proposed upstream workspace prefill and no-warmup patch |
+| `docs/upstream/esm-chartsearchai-initial-question.patch` | Proposed upstream workspace prefill |
+| `docs/upstream/esm-chartsearchai-no-warmup.patch` | Proposed removal of chart-open warmup |
 | `translations/en.json` | English strings |

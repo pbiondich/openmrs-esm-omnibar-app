@@ -1,18 +1,22 @@
-# Upstream ChartSearch patch
+# Upstream ChartSearch patches
 
-`esm-chartsearchai-initial-question.patch` applies to
-`openmrs/openmrs-esm-chartsearchai` at commit `c2b6bf4`.
+Both patches apply to `openmrs/openmrs-esm-chartsearchai` at commit `c2b6bf4`.
+They touch different files, so either one applies on its own.
 
-The patch lets `ai-chat-workspace` accept
+`esm-chartsearchai-initial-question.patch` lets `ai-chat-workspace` accept
 `workspaceProps: { patientUuid, initialQuestion }`. It fills the existing chat
-input only when the workspace resolves to the same patient. The clinician must
-press **Send**, which keeps submission, citations, safety checks, feedback, and
-errors in ChartSearch.
+input only when the workspace resolves to the same patient, and it clamps that
+text to `maxQuestionLength`. The clinician must press **Send**, which keeps
+submission, citations, safety checks, feedback, and errors in ChartSearch.
 
-The patch also removes the chart-open `/warmup` request. No ChartSearch model
-request runs before the clinician presses **Send**.
+`esm-chartsearchai-no-warmup.patch` removes the chart-open `/warmup` request
+from the Ask AI button. Without that patch, the sandbox still POSTs `/warmup`
+when a chart opens. That request comes from `AiSearchButton`, not from the
+omnibar.
 
-Without this patch, the omnibar row still opens `ai-chat-workspace` and the
-workspace ignores the question. ChartSearch has no client request timeout at
-`c2b6bf4`. Its existing **Stop** control and error panel handle requests after
-submission.
+Without the initial-question patch, the omnibar row opens `ai-chat-workspace`
+only when that workspace's chart group is already open, and the workspace
+ignores the question. If the chat was already opened from Ask AI, choosing the
+row restores that window and the question is dropped. ChartSearch has no client
+request timeout at `c2b6bf4`. Its existing **Stop** control and error panel
+handle requests after submission.
