@@ -4,7 +4,8 @@ import { render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type FetchResponse, getDefaultsFromConfigSchema, openmrsFetch, useConfig } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
-import { type OmnibarContext, type OmnibarReport } from '../omnibar-contract';
+import { type OmnibarContext, type OmnibarProviderMeta, type OmnibarReport } from '../omnibar-contract';
+import routes from '../routes.json';
 import ChartLookupProvider from './chart-lookup.provider';
 import QuerystoreChartProvider from './querystore-chart.provider';
 
@@ -315,5 +316,29 @@ describe('QuerystoreChartProvider props contract', () => {
     render(<QuerystoreChartProvider query="cd4" context={{ scope: 'global', locale: 'en' }} report={report} />);
     expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'idle' }));
     expect(mockOpenmrsFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('QuerystoreChartProvider registration', () => {
+  const metaOf = (name: string) =>
+    routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
+
+  it('declares contract 1, ranks after chart lookup, skips identifiers and leaves the default highlight alone', () => {
+    // Exact, so a `defaultInChart` creeping back in fails: only chart lookup takes the default among
+    // `chart-values` providers, since the kept copy's target is the one that runs.
+    expect(metaOf('omnibar-querystore-chart-provider')).toEqual({
+      lane: 'record',
+      scopes: ['patient'],
+      order: 15,
+      contract: 1,
+      dedupeKey: 'chart-values',
+      skipIdentifierQueries: true,
+    });
+  });
+
+  it('shares its dedupe key with chart lookup', () => {
+    expect(metaOf('omnibar-querystore-chart-provider').dedupeKey).toBe(
+      metaOf('omnibar-chart-lookup-provider').dedupeKey,
+    );
   });
 });
