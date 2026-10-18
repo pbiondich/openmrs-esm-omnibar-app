@@ -3788,6 +3788,39 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(landedOn()).toBe('/openmrs/spa/ward');
       });
 
+      it("doesn't say nothing matches while a group is still indexing, even with nothing found yet", async () => {
+        const user = userEvent.setup();
+        mountProviders([
+          {
+            name: 'projection',
+            meta: { ...recordLane, order: 15 },
+            component: function EmptyProjection({ query, report }: OmnibarProviderProps) {
+              useEffect(
+                () =>
+                  report({
+                    query,
+                    title: 'Found in the record',
+                    status: 'ready',
+                    results: [],
+                    detail: { state: 'projecting' },
+                  }),
+                [query, report],
+              );
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Still indexing; results may be incomplete')).toBeInTheDocument();
+        expect(screen.queryByText(/nothing matches/i)).not.toBeInTheDocument();
+        expect(
+          within(screen.getByRole('group', { name: 'Found in the record' })).queryAllByRole('option'),
+        ).toHaveLength(0);
+      });
+
       it('shows an indexed group like any other', async () => {
         const user = userEvent.setup();
         mountWith(withDetail({ state: 'indexed' }));
