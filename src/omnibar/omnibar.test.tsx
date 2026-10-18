@@ -2642,9 +2642,9 @@ describe('Omnibar with providers mounted through the slot', () => {
           expect(landedOn()).toBe('/openmrs/spa/ward');
         });
 
-        // The query store answers "admission" first with the chart still indexing and nothing found,
-        // then with what each re-check finds.
-        const openChartIndexing = (later: Array<object>) => {
+        // The query store answers "admission" first with the chart not indexed yet and nothing found,
+        // then, from the re-check on, with `later`: indexed rows, or still nothing while indexing.
+        const openChartIndexing = (later: Array<object>, firstAnswerAfterMs = 0) => {
           window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
           let searches = 0;
           mockOpenmrsFetch.mockImplementation((url: string) => {
@@ -2656,10 +2656,13 @@ describe('Omnibar with providers mounted through the slot', () => {
                 return Promise.resolve({ data: { status: 'projecting', groups: [] } } as FetchResponse);
               }
               searches += 1;
-              const groups = searches === 1 ? [] : later;
-              return Promise.resolve({
-                data: { status: later.length && searches > 1 ? 'indexed' : 'projecting', groups },
-              } as FetchResponse);
+              const body =
+                searches === 1 && !firstAnswerAfterMs
+                  ? { status: 'not_indexed', groups: [] }
+                  : { status: later.length ? 'indexed' : 'projecting', groups: later };
+              return new Promise<FetchResponse>((resolve) =>
+                setTimeout(() => resolve({ data: body } as FetchResponse), searches === 1 ? firstAnswerAfterMs : 0),
+              );
             }
             if (url.includes('/patient?')) {
               return Promise.resolve({ data: { results: [] } } as FetchResponse);
@@ -2675,32 +2678,100 @@ describe('Omnibar with providers mounted through the slot', () => {
           renderWithFreshCache(<Omnibar />);
         };
 
-        it('keeps waiting while the chart is still indexing with nothing found yet, and opens what a re-check finds', async () => {
+        it('keeps waiting while the chart is not indexed yet with nothing found, and opens what the re-check finds', async () => {
           const user = userEvent.setup();
           openChartIndexing([admission]);
 
           await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
           await screen.findByText('Still indexing; results may be incomplete');
           expect(ward()).toHaveAttribute('aria-selected', 'false');
+          await user.keyboard('{Enter}');
+          expect(navigate).not.toHaveBeenCalled();
 
-          const record = await screen.findByRole('option', { name: /Admission: Ward 3/ }, { timeout: 3000 });
+          const record = await screen.findByRole('option', { name: /Admission: Ward 3/ }, { timeout: 4000 });
           expect(record).toHaveAttribute('aria-selected', 'true');
           expect(ward()).toHaveAttribute('aria-selected', 'false');
           await user.keyboard('{Enter}');
           expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Visits`);
         });
 
-        it('gives the destination the highlight when the chart is still indexing with nothing found past the grace period', async () => {
+        it('hands the highlight to chart rows that arrive after the grace period on a slow first request', async () => {
           const user = userEvent.setup();
-          openChartIndexing([]);
+          openChartIndexing([admission], 2200);
 
           await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
-          await screen.findByText('Still indexing; results may be incomplete');
-          expect(ward()).toHaveAttribute('aria-selected', 'false');
+          await screen.findByRole('option', { name: /^Ward/ });
+          await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'), { timeout: 2000 });
 
-          await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'), { timeout: 3000 });
+          const record = await screen.findByRole('option', { name: /Admission: Ward 3/ }, { timeout: 3000 });
+          await waitFor(() => expect(record).toHaveAttribute('aria-selected', 'true'));
+          expect(ward()).toHaveAttribute('aria-selected', 'false');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Visits`);
+        });
+
+        it('keeps the destination waiting past the grace period while indexing finds nothing, up to the indexing cap', async () => {
+          vi.useFakeTimers({ shouldAdvanceTime: true });
+          try {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            openChartIndexing([]);
+
+            await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+            await screen.findByText('Still indexing; results may be incomplete');
+            await act(() => vi.advanceTimersByTimeAsync(3000));
+            expect(ward()).toHaveAttribute('aria-selected', 'false');
+
+            await act(() => vi.advanceTimersByTimeAsync(8000));
+            expect(ward()).toHaveAttribute('aria-selected', 'true');
+            await user.keyboard('{Enter}');
+            expect(landedOn()).toBe('/openmrs/spa/ward');
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+
+        it('gives the destination the highlight at once when the chart values have given up indexing', async () => {
+          const user = userEvent.setup();
+          window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+          const GaveUp: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+            useEffect(() => {
+              report({
+                query,
+                title: 'In this chart',
+                status: 'ready',
+                results: [],
+                detail: { state: 'projecting', note: 'This chart isn’t fully indexed yet; results may be incomplete' },
+              });
+            }, [query, report]);
+            return null;
+          };
+          mountProviders([
+            shipped('omnibar-querystore-chart-provider', GaveUp),
+            shipped('omnibar-destinations-provider', DestinationsProvider),
+          ]);
+          renderWithFreshCache(<Omnibar />);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'), { timeout: 800 });
           await user.keyboard('{Enter}');
           expect(landedOn()).toBe('/openmrs/spa/ward');
+        });
+
+        it('waits again for a query the user comes back to', async () => {
+          const user = userEvent.setup();
+          openChartWaitingOnQueryStore('never');
+          const field = screen.getByRole('combobox', { name: /search this chart/i });
+
+          await user.type(field, 'admission');
+          await screen.findByRole('option', { name: /^Ward/ });
+          await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'), { timeout: 3000 });
+          await user.type(field, 'x');
+          await waitFor(() => expect(screen.queryByRole('option', { name: /^Ward/ })).not.toBeInTheDocument());
+          await user.keyboard('{Backspace}');
+
+          expect(await screen.findByRole('option', { name: /^Ward/ })).toHaveAttribute('aria-selected', 'false');
+          await user.keyboard('{Enter}');
+          expect(navigate).not.toHaveBeenCalled();
         });
 
         describe('in the side-by-side comparison mode', () => {
