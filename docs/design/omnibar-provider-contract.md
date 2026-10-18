@@ -26,7 +26,7 @@ Providers are installed frontend modules: trusted code. Any of them could call `
   - in a workspace, a string `patientUuid` in any of `workspaceProps`, `windowProps` or `groupProps`, decoded the same way.
 
   Anything else, such as a patient id in another place in the path, is not recognized.
-- **Stale data.** A report for another query is dropped, and so is one from a mount for a chart or scope the user has left, from before the bar was closed and opened again, or from before the provider was unmounted. Enter runs only the target that was highlighted: a row reported again with another target loses the highlight instead, and a row the user arrowed to that goes away is never swapped for another.
+- **Stale data.** A report for another query is dropped, and so is one from a mount for a chart or scope the user has left, from before the bar was closed and opened again, or from before the provider was unmounted. Enter runs only the target that was highlighted: a row reported again with another target loses the highlight instead, and a row the user arrowed to that goes away is never swapped for another. A highlight the user didn't choose stays where it first landed, except inside a chart, where it moves up to a chart value that arrives from a provider ranked before it ([the default highlight](#the-default-highlight)). Enter always opens the row drawn highlighted.
 - **Bad shapes.** A report the host can't draw is ignored, a result it can't open is dropped, the first 200 results of a report are read, and after dedupe each group shows at most 50. A `note` is cut to 200 characters. Direction controls are taken out of provider text, patient identifiers included. The host keeps its own copy of each target, and compares targets and reports by value, whatever the order of their keys. A report equal to the last one is not stored again, and one whose targets can't be compared (circular props) changes the stored report only when something else in it changes, so a provider that reports on every render settles.
 
 ## Registering
@@ -156,9 +156,17 @@ The host keeps its own copy of the target of each result, and remembers the targ
 
 ### The default highlight
 
-With nothing arrowed or pointed to, the host highlights the first row, by lane then order, that may be the default, and Enter opens it. It pins that row: a slower provider that later sorts above it doesn't move the highlight, so Enter doesn't change under the user.
+With nothing arrowed or pointed to, the host highlights the first row, by lane then order, that may be the default, and Enter opens it. It pins that row: a slower provider that later sorts above it doesn't move the highlight, so Enter doesn't change under the user. Outside a chart that is the whole rule.
 
-Inside a chart, a `navigate`-lane row isn't chosen as the default while a `record`-lane provider with `defaultInChart` hasn't answered the current query: no report for it yet, or `loading` with no rows. Enter does nothing meanwhile. When that provider reports rows, its first row takes the highlight. When it reports none, an error, or `idle`, the page takes it as before. The host waits at most 1.5 seconds per query, so a provider stuck loading can't leave Enter doing nothing. A row the user arrowed or pointed to is never moved. Without this, a destination that answers from config at once would take Enter from chart values that need a request, such as "admission" opening the ward page instead of the chart's admission.
+Inside a chart, chart values come first:
+
+- A row isn't chosen as the default while a `record`-lane provider with `defaultInChart` that ranks before it hasn't answered the current query. Enter does nothing meanwhile. So a destination waits for the chart values, and in the side-by-side mode the query store's row waits for chart lookup's.
+- Not answered means: no report for the query yet, `loading` with no rows, or `detail.state: 'projecting'` with no rows and no `note`. A provider still indexing with nothing found hasn't answered, because its next re-check may find rows. Once it has given up re-checking it says so in a `note`, and that is an answer.
+- Rows, `idle`, an `error`, `unavailable`, `failed`, or `ready` with no rows and no `projecting` detail are answers. The waiting row may then take the default.
+- The wait is bounded per query: 1.5 seconds for a provider with no report or still `loading`, so one stuck loading can't leave Enter doing nothing, and 10 seconds for one still indexing with nothing found, long enough for its first re-checks. Each new query, including one the user comes back to, starts the waits again.
+- When a provider that ranks before the highlighted row later reports a row that may be the default, a highlight the user didn't choose moves up to it. This covers chart values that arrive after the wait ended. A row the user arrowed or pointed to never moves.
+
+Without this, a destination that answers from config at once would take Enter from chart values that need a request, such as "admission" opening the ward page instead of the chart's admission.
 
 After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT`) on `window` with `{ providerId, resultId }`.
 
