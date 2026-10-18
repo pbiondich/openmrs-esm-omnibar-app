@@ -570,6 +570,45 @@ describe('QuerystoreChartProvider', () => {
       );
     });
 
+    it.each(['cd4', ''])(
+      'keeps the good rows around one whose date is a timestamp, and shows that one without a date (query "%s")',
+      async (query) => {
+        const first = makeGroup({ conceptUuid: 'c1', resourceUuid: 'r1', conceptName: 'CD4 count' });
+        const stamped = makeGroup({ conceptUuid: 'c2', resourceUuid: 'r2', conceptName: 'Weight', units: 'kg' });
+        stamped.latest.date = '2026-03-12T08:00:00.000Z';
+        const last = makeGroup({ conceptUuid: 'c3', resourceUuid: 'r3', conceptName: 'Height', units: 'cm' });
+        const groups = [first, stamped, last];
+        mockOpenmrsFetch.mockResolvedValue({
+          data: { status: 'indexed', groups, hits: groups.map((group) => group.latest) },
+        } as FetchResponse);
+        const report = vi.fn();
+        renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+        await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('ready'));
+        const results = report.mock.calls.at(-1)[0].results;
+        expect(results.map((result) => result.title)).toEqual([
+          'CD4 count: 350 cells/µL',
+          'Weight: 350 kg',
+          'Height: 350 cm',
+        ]);
+        expect(results.map((result) => Boolean(result.subtitle))).toEqual([true, false, true]);
+      },
+    );
+
+    it.each(['2026-02-31', '2026-03', 'not-a-date', '2026-3-12', ' 2026-03-12'])(
+      'shows a row whose date is %j without a date',
+      async (date) => {
+        const group = makeGroup();
+        group.latest.date = date;
+        mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups: [group] } } as FetchResponse);
+        const report = vi.fn();
+        renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+        await waitFor(() => expect(report.mock.calls.at(-1)[0].results).toHaveLength(1));
+        expect(report.mock.calls.at(-1)[0].results[0].subtitle).toBeUndefined();
+      },
+    );
+
     it.each(['cd4', ''])('keeps a row whose date is not text, without a date (query "%s")', async (query) => {
       const undated = { ...good.latest, date: 20260312 };
       mockOpenmrsFetch.mockResolvedValue({
