@@ -40,7 +40,7 @@ For `cd4`, both paths put CD4% ahead of CD4 count as the first match. That's con
 ## What it means
 
 - **Speed isn't the obstacle.** The query store is clearly faster, mostly because it needs one round trip instead of two.
-- **Plain relevance ranking is the wrong shape for the dropdown,** which promises the latest value. The merged provider asks for one row per concept, with each concept's latest value chosen by date, which should fix this. That needs measuring before the query store can become the default.
+- **Plain relevance ranking is the wrong shape for the dropdown,** which promises the latest value. The merged provider asks for one row per concept, with each concept's latest value chosen by date, which should fix this. That needs measuring before query store rows take the default highlight. The query store is meant to complement the REST lookup, which gets the latest value right by construction, not to replace it.
 - **Patients must be indexed ahead of time.** Warming a chart when it opens can only be a fallback; at this projection speed, a large chart opened cold would still be "indexing" when the clinician starts typing. Projection speed on modest server hardware is worth raising with the query store's maintainers.
 
 ## What this didn't test

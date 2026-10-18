@@ -178,7 +178,7 @@ These live in this repo as defaults for now. See [`src/routes.json`](src/routes.
 | ChartSearch suggestion | navigate | patient | Local question heuristic; opens a registered workspace |
 | Query store chart | record | patient | Query store REST: `/querystore/patient/{uuid}/search` (keyword mode, one row per concept) while typing, `/recent` for an empty field. Off unless `chartLookup.source` is `querystore` or `both` |
 
-The query store chart provider is built in on purpose, although the light-omnibar rule would normally put it in the query store's own app. The query store has no frontend app, and this provider replaces chart lookup's data source rather than adding a new capability. It should move if the query store gains other frontend consumers. See [`docs/decisions.md`](docs/decisions.md).
+The query store chart provider is built in on purpose, although the light-omnibar rule would normally put it in the query store's own app. The query store has no frontend app, and this provider serves the same chart values as chart lookup, beside it rather than replacing it. It should move if the query store gains other frontend consumers. See [`docs/decisions.md`](docs/decisions.md).
 
 Inside a chart, chart lookup comes first and patient search drops to "Other patients". When a server can't be reached, a group shrinks to its heading and "Unavailable right now"; any other failure shows "Couldn't load results".
 
@@ -304,7 +304,7 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 5. Add the Query results section. It needs a "submit the query" path in the provider contract, a condensed sticky patient banner, and a way for the chart to show the vitals header only where it's relevant.
 6. Add slash commands, starting with English names and designed for localized and custom aliases.
 7. Use the query store for chart lookups. A query store chart provider, with warming on chart open, is built in and off by default: `chartLookup.source` set to `querystore` replaces chart lookup, and `both` shows the two side by side. Next is trying it live.
-8. Add cohort questions, which needs the Cohort Builder to accept a query definition by URL. Work is in progress on the `feat/cohort-omnibar` branch.
+8. Add cohort questions from the Cohort Builder's own app, which needs it to accept a query definition by URL. The first attempt, `feat/cohort-omnibar`, is retired and kept as history; see the [provider registration plan](docs/design/provider-registration.md).
 9. Fix `PatientPhoto` in esm-styleguide to load only same-origin photos, then use it in patient rows again.
 10. Move the slot and types into esm-framework through an RFC once the contract settles.
 
@@ -316,7 +316,7 @@ Open questions:
 - [ ] Can the results viewer accept a deep link to a specific test, so chart lookup lands on the value?
 - [ ] How does CIEL represent drug groupings such as antiretrovirals, and can that seed drug groups for cohort questions?
 - [ ] Does the tablet sheet work on real devices?
-- [ ] Should the Cohort Builder's provider live in the Cohort Builder's own app, as the light-omnibar rule suggests? (The query store's provider is built in, as a recorded exception.)
+- [x] Where should the Cohort Builder's provider live? In the Cohort Builder's own app, per the [provider registration plan](docs/design/provider-registration.md). (The query store's provider is built in, as a recorded exception.)
 
 ## Contributing
 

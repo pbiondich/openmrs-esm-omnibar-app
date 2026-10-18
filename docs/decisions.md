@@ -12,6 +12,34 @@ This record starts on 2026-10-17. Earlier decisions are captured in [AGENTS.md](
 **Choosing a suggestion and pressing Enter mean different things.** Choosing a suggestion from the list goes to that thing (for example, the results viewer for a lab value). Pressing Enter on the query itself opens an expanded view of everything that matched.
 *Why:* it's the distinction a browser's address bar makes between picking a suggestion and submitting what you typed.
 
+### From the provider registration plan, 11:41 PM PT
+
+These are the decisions in §7A of [the provider registration plan](design/provider-registration.md), which has the detail and the original reasoning.
+
+**The light omnibar: every module that provides a base function registers its own provider.** The omnibar keeps the shell, the slot, ranking and keyboard UI, and the contract.
+*Why:* it follows the O3 convention of feature modules registering into slots, and keeps feature code next to the data and APIs it depends on.
+
+**Each app copies a versioned contract folder now; an npm package can come later.** Each app gets `src/omnibar-contract/` with `OMNIBAR_CONTRACT_VERSION`, plus a conformance test.
+*Why:* it works today without publishing a package, and the version number makes drift visible.
+
+**Rows fail gracefully when their server is unreachable.** A quiet "unavailable" line, and no special offline mode for cohort rows.
+*Why:* O3 runs where connections drop, and a provider that can't reach its server shouldn't disrupt the rest of the bar.
+
+**Patient search, recents and chart lookup stay built-in defaults for now.** They can be removed through slot config, and there are no upstream PRs for them yet.
+*Why:* their natural owners (patient search, the chart) would need upstream changes, which can wait until the omnibar itself is proposed.
+
+**Cohort Builder and ChartSearch rows are on by default when their app is installed.** Implementers can switch them off in config, or remove them from the slot.
+*Why:* installing the app signals intent; the switch covers sites that don't want the row.
+
+**The ChartSearch row moves into one local ChartSearch branch, and upstream later.** Parked: the row currently opens ChartSearch's side panel, and that launch target may change.
+*Why:* the row is ChartSearch's feature and reads ChartSearch's own config and workspace state.
+
+**Pages and apps will declare their own omnibar entries in metadata** (`meta.omnibarDestination`). The config list of destinations stays as a default until apps adopt it.
+*Why:* each app knows its own pages and the words people use for them; a central list goes stale.
+
+**The first cohort attempt is retired, not deleted.** `feat/cohort-omnibar` stays on GitHub with the tag `archive/cohort-omnibar-2417fe2`. Cohort providers move into the Cohort Builder's own app instead (plan §3).
+*Why:* the encoder for a pre-filled Cohort Builder query belongs next to its decoder, in the app that owns it.
+
 ## 2026-10-18
 
 **Enter opens a "Query results" section of the patient chart.** It's a new entry in the left nav; the left nav stays visible. The view inside depends on the kind of question.
@@ -30,7 +58,10 @@ This record starts on 2026-10-17. Earlier decisions are captured in [AGENTS.md](
 *Why:* commands make the query type explicit and cheaper to run, but plain text must always work. Separating the id from its names means localization later is adding data, not changing the design.
 
 **The query store chart provider stays in this repo as a built-in default.** This is a recorded exception to the light-omnibar rule.
-*Why:* the query store has no frontend app of its own, and the provider replaces chart lookup's data source rather than adding a new capability. Move it to its own app if the query store gains other frontend consumers.
+*Why:* the query store has no frontend app of its own, and the provider replaces chart lookup's data source rather than adding a new capability. Move it to its own app if the query store gains other frontend consumers. This supersedes §2.1 and §4A.1 of the provider registration plan.
+
+**The query store complements the REST chart lookup; it doesn't replace it.** REST stays the exact path that works on every install, with no indexing lag, and the query store adds free-text and semantic matches beside it (plan §4A.2).
+*Why:* round 1 of the benchmark found the query store about twice as fast, but REST gets "the latest value" right by construction, while plain relevance ranking often put an older value first. This refines the entry above, which described the provider as replacing chart lookup's data source.
 
 **The README's Background section is Paul's own writing.** Edits elsewhere in the README are fine; changes to the Background's language need Paul.
 *Why:* it states the project's argument in his voice, for the community he's asking to adopt it.
@@ -47,5 +78,6 @@ These came up but aren't decided yet.
 
 - **Two values on the same date.** When a patient has two results for the same concept on the same date, should the dropdown show the most recently entered one, or say "2 results on this date"?
 - **Query results layout.** One merged page with a section per provider, or tabs by kind (values, notes, orders, answer)?
-- **Where the Cohort Builder's provider lives.** The light-omnibar rule suggests the Cohort Builder's own app.
-- **Whether the query store becomes the default chart lookup.** Round 1 found it about twice as fast, but its ranking often put an older value first and its cold starts were slow. Waiting on [round 2](briefs/2026-10-18-querystore-benchmark-round-2.md).
+- **Should query store rows take the default highlight inside a chart?** PR #5 gave the provider `defaultInChart`, but the plan said not until measured on o3, and round 1 found older values ranked first. Waiting on [round 2](briefs/2026-10-18-querystore-benchmark-round-2.md) (plan question 11).
+- **Privileges for the query store's patient endpoints.** Is Get Patients enough, or Get Observations too? The provider's `routes.json` must match what the server requires (plan question 10).
+- **When to warm a chart.** On every chart open, as built, or on the first omnibar open, as the plan recommended? Round 1's slow cold starts argue for indexing ahead of time either way (plan question 12).
