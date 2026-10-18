@@ -199,6 +199,7 @@ Source files is a snapshot from before the ChartSearch suggestion. The table bel
 | `src/omnibar/omnibar.extension.tsx` | The shell: field, triggers, panel, keyboard handling, provider mounting |
 | `src/omnibar/omnibar.scss` | Carbon and O3 styleguide tokens; desktop dropdown and tablet sheet |
 | `src/providers/patient-search.provider.tsx` | Patient search and recents |
+| `src/providers/patients-visited.ts` | The `patientsVisited` property: parsing, the 10-patient cut, and the queued read-then-save |
 | `src/providers/chart-lookup.provider.tsx` | Concept dictionary to latest observation |
 | `src/providers/destinations.provider.tsx` | Config-driven pages and apps |
 | `src/providers/chartsearch-question.ts` | Pure question and patient-ID heuristic |
