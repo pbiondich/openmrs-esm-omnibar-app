@@ -2464,16 +2464,28 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     describe('when an ID, such as a scanned wristband, is typed', () => {
       const scanned = '4273MO-2';
+      const withId = (identifier: string) => [
+        { identifier, identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' } },
+      ];
       const john = {
         uuid: '2f4e6a8c-1b3d-4e5f-8a7b-9c0d1e2f3a4b',
-        identifiers: [{ identifier: scanned, identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' } }],
+        identifiers: withId(scanned),
         person: { display: 'John Moyo', gender: 'M', birthdate: null, dead: false },
       };
       const chartOwner = { ...john, uuid: chartPatient, person: { ...john.person, display: 'Mary Banda' } };
+      const grace = { ...john, uuid: '7d9b1c3e-5f7a-4b9c-8d1e-3f5a7b9c1d2e', person: { ...john.person, display: 'Grace Phiri' } };
       const seeAll = () => screen.getByRole('option', { name: /all patient results/i });
       const highlighted = () =>
         screen.queryAllByRole('option').filter((option) => option.getAttribute('aria-selected') === 'true');
       const wait = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+      const chartOf = (patient: { uuid: string }) => `/openmrs/spa/patient/${patient.uuid}/chart/`;
+      // A row as the built-in patient search draws one, from a provider standing in for it.
+      const patientRow = (patient: typeof john): OmnibarResult => ({
+        id: `patient:${patient.uuid}`,
+        title: patient.person.display,
+        patient: { uuid: patient.uuid, identifiers: patient.identifiers.map(({ identifier }) => ({ identifier })) },
+        target: { type: 'navigate', to: chartOf(patient) },
+      });
 
       beforeEach(() => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -2482,27 +2494,55 @@ describe('Omnibar with providers mounted through the slot', () => {
       });
       afterEach(() => vi.useRealTimers());
 
-      // Patient search answers at once with `patients`. Chart lookup's concept search, on REST, waits
-      // until the test lets it through. The bar is on this chart unless `path` says otherwise.
+      // Patient search answers with `patients`, at once unless `patientsAfterMs` says otherwise. Chart
+      // lookup's concept search, on REST, waits until the test lets it through, then finds `concepts`,
+      // whose values are CD4 350. The bar is on this chart unless `path` says otherwise.
       const search = async (
         query: string,
         patients: Array<object>,
-        source: 'rest' | 'querystore',
-        path = `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`,
+        {
+          source,
+          path = `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`,
+          patientSearch = {},
+          concepts = [],
+          patientsAfterMs = 0,
+          more = [],
+          cache = new Map(),
+        }: {
+          source: 'rest' | 'querystore';
+          path?: string;
+          patientSearch?: Partial<OmnibarConfig['patientSearch']>;
+          concepts?: Array<object>;
+          patientsAfterMs?: number;
+          more?: Parameters<typeof mountProviders>[0];
+          cache?: Map<string, unknown>;
+        },
       ) => {
         const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
-        mockUseConfig.mockReturnValue({ ...defaults, chartLookup: { ...defaults.chartLookup, source } });
+        mockUseConfig.mockReturnValue({
+          ...defaults,
+          chartLookup: { ...defaults.chartLookup, source },
+          patientSearch: { ...defaults.patientSearch, ...patientSearch },
+        });
         window.history.pushState({}, '', path);
         let conceptsArrive: () => void;
-        const concepts = new Promise<FetchResponse>((resolve) => {
-          conceptsArrive = () => resolve({ data: { results: [] } } as FetchResponse);
+        const conceptSearch = new Promise<FetchResponse>((resolve) => {
+          conceptsArrive = () => resolve({ data: { results: concepts } } as FetchResponse);
         });
         mockOpenmrsFetch.mockImplementation((url: string) => {
           if (url.includes('/patient?')) {
-            return Promise.resolve({ data: { results: patients } } as FetchResponse);
+            const answer = { data: { results: patients } } as FetchResponse;
+            return new Promise((resolve) => setTimeout(() => resolve(answer), patientsAfterMs));
           }
           if (url.includes('/concept?')) {
-            return concepts;
+            return conceptSearch;
+          }
+          if (url.includes('/Observation')) {
+            return Promise.resolve({
+              data: {
+                entry: [{ resource: { code: { coding: [{ code: 'cd4-uuid' }] }, valueQuantity: { value: 350 } } }],
+              },
+            } as FetchResponse);
           }
           return new Promise(() => {});
         });
@@ -2511,61 +2551,88 @@ describe('Omnibar with providers mounted through the slot', () => {
           shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
           shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
           shipped('omnibar-destinations-provider', DestinationsProvider),
+          ...more,
         ]);
-        renderWithFreshCache(<Omnibar />);
+        render(
+          <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+            <Omnibar />
+          </SWRConfig>,
+        );
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
         await user.click(screen.getByRole('combobox'));
         await user.paste(query);
-        await screen.findByRole('option', { name: /all patient results/i });
+        if (!patientsAfterMs) {
+          await screen.findByRole('option', { name: /all patient results/i });
+        }
         return { user, conceptsArrive: () => act(async () => conceptsArrive()) };
       };
 
       it.each([
         ['another patient', john],
         ["the chart's own patient", chartOwner],
-      ])(
-        'highlights the one patient it finds, %s, with chart lookup idle, and opens them on Enter',
-        async (_, patient) => {
-          const { user } = await search(scanned, [patient], 'querystore');
+      ])('highlights the one patient it finds, %s, with chart lookup idle, and opens them on Enter', async (_, patient) => {
+        const { user } = await search(scanned, [patient], { source: 'querystore' });
 
-          await wait(chartValuesGraceMs);
-          expect(screen.getByRole('option', { name: new RegExp(patient.person.display) })).toHaveAttribute(
-            'aria-selected',
-            'true',
-          );
-          expect(highlighted()).toHaveLength(1);
-          await user.keyboard('{Enter}');
-          expect(landedOn()).toBe(`/openmrs/spa/patient/${patient.uuid}/chart/`);
-        },
-      );
+        await wait(chartValuesGraceMs);
+        expect(screen.getByRole('option', { name: new RegExp(patient.person.display) })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        );
+        expect(highlighted()).toHaveLength(1);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe(chartOf(patient));
+      });
+
+      it('matches the identifier whatever its case', async () => {
+        const { user } = await search(scanned.toLowerCase(), [john], { source: 'querystore' });
+
+        expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe(chartOf(john));
+      });
 
       it('waits for chart lookup on REST up to the grace period, then highlights the patient', async () => {
-        const { user } = await search(scanned, [john], 'rest');
+        const { user } = await search(scanned, [john], { source: 'rest' });
 
         expect(highlighted()).toEqual([]);
         await user.keyboard('{Enter}');
         expect(navigate).not.toHaveBeenCalled();
-        await wait(chartValuesGraceMs - 500);
+        await wait(500);
         expect(highlighted()).toEqual([]);
 
-        await wait(500);
+        await wait(chartValuesGraceMs - 500);
         expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
         await user.keyboard('{Enter}');
-        expect(landedOn()).toBe(`/openmrs/spa/patient/${john.uuid}/chart/`);
+        expect(landedOn()).toBe(chartOf(john));
       });
 
       it('highlights the patient as soon as chart lookup on REST finds nothing', async () => {
-        const { user, conceptsArrive } = await search(scanned, [john], 'rest');
+        const { user, conceptsArrive } = await search(scanned, [john], { source: 'rest' });
 
         expect(highlighted()).toEqual([]);
         await conceptsArrive();
         expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
         await user.keyboard('{Enter}');
-        expect(landedOn()).toBe(`/openmrs/spa/patient/${john.uuid}/chart/`);
+        expect(landedOn()).toBe(chartOf(john));
+      });
+
+      it('hands the highlight to a chart value that arrives after the grace period', async () => {
+        const { user, conceptsArrive } = await search(scanned, [john], {
+          source: 'rest',
+          concepts: [{ uuid: 'cd4-uuid', display: 'CD4 count', datatype: { display: 'Numeric' } }],
+        });
+        await wait(chartValuesGraceMs);
+        expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
+
+        await conceptsArrive();
+        expect(await screen.findByRole('option', { name: /CD4 count: 350/ })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
       });
 
       it('never highlights the one patient a name finds', async () => {
-        const { user, conceptsArrive } = await search('john', [john], 'rest');
+        const { user, conceptsArrive } = await search('john', [john], { source: 'rest' });
 
         await conceptsArrive();
         await wait(chartIndexingGraceMs);
@@ -2575,8 +2642,23 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(navigate).not.toHaveBeenCalled();
       });
 
+      it.each([
+        ['4273MO-2', '4273MO-20'],
+        ['120', '1200'],
+      ])(
+        'never highlights the one patient "%s" finds when no identifier of theirs is exactly that, such as %s',
+        async (query, stored) => {
+          const { user } = await search(query, [{ ...john, identifiers: withId(stored) }], { source: 'querystore' });
+
+          await wait(chartIndexingGraceMs);
+          expect(highlighted()).toEqual([]);
+          await user.keyboard('{Enter}');
+          expect(navigate).not.toHaveBeenCalled();
+        },
+      );
+
       it('highlights none of the patients when it finds two', async () => {
-        const { user } = await search(scanned, [john, chartOwner], 'querystore');
+        const { user } = await search(scanned, [john, chartOwner], { source: 'querystore' });
 
         await wait(chartIndexingGraceMs);
         expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'false');
@@ -2586,19 +2668,135 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(navigate).not.toHaveBeenCalled();
       });
 
+      it('takes the highlight back when a second patient arrives for the same ID', async () => {
+        let findSecond: () => void;
+        const Growing: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+          const [patients, setPatients] = React.useState([john]);
+          findSecond = () => setPatients([john, grace]);
+          useEffect(
+            () => report({ query, title: 'Other patients', status: 'ready', results: patients.map(patientRow) }),
+            [query, report, patients],
+          );
+          return null;
+        };
+        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+        mountProviders([shipped('omnibar-patient-search-provider', Growing)]);
+        render(<Omnibar />);
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        await user.click(screen.getByRole('combobox', { name: /search this chart/i }));
+        await user.paste(scanned);
+        expect(await screen.findByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
+
+        act(() => findSecond());
+        await screen.findByRole('option', { name: /Grace Phiri/ });
+        expect(highlighted()).toEqual([]);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it('never highlights the patient from a cached answer while the search runs again', async () => {
+        const cache = new Map();
+        const { user } = await search(scanned, [john], { source: 'querystore', cache });
+        expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
+        await user.keyboard('{Escape}');
+
+        // Since then, a second patient was given the same ID.
+        mockOpenmrsFetch.mockImplementation((url: string) =>
+          url.includes('/patient?')
+            ? new Promise((resolve) =>
+                setTimeout(() => resolve({ data: { results: [john, grace] } } as FetchResponse), 500),
+              )
+            : new Promise(() => {}),
+        );
+        await user.click(screen.getByRole('combobox'));
+        await user.paste(scanned);
+        await screen.findByRole('option', { name: /John Moyo/ });
+        expect(highlighted()).toEqual([]);
+
+        await wait(500);
+        await screen.findByRole('option', { name: /Grace Phiri/ });
+        expect(highlighted()).toEqual([]);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it('highlights none of the patients when another provider lists someone else for it', async () => {
+        const Registry: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+          useEffect(
+            () => report({ query, title: 'Registry', status: 'ready', results: [patientRow(grace)] }),
+            [query, report],
+          );
+          return null;
+        };
+        const { user } = await search(scanned, [john], {
+          source: 'querystore',
+          more: [{ name: 'registry', meta: { ...navigateLane, defaultInChart: true }, component: Registry }],
+        });
+
+        await screen.findByRole('option', { name: /Grace Phiri/ });
+        await wait(chartIndexingGraceMs);
+        expect(highlighted()).toEqual([]);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it('keeps a page highlighted by default when the patient arrives after it', async () => {
+        const Pages: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+          useEffect(() => report(ready(query, 'Pages', ['Wristband printing'])), [query, report]);
+          return null;
+        };
+        const { user } = await search(scanned, [john], {
+          source: 'querystore',
+          patientsAfterMs: 300,
+          more: [{ name: 'pages', meta: { ...navigateLane, defaultInChart: true }, component: Pages }],
+        });
+        expect(await screen.findByRole('option', { name: 'Wristband printing' })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        );
+
+        await wait(300);
+        await screen.findByRole('option', { name: /John Moyo/ });
+        expect(screen.getByRole('option', { name: 'Wristband printing' })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/Wristband%20printing');
+      });
+
+      it('never highlights the patient when the search may have cut off a second one, at one result', async () => {
+        const { user } = await search(scanned, [john], { source: 'querystore', patientSearch: { maxResults: 1 } });
+
+        await wait(chartIndexingGraceMs);
+        expect(highlighted()).toEqual([]);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it("never highlights the patient when the patient's chart is configured on another site", async () => {
+        const { user } = await search(scanned, [john], {
+          source: 'querystore',
+          patientSearch: { patientChartUrl: 'https://elsewhere.example/patient/${patientUuid}/chart/' },
+        });
+
+        await wait(chartIndexingGraceMs);
+        expect(highlighted()).toEqual([]);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
       it('highlights the patient at once outside a chart, as before', async () => {
-        const { user } = await search(scanned, [john], 'rest', '/openmrs/spa/home');
+        const { user } = await search(scanned, [john], { source: 'rest', path: '/openmrs/spa/home' });
 
         expect(screen.getByRole('option', { name: /John Moyo/ })).toHaveAttribute('aria-selected', 'true');
         await user.keyboard('{Enter}');
-        expect(landedOn()).toBe(`/openmrs/spa/patient/${john.uuid}/chart/`);
+        expect(landedOn()).toBe(chartOf(john));
       });
 
       it.each([
         ['arrowed to', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{ArrowDown}{ArrowDown}')],
         ['pointed at', async () => fireEvent.mouseMove(seeAll(), { movementX: 4, movementY: 2 })],
       ])('leaves a row the user %s alone when the wait for chart lookup ends', async (_, pick) => {
-        const { user } = await search(scanned, [john], 'rest');
+        const { user } = await search(scanned, [john], { source: 'rest' });
 
         await pick(user);
         expect(seeAll()).toHaveAttribute('aria-selected', 'true');
@@ -2609,30 +2807,17 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(landedOn()).toBe(`/openmrs/spa/search?query=${scanned}`);
       });
 
-      it('never highlights the one patient another provider finds for it', async () => {
+      it('never highlights the one patient another provider finds for it, even one that may be the default', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
         window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
         const Wristbands: React.FC<OmnibarProviderProps> = ({ query, report }) => {
           useEffect(
-            () =>
-              report({
-                query,
-                title: 'Wristbands',
-                status: 'ready',
-                results: [
-                  {
-                    id: `patient:${john.uuid}`,
-                    title: 'John Moyo',
-                    patient: { uuid: john.uuid },
-                    target: { type: 'navigate', to: `/openmrs/spa/patient/${john.uuid}/chart/` },
-                  },
-                ],
-              }),
+            () => report({ query, title: 'Wristbands', status: 'ready', results: [patientRow(john)] }),
             [query, report],
           );
           return null;
         };
-        mountProviders([{ name: 'wristbands', meta: recordLane, component: Wristbands }]);
+        mountProviders([{ name: 'wristbands', meta: { ...recordLane, defaultInChart: true }, component: Wristbands }]);
         render(<Omnibar />);
 
         await user.click(screen.getByRole('combobox', { name: /search this chart/i }));
