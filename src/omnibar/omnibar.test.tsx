@@ -984,6 +984,70 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(launchWorkspace2).not.toHaveBeenCalled();
     });
 
+    it('refuses a launch whose workspace props name another patient than the open group it requires', async () => {
+      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      const target = (workspacePatientUuid: unknown) => ({
+        type: 'workspace' as const,
+        workspaceName: 'ai-chat-workspace',
+        workspaceProps: { patientUuid: workspacePatientUuid, initialQuestion: 'what happened at the last visit' },
+        requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+      });
+
+      expect(await executeTarget(target(otherPatientUuid))).toBe(false);
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+
+      // Only two strings that differ are refused; props without a patient string launch as before.
+      expect(await executeTarget(target(undefined))).toBe(true);
+      expect(await executeTarget(target(42))).toBe(true);
+      expect(await executeTarget(target(chartPatientUuid))).toBe(true);
+      expect(launchWorkspace2).toHaveBeenCalledTimes(3);
+    });
+
+    it('warns in a snackbar when a picked row names another patient than the open group it requires', async () => {
+      const user = userEvent.setup();
+      const MismatchedRow: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(
+          () =>
+            report({
+              query,
+              title: 'Suggestions',
+              status: 'ready',
+              results: query
+                ? [
+                    {
+                      id: 'ask',
+                      title: 'Ask about someone else',
+                      target: {
+                        type: 'workspace',
+                        workspaceName: 'ai-chat-workspace',
+                        workspaceProps: { patientUuid: '0c1d2e3f-4a5b-4c6d-8e7f-901234567890' },
+                        requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+                      },
+                    },
+                  ]
+                : [],
+            }),
+          [query, report],
+        );
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'mismatched',
+          meta: { lane: 'navigate', scopes: ['patient'], order: 100, defaultInChart: true },
+          component: MismatchedRow,
+        },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'what happened');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(showSnackbar).toHaveBeenCalledTimes(1));
+      expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' }));
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
     it('resolves false only when it refuses the launch', async () => {
       const target = {
         type: 'workspace' as const,
