@@ -8,7 +8,6 @@
 // learn it does more than find patients; when opened it turns light, like the panel below it.
 
 $omnibar-min-width: 18rem;
-$omnibar-max-width: 48rem;
 
 .omnibar {
   position: relative;
@@ -18,25 +17,36 @@ $omnibar-max-width: 48rem;
   margin-inline: layout.$spacing-05;
 }
 
-// On desktop the field fills the header between the location picker and the icons, up to a cap. The
-// navbar's top-nav-actions-slot doesn't grow, so the omnibar's slot entry and the slot itself are told
-// to, and only when the slot holds the omnibar. The other icons in the slot keep their size. Nothing
-// sets min-width: 0, so the field never shrinks below its minimum or onto its neighbours. A browser
-// without :has keeps the fixed width above.
+// The field fills the header between the location picker and the icons. The navbar's
+// top-nav-actions-slot doesn't grow, so the slot and the omnibar's entry in it are told to, and only
+// when the slot holds the omnibar. Both may shrink (min-width: 0), so on tablet the field-shaped
+// button gives way, down to about an icon, before the header overflows the screen. The slot's other
+// icons keep their size. On desktop the field never goes below its minimum. The closed icon-mode
+// magnifier stays at the end, next to the other icons. A browser without :has keeps the fixed widths.
 @supports selector(:has(*)) {
   :global([data-extension-slot-name='top-nav-actions-slot']:has(> [data-extension-id='omnibar'])) {
     flex: 1 1 auto;
+    min-width: 0;
 
     > :global([data-extension-id='omnibar']) {
       display: flex;
       flex: 1 1 auto;
-      justify-content: flex-end;
+      min-width: 0;
 
       > .omnibar:not(.sheet) {
         flex: 1 1 auto;
         width: auto;
         min-width: $omnibar-min-width;
-        max-width: $omnibar-max-width;
+      }
+
+      > .fieldTrigger {
+        flex: 1 1 auto;
+        width: auto;
+        min-width: layout.$spacing-09;
+      }
+
+      > .iconTrigger {
+        margin-inline-start: auto;
       }
     }
 
