@@ -383,6 +383,50 @@ describe('QuerystoreChartProvider', () => {
     });
   });
 
+  describe('dedupe against chart lookup', () => {
+    const obsUuid = 'f1e2d3c4-0000-4000-8000-000000000001';
+    const rows = {
+      status: 'indexed',
+      groups: [
+        makeGroup({ resourceUuid: obsUuid }),
+        makeGroup({ resourceType: 'condition', conceptUuid: 'htn', resourceUuid: 'cond-1', snippet: 'Hypertension' }),
+      ],
+      hits: [
+        makeGroup({ resourceUuid: obsUuid }).latest,
+        makeGroup({ resourceType: 'allergy', conceptUuid: 'pcn', resourceUuid: 'alg-1', snippet: 'Penicillin' }).latest,
+      ],
+    };
+
+    it.each(['cd4', ''])(
+      'marks an obs row with obs:<uuid>, as chart lookup does, and other records with none (query "%s")',
+      async (query) => {
+        mockOpenmrsFetch.mockResolvedValue({ data: rows } as FetchResponse);
+        const report = vi.fn();
+        renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+        await waitFor(() => expect(report.mock.calls.at(-1)[0].results).toHaveLength(2));
+        const [obs, other] = report.mock.calls.at(-1)[0].results;
+        expect(obs.dedupeId).toBe(`obs:${obsUuid}`);
+        expect(other.dedupeId).toBeUndefined();
+      },
+    );
+
+    it('leaves dedupe out in the side-by-side comparison mode, so neither copy is hidden', async () => {
+      mockUseConfig.mockReturnValue({
+        ...defaultConfig(),
+        chartLookup: { ...defaultConfig().chartLookup, source: 'both' },
+      });
+      mockOpenmrsFetch.mockResolvedValue({ data: rows } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].results).toHaveLength(2));
+      for (const result of report.mock.calls.at(-1)[0].results) {
+        expect(result.dedupeId).toBeUndefined();
+      }
+    });
+  });
+
   it('uses the recent endpoint for empty query and titles the group "Recent in this chart"', async () => {
     mockOpenmrsFetch.mockResolvedValue({
       data: {
