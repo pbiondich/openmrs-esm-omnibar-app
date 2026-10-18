@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getDefaultsFromConfigSchema } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import { type CohortCriterion, definitionUrl } from './cohort-definition';
+import goldenFixtures from './golden-fixtures.json';
 import { type CohortCriteriaConfig, parseCohortCriteria } from './parse-cohort-criteria';
 
 const hiv = '64f950e6-1b07-4ac0-8e7e-f3e148f3463f';
@@ -290,5 +291,23 @@ describe('parseCohortCriteria', () => {
         expect(new Set(names).size).toBe(names.length);
       }
     });
+  });
+
+  /**
+   * The same file, byte for byte, is checked by the cohort builder in
+   * src/url-definition/url-definition.test.ts (branch feat/url-definition), so each URL the omnibar
+   * builds here is one the builder decodes, validates and runs. Change both copies together.
+   */
+  describe('golden fixtures shared with the cohort builder', () => {
+    const { cohortBuilder } = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+
+    it.each(goldenFixtures)(
+      'builds exactly the shared link for $text',
+      ({ text, drugCriteriaEnabled, url, definition }) => {
+        const parsed = parseCohortCriteria(text, { ...cohortBuilder, drugCriteriaEnabled });
+        expect(parsed).toEqual(definition);
+        expect(definitionUrl(parsed)).toBe(url);
+      },
+    );
   });
 });
