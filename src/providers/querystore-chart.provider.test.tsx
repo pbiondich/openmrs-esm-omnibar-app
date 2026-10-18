@@ -28,21 +28,44 @@ const renderWithFreshCache = (ui: React.ReactElement) =>
 const defaultConfig = () =>
   ({
     ...(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig),
-    chartLookup: { minSearchCharacters: 2, maxConcepts: 5, maxCandidates: 20, resultsUrl: '/openmrs/spa/patient/${patientUuid}/chart/Results', source: 'querystore' as const },
+    chartLookup: {
+      minSearchCharacters: 2,
+      maxConcepts: 5,
+      maxCandidates: 20,
+      resultsUrl: '/openmrs/spa/patient/${patientUuid}/chart/Results',
+      source: 'querystore' as const,
+    },
   }) satisfies OmnibarConfig;
 
-function makeGroup(overrides: Partial<{
-  conceptUuid: string; conceptName: string; count: number;
-  resourceType: string; resourceUuid: string; date: string;
-  valueNumeric: number; units: string; snippet: string;
-}> = {}) {
+function makeGroup(
+  overrides: Partial<{
+    conceptUuid: string;
+    conceptName: string;
+    count: number;
+    resourceType: string;
+    resourceUuid: string;
+    date: string;
+    valueNumeric: number;
+    units: string;
+    snippet: string;
+  }> = {},
+) {
   const {
-    conceptUuid = 'cd4-uuid', conceptName = 'CD4 count', count = 1,
-    resourceType = 'obs', resourceUuid = 'obs-uuid', date = '2026-03-12',
-    valueNumeric = 350, units = 'cells/µL', snippet = 'CD4 count: 350.0 cells/µL',
+    conceptUuid = 'cd4-uuid',
+    conceptName = 'CD4 count',
+    count = 1,
+    resourceType = 'obs',
+    resourceUuid = 'obs-uuid',
+    date = '2026-03-12',
+    valueNumeric = 350,
+    units = 'cells/µL',
+    snippet = 'CD4 count: 350.0 cells/µL',
   } = overrides;
   return {
-    conceptUuid, conceptName, count, score: 0.9,
+    conceptUuid,
+    conceptName,
+    count,
+    score: 0.9,
     latest: { resourceType, resourceUuid, date, snippet, valueNumeric, units, conceptName, conceptUuid },
   };
 }
@@ -74,9 +97,7 @@ describe('QuerystoreChartProvider', () => {
     mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups: [] } } as FetchResponse);
     const report = vi.fn();
     renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
-    await waitFor(() =>
-      expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })),
-    );
+    await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })));
     const [url] = mockOpenmrsFetch.mock.calls[0];
     expect(url).toContain('/ws/rest/v1/querystore/patient/');
     expect(url).toContain('mode=keyword');
@@ -105,7 +126,9 @@ describe('QuerystoreChartProvider', () => {
     const tz = process.env.TZ;
     process.env.TZ = 'America/Chicago';
     try {
-      mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups: [makeGroup({ date: '2026-03-12' })] } } as FetchResponse);
+      mockOpenmrsFetch.mockResolvedValue({
+        data: { status: 'indexed', groups: [makeGroup({ date: '2026-03-12' })] },
+      } as FetchResponse);
       const report = vi.fn();
       renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
 
@@ -143,7 +166,14 @@ describe('QuerystoreChartProvider', () => {
   });
 
   it('maps non-obs resourceType to the appropriate chart tab', async () => {
-    const conditionGroup = makeGroup({ resourceType: 'condition', conceptUuid: 'cond-uuid', conceptName: 'Hypertension', valueNumeric: undefined, units: undefined, snippet: 'Hypertension' });
+    const conditionGroup = makeGroup({
+      resourceType: 'condition',
+      conceptUuid: 'cond-uuid',
+      conceptName: 'Hypertension',
+      valueNumeric: undefined,
+      units: undefined,
+      snippet: 'Hypertension',
+    });
     mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups: [conditionGroup] } } as FetchResponse);
     const report = vi.fn();
     renderWithFreshCache(<QuerystoreChartProvider query="hyp" context={patientContext} report={report} />);
@@ -175,9 +205,7 @@ describe('QuerystoreChartProvider', () => {
     const report = vi.fn();
     renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
 
-    await waitFor(() =>
-      expect(report).toHaveBeenCalledWith(expect.objectContaining({ status: 'loading' })),
-    );
+    await waitFor(() => expect(report).toHaveBeenCalledWith(expect.objectContaining({ status: 'loading' })));
   });
 
   it('uses the recent endpoint for empty query and titles the group "Recent in this chart"', async () => {
@@ -219,10 +247,16 @@ describe('QuerystoreChartProvider', () => {
       </SWRConfig>,
     );
     // The latest report must be for the new query, not the old one.
-    await waitFor(() =>
-      expect(report.mock.calls.at(-1)[0].query).toBe('cd4 count'),
-    );
-    expect(report.mock.calls.every((call) => call[0].query !== 'cd4' || call[0].status !== 'ready' || call[0].results?.length === 0 || call[0].query === 'cd4')).toBe(true);
+    await waitFor(() => expect(report.mock.calls.at(-1)[0].query).toBe('cd4 count'));
+    expect(
+      report.mock.calls.every(
+        (call) =>
+          call[0].query !== 'cd4' ||
+          call[0].status !== 'ready' ||
+          call[0].results?.length === 0 ||
+          call[0].query === 'cd4',
+      ),
+    ).toBe(true);
   });
 
   it('uses the group heading "In this chart (query store)" when source is both', () => {
@@ -232,9 +266,7 @@ describe('QuerystoreChartProvider', () => {
     });
     const report = vi.fn();
     render(<QuerystoreChartProvider query="x" context={patientContext} report={report} />);
-    expect(report).toHaveBeenLastCalledWith(
-      expect.objectContaining({ title: 'In this chart (query store)' }),
-    );
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'In this chart (query store)' }));
   });
 });
 
@@ -259,9 +291,7 @@ describe('ChartLookupProvider with source config', () => {
     const report = vi.fn();
     renderWithFreshCache(<ChartLookupProvider query="cd4" context={patientContext} report={report} />);
 
-    await waitFor(() =>
-      expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })),
-    );
+    await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })));
     expect(mockOpenmrsFetch).toHaveBeenCalled();
   });
 
@@ -274,9 +304,7 @@ describe('ChartLookupProvider with source config', () => {
     const report = vi.fn();
     renderWithFreshCache(<ChartLookupProvider query="cd4" context={patientContext} report={report} />);
 
-    await waitFor(() =>
-      expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })),
-    );
+    await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })));
   });
 });
 
@@ -284,9 +312,7 @@ describe('QuerystoreChartProvider props contract', () => {
   it('reports idle and does not fetch without a patientUuid', () => {
     mockUseConfig.mockReturnValue(defaultConfig());
     const report = vi.fn();
-    render(
-      <QuerystoreChartProvider query="cd4" context={{ scope: 'global', locale: 'en' }} report={report} />,
-    );
+    render(<QuerystoreChartProvider query="cd4" context={{ scope: 'global', locale: 'en' }} report={report} />);
     expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'idle' }));
     expect(mockOpenmrsFetch).not.toHaveBeenCalled();
   });

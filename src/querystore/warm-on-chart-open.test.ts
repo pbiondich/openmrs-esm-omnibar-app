@@ -50,10 +50,9 @@ describe('setupWarmOnChartOpen', () => {
     fireRoutingEvent(chartUrl(patientUuid));
 
     await vi.waitFor(() =>
-      expect(mockOpenmrsFetch).toHaveBeenCalledWith(
-        `/ws/rest/v1/querystore/patient/${patientUuid}/warm`,
-        { method: 'POST' },
-      ),
+      expect(mockOpenmrsFetch).toHaveBeenCalledWith(`/ws/rest/v1/querystore/patient/${patientUuid}/warm`, {
+        method: 'POST',
+      }),
     );
   });
 
@@ -93,10 +92,9 @@ describe('setupWarmOnChartOpen', () => {
     mockOpenmrsFetch.mockClear();
     fireRoutingEvent(chartUrl(otherUuid));
     await vi.waitFor(() =>
-      expect(mockOpenmrsFetch).toHaveBeenCalledWith(
-        `/ws/rest/v1/querystore/patient/${otherUuid}/warm`,
-        { method: 'POST' },
-      ),
+      expect(mockOpenmrsFetch).toHaveBeenCalledWith(`/ws/rest/v1/querystore/patient/${otherUuid}/warm`, {
+        method: 'POST',
+      }),
     );
   });
 
@@ -162,14 +160,20 @@ describe('setupWarmOnChartOpen', () => {
       });
       teardown = setupWarmOnChartOpen(moduleName);
       await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
-      Object.defineProperty(window, 'location', { value: { pathname: '/openmrs/spa/home' }, writable: true, configurable: true });
+      Object.defineProperty(window, 'location', {
+        value: { pathname: '/openmrs/spa/home' },
+        writable: true,
+        configurable: true,
+      });
 
       await vi.advanceTimersByTimeAsync(6000);
       expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
     });
 
     it('does not retry other failures', async () => {
-      mockOpenmrsFetch.mockRejectedValue(Object.assign(new Error('403'), { response: { status: 403, headers: { get: () => null } } }));
+      mockOpenmrsFetch.mockRejectedValue(
+        Object.assign(new Error('403'), { response: { status: 403, headers: { get: () => null } } }),
+      );
       Object.defineProperty(window, 'location', {
         value: { ...window.location, pathname: chartUrl(patientUuid) },
         writable: true,

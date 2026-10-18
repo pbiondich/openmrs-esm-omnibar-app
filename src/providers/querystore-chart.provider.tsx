@@ -68,7 +68,11 @@ function parseDay(iso: string): Date {
   return new Date(year, month - 1, day);
 }
 
-function hitTitle(hit: QuerystoreHit, conceptName: string | undefined, t: ReturnType<typeof useTranslation>['t']): string {
+function hitTitle(
+  hit: QuerystoreHit,
+  conceptName: string | undefined,
+  t: ReturnType<typeof useTranslation>['t'],
+): string {
   if (hit.valueNumeric != null) {
     const num = formatNumeric(hit.valueNumeric);
     const value = hit.units ? `${num} ${hit.units}` : num;
