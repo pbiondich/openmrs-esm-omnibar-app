@@ -46,7 +46,7 @@
       "component": "querystoreChartProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Patients"],
-      "meta": { "lane": "record", "scopes": ["patient"], "order": 11, "defaultInChart": true }
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true }
     }
   ]
 }
