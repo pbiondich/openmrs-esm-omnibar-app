@@ -1267,7 +1267,7 @@ describe('Omnibar with providers mounted through the slot', () => {
     );
     expect(mogan).toHaveAttribute('aria-selected', 'true');
     // The avatar is drawn locally from the patient's uuid: a generated pattern and up to three initials,
-    // left out of the accessible name. Nothing loads a photo.
+    // left out of the accessible name. With no photo concept configured, nothing loads a photo.
     const avatar = within(mogan).getByTestId('patientAvatar');
     expect(avatar).toHaveTextContent('MZK');
     expect(avatar).toHaveAttribute('aria-hidden', 'true');

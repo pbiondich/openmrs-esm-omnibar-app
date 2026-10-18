@@ -8,6 +8,7 @@
 // search app's 3.5rem tile, then PatientBannerPatientInfo's text.
 
 .avatar {
+  position: relative;
   display: flex;
   flex-shrink: 0;
   align-items: center;
@@ -19,6 +20,14 @@
   border-radius: 1px;
   background-repeat: no-repeat;
   background-size: cover;
+}
+
+.photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .initials {
