@@ -28,7 +28,7 @@ function normalizeIdentifierToken(token: string): string {
   return token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}._/-]+$/gu, '');
 }
 
-function hasIdentifierShape(query: string): boolean {
+export function hasIdentifierShape(query: string): boolean {
   const withoutQuestionMark = query.replace(/\?+$/, '').trim();
   if (uuidPattern.test(withoutQuestionMark) || /^\p{N}+$/u.test(withoutQuestionMark)) {
     return true;

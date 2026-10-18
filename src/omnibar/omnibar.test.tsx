@@ -31,6 +31,10 @@ import ChartLookupProvider from '../providers/chart-lookup.provider';
 import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.provider';
 import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
+import CohortBuilderProvider from '../providers/cohort-builder.provider';
+import CohortCriteriaProvider from '../providers/cohort-criteria.provider';
+import SavedCohortsProvider from '../providers/saved-cohorts.provider';
+import SavedQueriesProvider from '../providers/saved-queries.provider';
 import Omnibar from './omnibar.extension';
 import { executeTarget, getProviderOrder, useResultCollector } from './omnibar.resource';
 import { withProviderBoundary } from './provider-boundary';
@@ -1272,6 +1276,76 @@ describe('Omnibar with providers mounted through the slot', () => {
     identifiers: [{ identifier: '100GEJ', identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' } }],
     person: { display: 'Jane Doe', gender: 'F', birthdate: null, dead: false },
   };
+
+  describe('with the cohort providers registered as shipped', () => {
+    const shipped = (name: string, component: React.ComponentType<OmnibarProviderProps>) => ({
+      name,
+      meta: routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta,
+      component,
+    });
+    const patient = (uuid: string, name: string, identifier: string) => ({
+      uuid,
+      identifiers: [{ identifier, identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' } }],
+      person: { display: name, gender: 'F', birthdate: '1990-01-01T00:00:00.000+0000', dead: false },
+    });
+
+    beforeEach(() => {
+      mountProviders([
+        shipped('omnibar-patient-search-provider', PatientSearchProvider),
+        shipped('omnibar-destinations-provider', DestinationsProvider),
+        shipped('omnibar-cohort-criteria-provider', CohortCriteriaProvider),
+        shipped('omnibar-cohort-builder-provider', CohortBuilderProvider),
+        shipped('omnibar-saved-cohorts-provider', SavedCohortsProvider),
+        shipped('omnibar-saved-queries-provider', SavedQueriesProvider),
+      ]);
+    });
+
+    it.each([
+      ['100GEJ', patient('5d6c7b8a-1f2e-4d3c-9b8a-7f6e5d4c3b2a', 'Betty Williams', '100GEJ')],
+      ['4861TU-4', patient('6e7d8c9b-2a3f-4e4d-8c9b-8a7f6e5d4c3b', 'Grace Achieng', '4861TU-4')],
+    ])('ranks the patient first for the id %j and offers no cohort row', async (id, match) => {
+      const user = userEvent.setup();
+      mockOpenmrsFetch.mockImplementation((url: string) =>
+        Promise.resolve({ data: { results: url.includes('/patient?') ? [match] : [] } } as FetchResponse),
+      );
+      renderWithFreshCache(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), id);
+
+      const first = await screen.findByRole('option', { name: new RegExp(match.person.display) });
+      expect(screen.getAllByRole('option')[0]).toBe(first);
+      expect(first).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByRole('option', { name: /cohort/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/saved cohorts|saved queries|cohorts/i)).not.toBeInTheDocument();
+
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe(`/openmrs/spa/patient/${match.uuid}/chart/`);
+    });
+
+    it('keeps Enter on the patient search while a name starts like "cohort"', async () => {
+      const user = userEvent.setup();
+      const cohen = patient('7f8e9d0c-3b4a-4f5e-9d0c-9b8a7f6e5d4c', 'Cohen Abraham', '1000AB');
+      // Without destinations: the shipped "Patient lists" destination has the keyword "cohort", and any
+      // destination that matches a prefix takes the highlight the same way. That predates these providers.
+      const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+      mockUseConfig.mockReturnValue({ ...defaults, destinations: [] });
+      mockOpenmrsFetch.mockImplementation((url: string) =>
+        Promise.resolve({ data: { results: url.includes('/patient?') ? [cohen] : [] } } as FetchResponse),
+      );
+      renderWithFreshCache(<Omnibar />);
+      const combobox = screen.getByRole('combobox');
+
+      for (const typed of ['co', 'h', 'o']) {
+        await user.type(combobox, typed);
+        const cohenRow = await screen.findByRole('option', { name: /cohen abraham/i });
+        expect(cohenRow).toHaveAttribute('aria-selected', 'true');
+        expect(screen.queryByRole('option', { name: /^Cohort Builder/ })).not.toBeInTheDocument();
+      }
+
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe(`/openmrs/spa/patient/${cohen.uuid}/chart/`);
+    });
+  });
 
   describe('a provider that lists other patients and declares nothing', () => {
     const OtherPatients: React.FC<OmnibarProviderProps> = ({ query, report }) => {

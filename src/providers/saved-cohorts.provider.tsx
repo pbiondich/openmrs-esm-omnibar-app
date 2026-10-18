@@ -5,6 +5,7 @@ import { type OmnibarConfig } from '../config-schema';
 import { savedCohortUrl } from '../cohort/cohort-definition';
 import { type SavedSearchHit, useSavedSearch } from '../cohort/saved-search.resource';
 import { type OmnibarProviderProps } from '../omnibar/types';
+import { hasIdentifierShape } from './chartsearch-question';
 
 /**
  * Saved cohorts by name, from core's `GET /cohort?q=` (case-insensitive "contains"). Each opens in the
@@ -31,7 +32,9 @@ function toCohortHits(data: unknown): Array<SavedSearchHit> {
 const SavedCohortsProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
   const { t } = useTranslation();
   const { cohortBuilder } = useConfig<OmnibarConfig>();
-  const active = context.scope === 'global' && query.length >= cohortBuilder.savedSearchMinCharacters;
+  // An id is a patient lookup: no saved search, so nothing appears under the patient while it loads.
+  const active =
+    context.scope === 'global' && query.length >= cohortBuilder.savedSearchMinCharacters && !hasIdentifierShape(query);
   const url = active
     ? `${restBaseUrl}/cohort?${new URLSearchParams({
         q: query,

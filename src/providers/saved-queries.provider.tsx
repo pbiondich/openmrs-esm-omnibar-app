@@ -5,6 +5,7 @@ import { type OmnibarConfig } from '../config-schema';
 import { savedQueryUrl } from '../cohort/cohort-definition';
 import { type SavedSearchHit, useSavedSearch } from '../cohort/saved-search.resource';
 import { type OmnibarProviderProps } from '../omnibar/types';
+import { hasIdentifierShape } from './chartsearch-question';
 
 /**
  * Saved cohort builder queries by name. The cohort builder stores them as data set definitions named
@@ -35,7 +36,9 @@ function toQueryHits(data: unknown): Array<SavedSearchHit> {
 const SavedQueriesProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
   const { t } = useTranslation();
   const { cohortBuilder } = useConfig<OmnibarConfig>();
-  const active = context.scope === 'global' && query.length >= cohortBuilder.savedSearchMinCharacters;
+  // An id is a patient lookup: no saved search, so nothing appears under the patient while it loads.
+  const active =
+    context.scope === 'global' && query.length >= cohortBuilder.savedSearchMinCharacters && !hasIdentifierShape(query);
   const url = active
     ? `${restBaseUrl}/reportingrest/dataSetDefinition?${new URLSearchParams({
         q: adHocPrefix,

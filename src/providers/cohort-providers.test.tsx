@@ -73,7 +73,7 @@ describe('cohort providers in routes.json', () => {
 
 describe('CohortBuilderProvider', () => {
   it.each([
-    'coh',
+    'cohorts',
     'cohort',
     'Cohort Builder',
     'build cohort',
@@ -90,7 +90,7 @@ describe('CohortBuilderProvider', () => {
     ]);
   });
 
-  it.each(['co', 'mary', '100GEJ', 'cd4', 'findings'])('stays quiet for %j', (query) => {
+  it.each(['co', 'coh', 'cohor', 'build', 'mary', '100GEJ', 'cd4', 'findings'])('stays quiet for %j', (query) => {
     const { last } = renderProvider(CohortBuilderProvider, query);
     expect(last()).toMatchObject({ status: 'idle' });
     expect(last().results).toBeUndefined();
@@ -361,6 +361,15 @@ describe('saved cohorts and saved queries', () => {
     const { last: lastQueries } = renderProvider(SavedQueriesProvider, fresh('hiv'), inChart);
     await settle();
     expect(lastQueries()).toMatchObject({ status: 'idle' });
+    expect(mockOpenmrsFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['100GEJ', '4861TU-4', '123456', 'MRN-1234'])('leaves the id %j to patient search', async (id) => {
+    const { last: lastCohorts } = renderProvider(SavedCohortsProvider, id);
+    const { last: lastQueries } = renderProvider(SavedQueriesProvider, id);
+    await settle();
+    expect(lastCohorts()).toMatchObject({ query: id, status: 'idle' });
+    expect(lastQueries()).toMatchObject({ query: id, status: 'idle' });
     expect(mockOpenmrsFetch).not.toHaveBeenCalled();
   });
 

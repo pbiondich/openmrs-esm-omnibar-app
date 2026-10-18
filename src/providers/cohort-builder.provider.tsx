@@ -8,13 +8,14 @@ import { type OmnibarProviderProps } from '../omnibar/types';
  * population question ("find patients who…"). Outside a chart only; no network.
  */
 
-/** Shown while the query is the start of one of these, from three characters. */
-const NAMES = ['cohort builder', 'cohorts', 'build cohort', 'build a cohort'];
-/** Shown when the query starts with one of these. */
+/**
+ * Shown when the query starts with one of these. A shorter start such as "coh" is left alone: this row
+ * is ready before patient search answers, so it would keep the highlight above a patient like Cohen.
+ */
 const PREFIXES = [
-  'cohort ',
-  'build cohort ',
-  'build a cohort ',
+  'cohort',
+  'build cohort',
+  'build a cohort',
   'find patients who',
   'find patients with',
   'patients who',
@@ -22,7 +23,7 @@ const PREFIXES = [
 
 function asksForCohortBuilder(query: string): boolean {
   const q = query.trim().toLowerCase().replace(/\s+/g, ' ');
-  return (q.length >= 3 && NAMES.some((name) => name.startsWith(q))) || PREFIXES.some((prefix) => q.startsWith(prefix));
+  return PREFIXES.some((prefix) => q.startsWith(prefix));
 }
 
 const CohortBuilderProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
