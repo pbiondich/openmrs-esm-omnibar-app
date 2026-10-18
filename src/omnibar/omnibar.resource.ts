@@ -379,9 +379,10 @@ export function targetNamesOtherPatient(target: OmnibarTarget, chartPatientUuid:
 const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;
 
 /**
- * The only place a result turns into an action. Resolves false when a workspace launch is refused
- * because its required group is no longer open for that patient, or because its workspace, window
- * or group props name another patient than that group's or, inside a chart, the chart's. True otherwise.
+ * The only place a result turns into an action. Resolves false when it refuses: a link off this site
+ * or that can't be read, or a workspace launch whose required group is no longer open for that
+ * patient, or whose workspace, window or group props name another patient than that group's or,
+ * inside a chart, the chart's. True otherwise. A launch that fails rejects.
  */
 export async function executeTarget(
   target: OmnibarTarget,
@@ -394,13 +395,21 @@ export async function executeTarget(
       // (//host, \\host, https:\\host), is somewhere a provider could send a clinician unseen, and a
       // javascript: or data: URL has no origin at all. navigate() interpolates the path again and cuts
       // the first copy of our origin out of it, so a path like //host or /<origin>//host would still
-      // leave the site. The string navigate() will act on is checked as well.
-      const url = new URL(interpolateUrl(target.to), window.location.href);
-      const to = url.pathname + url.search + url.hash;
-      const acted = new URL(interpolateUrl(to).replace(window.location.origin, ''), window.location.origin);
-      if (!isOnThisSite(url) || !isOnThisSite(acted)) {
-        throw new Error('Omnibar results can only link to pages on this site');
+      // leave the site. The string navigate() will act on is checked as well. A link that can't be
+      // read is refused the same way.
+      let url: URL;
+      let acted: URL;
+      try {
+        url = new URL(interpolateUrl(target.to), window.location.href);
+        const path = url.pathname + url.search + url.hash;
+        acted = new URL(interpolateUrl(path).replace(window.location.origin, ''), window.location.origin);
+      } catch {
+        return false;
       }
+      if (!isOnThisSite(url) || !isOnThisSite(acted)) {
+        return false;
+      }
+      const to = url.pathname + url.search + url.hash;
       navigate({ to });
       return true;
     }

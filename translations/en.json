@@ -22,6 +22,8 @@
   "recentPatients": "Recent patients",
   "recordedOn": "Latest, recorded {{date}}",
   "removePatientContext": "Remove {{name}} context",
+  "resultNotOpened": "Couldn’t open that result",
+  "resultNotOpenedSubtitle": "It links to a page outside this site.",
   "results": "Results",
   "search": "Search",
   "searchEverything": "Search patients and pages",
