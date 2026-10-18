@@ -16,7 +16,7 @@ import {
   type OmnibarResult,
   type OmnibarSelectedDetail,
 } from '../omnibar/types';
-import { isUuid, parseVisited, recordVisit } from './patients-visited';
+import { isUuid, parseVisited, recordVisit, type UserProperties } from './patients-visited';
 
 /**
  * Patient search, extracted from esm-patient-search-app as the omnibar's first provider. It uses
@@ -33,10 +33,6 @@ interface SearchedPatient {
   uuid: string;
   identifiers: Array<{ identifier: string; identifierType?: { uuid: string; display: string } }>;
   person: { display: string; gender: string; birthdate: string | null; dead: boolean };
-}
-
-interface UserProperties {
-  userProperties: Record<string, string>;
 }
 
 const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((response) => response.data);

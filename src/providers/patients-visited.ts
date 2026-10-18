@@ -25,7 +25,7 @@ export const addVisit = (patientUuid: string, patientsVisited: string | undefine
     .slice(0, maxVisited)
     .join(',');
 
-interface UserProperties {
+export interface UserProperties {
   userProperties?: Record<string, string>;
 }
 
