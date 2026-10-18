@@ -886,3 +886,81 @@ No further reviewer round of our own, as asked; Grok re-checks.
 - Tests: 600 after round 1, 603 now (574 before the branch).
 - Failed first: bb297cf 2; f993fa3 1; 8cb4c64 1.
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 603 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+
+## Feature: Query results, first prototype
+
+The brief is [docs/briefs/2026-10-18-query-results.md](docs/briefs/2026-10-18-query-results.md), with the changes Paul agreed before building at its top. Built on `feat/query-results`:
+
+| Change | Commit |
+| --- | --- |
+| Enter inside a chart opens `/patient/<uuid>/chart/query-results?q=…` for what was typed, unless the user arrowed or pointed to a row since their last keystroke. The chart's own patient, never a provider's. `queryResults.enterBehavior: 'open-highlight'` restores the old Enter. A quiet "Enter to see all results for '…'" line at the foot of the list, also a button for touch | 59386d3 |
+| The optional view contract in v1 (`omnibar-query-results-slot`, `OmnibarViewProps`, `OmnibarViewMeta`, `withViewBoundary`), the page registered as a patient chart dashboard with its left-nav link, and the per-patient, per-user query history in `sessionStorage` that re-runs queries and clears at logout | cd74343 |
+| The chart values view (only the concepts the query names, every value newest first, a trend line) and the Ask ChartSearch view (ChartSearch's streaming answer drawn on the page with its citations, verdicts and statements) | 54c788f |
+| Paul's change after trying it: Enter on a question asks ChartSearch at once, and the bar's hint says "…and ask ChartSearch" first. A reopened page (reload, back, bookmark) shows an Ask button instead. Views learn which case they're in from `submitted`, an in-memory, single-use mark the bar sets | ef08c46 |
+
+Found while building:
+
+- A clone of the patient chart inside `scratch/` was picked up by `tsc`; it was moved out of the repo.
+- The views' effects returned `reportState`'s value; a test's `reportState` that returned a number made React warn. Both views now return nothing from the effect.
+- The first screenshot attempt showed the Browser pane hidden, so the sign-in went elsewhere. Not a code issue.
+
+### Review round 1 (security, Claude): no blockers
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| S1 (should-fix) | ChartSearch's safety warning fields had no length cap; only the answer text and the whole stream (2 MB) did | Every string field read from ChartSearch is cut: a safety finding at 5,000 characters, any other field at 500, with "…" so a cut shows. The disclaimer at 1,000. Test: 100,000-character fields come back at the caps | ef08c46 |
+| N1 | `escapeValue: false` with server text in `t()` | No change: every such string lands in a React text node, as everywhere else in the app | none |
+| N2 | The ChartSearch length gate counts UTF-16 units while `capQuery` counts code points | No change: the gate matches ChartSearch's own check (Java `length()`, UTF-16), and a longer query is simply not offered | none |
+| N3 | A 401 mid-stream showed "couldn't answer" rather than saying the session ended | "Your session has ended. Log in again, then ask again." on 401. Test added | ef08c46 |
+
+### Review round 1 (code, Claude): no blockers
+
+The reviewer ran `git stash` in the working checkout early in its review, against its read-only instructions, which took the uncommitted work of the time. It was restored from `stash@{0}` with `git stash apply`, the tests were run (657 passed), it was committed (ef08c46), and the stash dropped. Reviewers are now told to use `git show` or a separate worktree.
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| C1 (should-fix) | A `grounded` event arriving after the stream ended would be dropped | No behaviour change: it comes on the same stream before it ends, and verdicts show only once the stream has ended, so an early end leaves citations "Unverified", never wrongly verified. A comment says so | 662cc35 |
+| C2 (should-fix) | `takeSubmission` ran during render | Read in a layout effect, once per generation, with a ref so StrictMode's double effect doesn't read the used-up mark as "not asked". Test under `React.StrictMode` | 662cc35 |
+| N1 | The disclaimer was cut by UTF-16 unit | Cut by character, as the answer is | 662cc35 |
+| N3 | `reader.releaseLock?.()` | `reader.releaseLock()` | 662cc35 |
+| N2, N4 | The tests' config override; the routing listener runs on every navigation | No change: the first is correct, the second is a cheap no-op off the page | none |
+
+- After round 1: 658 tests.
+
+### Review round 2 (security, Claude, two passes on ef08c46): no blockers
+
+One pass ran as the resumed security reviewer, the other as its own session ("Round-2 security review: auto-ask on submit"). Both checked asking ChartSearch on Enter. Round 1's S1 is confirmed resolved.
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| R2-1 (should-fix) | The "just asked" mark carried no user, so after a logout and another login within a minute, the next user opening the same question would have it asked on the first user's keypress | The mark records the user and is taken only by the same user. It's dropped at logout and when another user logs in, with the history. Tests | cd6c00c |
+| R2-2 (should-fix) | For a question over 1,000 characters the hint promised nothing, but the page cut it and asked anyway | A query the page would cut is never marked, so a cut question is asked only by pressing Ask. The bar's hint doesn't promise ChartSearch for one either. Tests | cd6c00c |
+| R2-3 (should-fix) | The page could ask before ChartSearch's own `maxQuestionLength` had loaded, on the default, which can be longer than the site's | `useChartSearchMaxQuestionLength` is `null` until ChartSearch's config loads, and nothing is offered or asked until then; the bar row keeps the default as before. Test: the limit loads at 10, and nothing is asked | cd6c00c |
+| R2-4 (should-fix, borderline) | Enter on the query already on screen asked nothing, though the hint said it would, and the unused mark could then be taken by a back navigation within a minute | Submitting the query on screen runs it again (the page counts runs into its generation, so views remount with `submitted: true`). The mark is dropped on any navigation that doesn't land on a Query results page. Tests | cd6c00c |
+| N (both passes) | Under React's StrictMode, the automatic request could be stopped by the remount and the section left waiting | The view resets its "asked" flag when it unmounts, so a remount asks again. Since R2-3 the view never asks during its first mount (it waits for the limit), so the case no longer arises; the StrictMode test passes with or without the reset and stays as a guard | cd6c00c |
+| N | The keyboard line at the foot of the bar didn't mention ChartSearch | "↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close" when Enter will ask | cd6c00c |
+| N | History chips didn't say that choosing one asks ChartSearch again | Their tooltip says "Run again and ask ChartSearch" when it will, "Run again" otherwise | cd6c00c |
+
+- Failed first, against ef08c46's code: the limit test (asked at once on the default); the user, logout, cut-query and navigation tests on the mark. The StrictMode test passes either way, as above.
+
+### Re-check of the round-2 fixes (code and security, Claude, in its own worktree): no blockers
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 (should-fix) | An answer still streaming wasn't stopped if ChartSearch stopped being offered (unregistered, or the user's privileges changed) | It's stopped. Test | abed614 |
+| N | The mark was kept on any path with a `query-results` segment | Only a chart's Query results page (`…/chart/query-results`) keeps it. Test | abed614 |
+| N | The route listener is never removed | No change: it's one module-level listener that only clears the mark | none |
+
+### Merging main (PR #10, scanned-ID default; PR #11, handover docs)
+
+`main` gained PR #10 while this was built: inside a chart, the one patient a scanned ID finds may take the default highlight, so Enter opens them. With Enter submitting, a scanner's own Enter would have sent the wristband number to Query results instead. An ID-shaped query (`looksLikeIdentifier` on the typed text) now never submits; Enter opens the highlight, or does nothing yet, as on main, and no "see all results" line is shown. Test: a scanned ID opens the patient row, and with nothing found Enter does nothing; without the exemption it fails. AGENTS.md, the README and decisions.md say so.
+
+Conflicts were only in AGENTS.md, decisions.md and this file, and both sides were kept. PR #10 also explains the focus trouble seen in the screenshots: the backend-mismatch popup took keyboard focus from the bar, which main's 3f9717b fixed.
+
+- Tests on the merged branch: 700. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- Tests: 669.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 669 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- Tried live on a local O3 3.8.0-rc.2 (patient chart 13.0.1) with the omnibar from this branch: `cd4`, `weight`, two questions, an empty result, phone width, and a reload not asking again.
+- No new dependencies, URLs, fonts or CDNs. ChartSearch is called on the OpenMRS server's own `/ws/rest/v1/chartsearchai/search/stream`.
+- Not built: brief item 4c, "Found in the record" from the query store.
+- Seen live, not fixed here: chart values show a CD4 result as 19-Apr-2006 while ChartSearch cites it as 20 April. Chart lookup in the bar shows 19-Apr too, so it's a date display question that predates this branch.

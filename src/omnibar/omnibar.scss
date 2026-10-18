@@ -357,6 +357,30 @@ $omnibar-min-width: 18rem;
   cursor: pointer;
 }
 
+// The quiet line saying what Enter does inside a chart. Also a button, for touch and the pointer.
+.submitHint {
+  @include type.type-style(body-compact-01);
+  display: block;
+  width: 100%;
+  padding: layout.$spacing-04 layout.$spacing-05;
+  border: 0;
+  border-top: 1px solid themes.$border-subtle-01;
+  background: none;
+  color: themes.$link-primary;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+
+  &:hover {
+    background: themes.$layer-hover-01;
+  }
+
+  &:focus-visible {
+    outline: 2px solid themes.$focus;
+    outline-offset: -2px;
+  }
+}
+
 .footer {
   @include type.type-style(label-01);
   padding: layout.$spacing-03 layout.$spacing-05;

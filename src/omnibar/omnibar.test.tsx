@@ -11,6 +11,7 @@ import {
   getGlobalStore,
   getRegisteredWorkspace2Names,
   getDefaultsFromConfigSchema,
+  getSessionStore,
   interpolateUrl,
   launchWorkspace2,
   navigate,
@@ -28,7 +29,7 @@ import {
   userHasAccess,
 } from '@openmrs/esm-framework';
 import { formatPartialDate } from '@openmrs/esm-utils';
-import { configSchema, type OmnibarConfig } from '../config-schema';
+import { configSchema as appConfigSchema, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
 import packageJson from '../../package.json';
 import ChartLookupProvider from '../providers/chart-lookup.provider';
@@ -47,6 +48,9 @@ import {
 } from './omnibar.resource';
 import { withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
+// The framework mock re-exports this module, so this is the store getSessionStore returns.
+import { mockSessionStore } from '@openmrs/esm-api/mock';
+import { takeSubmission } from '../query-results/submission';
 import {
   OMNIBAR_SELECTED_EVENT,
   type OmnibarContext,
@@ -56,6 +60,16 @@ import {
   type OmnibarResult,
   type OmnibarTarget,
 } from './types';
+
+// Most of these tests describe Enter opening the highlighted row, which inside a chart is now the
+// "open-highlight" behaviour. The tests of Enter submitting to Query results set "submit" themselves.
+const configSchema = {
+  ...appConfigSchema,
+  queryResults: {
+    ...appConfigSchema.queryResults,
+    enterBehavior: { ...appConfigSchema.queryResults.enterBehavior, _default: 'open-highlight' },
+  },
+};
 
 // The framework mock's ExtensionSlot renders a render-function child as a React child, and its
 // Extension renders nothing, so no provider ever mounts. These behave like the real ones
@@ -2244,10 +2258,7 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(navigate).not.toHaveBeenCalled();
 
       await conceptsArrive();
-      expect(within(otherPatients).getByRole('option', { name: /jane doe/i })).toHaveAttribute(
-        'aria-selected',
-        'true',
-      );
+      expect(within(otherPatients).getByRole('option', { name: /jane doe/i })).toHaveAttribute('aria-selected', 'true');
       await user.keyboard('{Enter}');
       expect(landedOn()).toBe(`/openmrs/spa/patient/${jane.uuid}/chart/`);
     });
@@ -2473,7 +2484,11 @@ describe('Omnibar with providers mounted through the slot', () => {
         person: { display: 'John Moyo', gender: 'M', birthdate: null, dead: false },
       };
       const chartOwner = { ...john, uuid: chartPatient, person: { ...john.person, display: 'Mary Banda' } };
-      const grace = { ...john, uuid: '7d9b1c3e-5f7a-4b9c-8d1e-3f5a7b9c1d2e', person: { ...john.person, display: 'Grace Phiri' } };
+      const grace = {
+        ...john,
+        uuid: '7d9b1c3e-5f7a-4b9c-8d1e-3f5a7b9c1d2e',
+        person: { ...john.person, display: 'Grace Phiri' },
+      };
       const seeAll = () => screen.getByRole('option', { name: /all patient results/i });
       const highlighted = () =>
         screen.queryAllByRole('option').filter((option) => option.getAttribute('aria-selected') === 'true');
@@ -2572,18 +2587,21 @@ describe('Omnibar with providers mounted through the slot', () => {
       it.each([
         ['another patient', john],
         ["the chart's own patient", chartOwner],
-      ])('highlights the one patient it finds, %s, with chart lookup idle, and opens them on Enter', async (_, patient) => {
-        const { user } = await search(scanned, [patient], { source: 'querystore' });
+      ])(
+        'highlights the one patient it finds, %s, with chart lookup idle, and opens them on Enter',
+        async (_, patient) => {
+          const { user } = await search(scanned, [patient], { source: 'querystore' });
 
-        await wait(chartValuesGraceMs);
-        expect(screen.getByRole('option', { name: new RegExp(patient.person.display) })).toHaveAttribute(
-          'aria-selected',
-          'true',
-        );
-        expect(highlighted()).toHaveLength(1);
-        await user.keyboard('{Enter}');
-        expect(landedOn()).toBe(chartOf(patient));
-      });
+          await wait(chartValuesGraceMs);
+          expect(screen.getByRole('option', { name: new RegExp(patient.person.display) })).toHaveAttribute(
+            'aria-selected',
+            'true',
+          );
+          expect(highlighted()).toHaveLength(1);
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe(chartOf(patient));
+        },
+      );
 
       it('matches the identifier whatever its case', async () => {
         const { user } = await search(scanned.toLowerCase(), [john], { source: 'querystore' });
@@ -2673,15 +2691,18 @@ describe('Omnibar with providers mounted through the slot', () => {
       it.each([
         [scanned, '2'],
         ['john', '1'],
-      ])('asks patient search, limited to one result, for at least two patients for an ID: "%s" asks for %s', async (query, limit) => {
-        await search(query, [john], { source: 'querystore', patientSearch: { maxResults: 1 } });
+      ])(
+        'asks patient search, limited to one result, for at least two patients for an ID: "%s" asks for %s',
+        async (query, limit) => {
+          await search(query, [john], { source: 'querystore', patientSearch: { maxResults: 1 } });
 
-        const limits = mockOpenmrsFetch.mock.calls
-          .map(([path]) => new URL(path, 'http://localhost'))
-          .filter((url) => url.pathname.endsWith('/patient'))
-          .map((url) => url.searchParams.get('limit'));
-        expect(limits).toEqual([limit]);
-      });
+          const limits = mockOpenmrsFetch.mock.calls
+            .map(([path]) => new URL(path, 'http://localhost'))
+            .filter((url) => url.pathname.endsWith('/patient'))
+            .map((url) => url.searchParams.get('limit'));
+          expect(limits).toEqual([limit]);
+        },
+      );
 
       it('highlights none of the patients when it finds two', async () => {
         const { user } = await search(scanned, [john, chartOwner], { source: 'querystore' });
@@ -2867,7 +2888,13 @@ describe('Omnibar with providers mounted through the slot', () => {
         const builtIn = shipped('omnibar-patient-search-provider', PatientSearchProvider);
         mountProviders([builtIn]);
         mockUseAssignedExtensions.mockReturnValue([
-          { id: builtIn.name, name: builtIn.name, moduleName: '@openmrs/esm-other-app', meta: builtIn.meta, config: null },
+          {
+            id: builtIn.name,
+            name: builtIn.name,
+            moduleName: '@openmrs/esm-other-app',
+            meta: builtIn.meta,
+            config: null,
+          },
         ]);
         renderWithFreshCache(<Omnibar />);
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -5094,5 +5121,309 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(landedOn()).toBe('/second');
       });
     });
+  });
+});
+
+describe('Enter inside a chart, with Query results', () => {
+  const chartPatient = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+  const otherPatient = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+  const inChart: OmnibarProviderMeta = {
+    lane: 'record',
+    scopes: ['global', 'patient'],
+    order: 10,
+    defaultInChart: true,
+  };
+  const queryResultsFor = (query: string, patient = chartPatient) =>
+    `/openmrs/spa/patient/${patient}/chart/query-results?${new URLSearchParams({ q: query })}`;
+  const reportsRows = (rows: Array<OmnibarResult>): React.FC<OmnibarProviderProps> =>
+    function ReportsRows({ query, report }) {
+      useEffect(
+        () => report({ query, title: 'In this chart', status: 'ready', results: query ? rows : [] }),
+        [query, report],
+      );
+      return null;
+    };
+  const rows: Array<OmnibarResult> = [
+    { id: 'cd4', title: 'CD4 count: 350', target: { type: 'navigate', to: '/cd4' } },
+    { id: 'cd4-percent', title: 'CD4 %: 20', target: { type: 'navigate', to: '/cd4-percent' } },
+  ];
+  // Real defaults, so Enter submits, as it does on a server with no config.
+  const withEnter = (enterBehavior?: 'submit' | 'open-highlight') => {
+    const defaults = getDefaultsFromConfigSchema(appConfigSchema) as OmnibarConfig;
+    mockUseConfig.mockReturnValue(
+      enterBehavior ? { ...defaults, queryResults: { ...defaults.queryResults, enterBehavior } } : defaults,
+    );
+  };
+
+  beforeEach(() => {
+    mockUseLayoutType.mockReturnValue('small-desktop');
+    withEnter();
+    // A submission is marked for the logged-in user.
+    vi.mocked(getSessionStore).mockReturnValue(mockSessionStore);
+    mockSessionStore.setState({
+      loaded: true,
+      session: { authenticated: true, sessionId: 's', user: { uuid: 'nurse' } },
+    } as never);
+    window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Results`);
+  });
+  afterEach(() => window.history.pushState({}, '', '/'));
+
+  it('is the default: the config schema says submit', () => {
+    expect((getDefaultsFromConfigSchema(appConfigSchema) as OmnibarConfig).queryResults.enterBehavior).toBe('submit');
+  });
+
+  it('opens Query results for what was typed, while the best match keeps its highlight as a cue', async () => {
+    const user = userEvent.setup();
+    mountProviders([{ name: 'chart', meta: inChart, component: reportsRows(rows) }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    expect(await screen.findByRole('option', { name: 'CD4 count: 350' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Enter to see all results for “cd4”' })).toBeInTheDocument();
+    expect(screen.getByText('↑ ↓ to choose a result, Enter to see all, Esc to close')).toBeInTheDocument();
+
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe(queryResultsFor('cd4'));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    // The page learns the user asked, so a view may answer at once.
+    expect(takeSubmission(chartPatient, 'cd4')).toBe(true);
+    expect(takeSubmission(chartPatient, 'cd4')).toBe(false);
+  });
+
+  it('says in the hint when Enter will also ask ChartSearch', async () => {
+    const user = userEvent.setup();
+    mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
+    vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
+    vi.mocked(userHasAccess).mockReturnValue(true);
+    mountProviders([]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'when did he start ART?');
+    expect(
+      await screen.findByRole('button', {
+        name: 'Enter to see all results for “when did he start ART?” and ask ChartSearch',
+      }),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText('↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close'),
+    ).toBeInTheDocument();
+
+    vi.mocked(userHasAccess).mockReturnValue(false);
+    await user.type(screen.getByRole('combobox'), ' ');
+    expect(
+      screen.getByRole('button', { name: 'Enter to see all results for “when did he start ART?”' }),
+    ).toBeInTheDocument();
+  });
+
+  it('promises nothing, and marks nothing, for a question longer than the page takes', async () => {
+    mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
+    vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
+    vi.mocked(userHasAccess).mockReturnValue(true);
+    vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 5000 });
+    mountProviders([]);
+    render(<Omnibar />);
+
+    const long = `what ${'x'.repeat(1100)}?`;
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: long } });
+    expect(
+      await screen.findByRole('button', { name: /^Enter to see all results for “what x+\?”$/ }),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect(takeSubmission(chartPatient, long.slice(0, 1000))).toBe(false);
+  });
+
+  it('keeps working when the workspace registry fails', async () => {
+    const user = userEvent.setup();
+    mockGetRegisteredWorkspace2Names.mockImplementation(() => {
+      throw new Error('registry failed');
+    });
+    mountProviders([]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'when did he start ART?{Enter}');
+    expect(landedOn()).toBe(queryResultsFor('when did he start ART?'));
+  });
+
+  it('submits the typed text before any provider has answered', async () => {
+    const user = userEvent.setup();
+    const Silent: React.FC<OmnibarProviderProps> = () => null;
+    mountProviders([{ name: 'chart', meta: inChart, component: Silent }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'weight{Enter}');
+    expect(landedOn()).toBe(queryResultsFor('weight'));
+  });
+
+  it('opens the row the user arrowed to instead, until they type again', async () => {
+    const user = userEvent.setup();
+    mountProviders([{ name: 'chart', meta: inChart, component: reportsRows(rows) }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    await screen.findByRole('option', { name: 'CD4 count: 350' });
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('option', { name: 'CD4 %: 20' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('button', { name: /see all results/ })).not.toBeInTheDocument();
+    expect(screen.getByText('↑ ↓ to move, Enter to open, Esc to close')).toBeInTheDocument();
+
+    await user.type(screen.getByRole('combobox'), ' ');
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe(queryResultsFor('cd4'));
+
+    vi.mocked(navigate).mockClear();
+    render(<Omnibar />);
+    await user.type(screen.getAllByRole('combobox').at(-1), 'cd4');
+    await screen.findAllByRole('option', { name: 'CD4 count: 350' });
+    await user.keyboard('{ArrowDown}{ArrowUp}{Enter}');
+    expect(landedOn()).toBe('/cd4');
+  });
+
+  it('opens a row the pointer moved to, but not one rows slid under a still pointer', async () => {
+    const user = userEvent.setup();
+    mountProviders([{ name: 'chart', meta: inChart, component: reportsRows(rows) }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    const second = await screen.findByRole('option', { name: 'CD4 %: 20' });
+    fireEvent.mouseMove(second, { movementX: 0, movementY: 0 });
+    expect(screen.getByRole('button', { name: /see all results/ })).toBeInTheDocument();
+    fireEvent.mouseMove(second, { movementX: 3, movementY: 1 });
+    expect(second).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe('/cd4-percent');
+  });
+
+  it('submits from the hint too, for touch and the pointer', async () => {
+    const user = userEvent.setup();
+    mockUseLayoutType.mockReturnValue('tablet');
+    mountProviders([{ name: 'chart', meta: inChart, component: reportsRows(rows) }]);
+    render(<Omnibar />);
+
+    await user.click(screen.getByRole('button', { name: /search this chart/i }));
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    await user.click(screen.getByRole('button', { name: 'See all results for “cd4”' }));
+    expect(landedOn()).toBe(queryResultsFor('cd4'));
+  });
+
+  it('always uses the chart’s patient, whatever the highlighted row names', async () => {
+    const user = userEvent.setup();
+    mountProviders([
+      {
+        name: 'chart',
+        meta: inChart,
+        component: reportsRows([
+          {
+            id: 'theirs',
+            title: 'Their chart',
+            target: { type: 'navigate', to: `/openmrs/spa/patient/${otherPatient}/chart` },
+          },
+        ]),
+      },
+    ]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'their{Enter}');
+    expect(landedOn()).toBe(queryResultsFor('their'));
+  });
+
+  it('carries the query safely in the URL, trimmed and cut to 1000 characters', async () => {
+    const user = userEvent.setup();
+    mountProviders([]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), '  a&b=c #1/2?  {Enter}');
+    expect(landedOn()).toBe(queryResultsFor('a&b=c #1/2?'));
+    expect(new URL(landedOn(), 'http://x').searchParams.get('q')).toBe('a&b=c #1/2?');
+
+    const long = 'x'.repeat(1200);
+    render(<Omnibar />);
+    fireEvent.change(screen.getAllByRole('combobox').at(-1), { target: { value: long } });
+    fireEvent.keyDown(screen.getAllByRole('combobox').at(-1), { key: 'Enter' });
+    expect(new URL(landedOn(), 'http://x').searchParams.get('q')).toBe('x'.repeat(1000));
+  });
+
+  it('does nothing for Enter that ends an input method’s composition', async () => {
+    const user = userEvent.setup();
+    mountProviders([]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter', isComposing: true });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('with "open-highlight", opens the highlighted row as before, with no hint', async () => {
+    const user = userEvent.setup();
+    withEnter('open-highlight');
+    mountProviders([{ name: 'chart', meta: inChart, component: reportsRows(rows) }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    await screen.findByRole('option', { name: 'CD4 count: 350' });
+    expect(screen.queryByRole('button', { name: /see all results/ })).not.toBeInTheDocument();
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe('/cd4');
+  });
+
+  it('outside a chart, opens the highlighted row, with no hint', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/openmrs/spa/home');
+    mountProviders([{ name: 'pages', meta: inChart, component: reportsRows(rows) }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    await screen.findByRole('option', { name: 'CD4 count: 350' });
+    expect(screen.queryByRole('button', { name: /see all results/ })).not.toBeInTheDocument();
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe('/cd4');
+  });
+
+  it('after widening the search to everything, opens the highlighted row', async () => {
+    const user = userEvent.setup();
+    mountProviders([{ name: 'chart', meta: inChart, component: reportsRows(rows) }]);
+    render(<Omnibar />);
+
+    await user.click(screen.getByRole('combobox'));
+    await user.click(screen.getByRole('button', { name: /remove .* context/i }));
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    await screen.findByRole('option', { name: 'CD4 count: 350' });
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe('/cd4');
+  });
+
+  it('never sends an ID-shaped query to Query results, so a scanner’s Enter still opens the patient', async () => {
+    const user = userEvent.setup();
+    mountProviders([
+      {
+        name: 'chart',
+        meta: inChart,
+        component: reportsRows([{ id: 'p', title: 'Mary Achieng', target: { type: 'navigate', to: '/mary' } }]),
+      },
+    ]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), '100GEJ');
+    await screen.findByRole('option', { name: 'Mary Achieng' });
+    expect(screen.queryByRole('button', { name: /see all results/ })).not.toBeInTheDocument();
+    await user.keyboard('{Enter}');
+    expect(landedOn()).toBe('/mary');
+
+    vi.mocked(navigate).mockClear();
+    const Silent: React.FC<OmnibarProviderProps> = () => null;
+    mountProviders([{ name: 'chart', meta: inChart, component: Silent }]);
+    render(<Omnibar />);
+    await user.type(screen.getAllByRole('combobox').at(-1), '100GEJ{Enter}');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('with nothing typed, does nothing', async () => {
+    const user = userEvent.setup();
+    mountProviders([]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), '   {Enter}');
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

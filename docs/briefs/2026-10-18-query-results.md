@@ -2,6 +2,43 @@
 
 Written 2026-10-18. Not yet given to an agent. See [the briefs index](README.md) for status.
 
+## Changes agreed before building, 2026-10-18
+
+Paul reviewed the plan with the agent before it started. The brief below is kept as given; where it disagrees with these changes, the changes win.
+
+**Item 4b, Ask ChartSearch: the answer appears on the Query results page, not in the side panel.**
+- The view shows the question and an **Ask ChartSearch** button. It never opens or depends on the side panel.
+- Pressing Ask sends the question, with the shell's patient, to ChartSearch's streaming endpoint (`POST chartsearchai/search/stream`), and the answer streams into the page.
+- Design rule 6 is unchanged: nothing is sent on Enter, on opening the page, or on choosing a query from history. Only pressing Ask sends it.
+- For this prototype the view lives in this repo, not in ChartSearch's app. Record it in `docs/decisions.md` as an exception that moves to ChartSearch's app later. There's no fork of `openmrs-esm-chartsearchai` to put it in yet.
+- It shows ChartSearch's statements as that module's README asks:
+  - Citations show as unverified until the stream ends. The view keeps reading after `done` for the verdicts in a `grounded` event.
+  - Reference material is listed apart from this patient's records.
+  - Safety warnings are shown whole, with severity as given and "resolved from" for chart-order bridges.
+  - The caveats are shown as caveats beside the citation they're about, never as verdicts.
+  - It says when the interaction list is cut short, flags a drug class the reference couldn't match, and says when no condition rules were available to screen.
+  - The disclaimer is always shown.
+- Reasoning and preview events aren't shown.
+- An answer with no sources is hidden with a note (design rule 5).
+- When ChartSearch reports an error, the view shows only its own wording, never ChartSearch's message. A server it can't reach shows as "Unavailable right now".
+- The request stops when the query or patient changes, or the page closes.
+- Answers are never stored. History keeps only the question text.
+- The existing ChartSearch row in the bar is unchanged.
+
+**Item 4a, chart values: only the results the query asked for, not a general results viewer.**
+- It shows only the concepts the query itself matched, and only those this patient has values for.
+- It includes a matched set's members only when none of the concepts the query matched directly have values, as for `vitals`. So `cd4` shows CD4 and not the rest of its panel.
+- It uses word-by-word matches only when the whole phrase matched nothing, as chart lookup already does.
+- For each concept it shows:
+  - the latest value and date, shown large;
+  - a small inline trend line for numeric values, with no new dependency;
+  - the earlier values, newest first, with dates, units and the abnormal or critical flag.
+- When there are more values than it shows, it says "Showing the latest N of M".
+- There's no link to the Results viewer, and no panels, filters, tree or date-range controls.
+- Concepts with no values are left out. When none have values, the view reports `empty`, which counts toward the page's "Nothing in … matches" message.
+
+**Item 1, Enter: what counts as choosing a row.** When rows move under a pointer that hasn't moved, that doesn't count as choosing a row; only real pointer movement or the arrow keys do. So with a resting pointer, Enter still submits. That's worth knowing when comparing the two `enterBehavior` settings.
+
 Start it in the omnibar repo, on a new branch from the current `main`:
 
 ```sh

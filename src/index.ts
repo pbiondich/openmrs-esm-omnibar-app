@@ -1,6 +1,7 @@
 import { defineConfigSchema, getAsyncLifecycle } from '@openmrs/esm-framework';
 import { configSchema } from './config-schema';
-import { withProviderBoundary } from './omnibar-contract';
+import { withProviderBoundary, withViewBoundary } from './omnibar-contract';
+import { setupQueryHistoryClearing } from './query-results/query-history';
 import { setupWarmOnChartOpen } from './querystore/warm-on-chart-open';
 
 const moduleName = '@openmrs/esm-omnibar-app';
@@ -18,6 +19,8 @@ export function startupApp() {
   // shell's own chart detection, fires exactly once per chart change, and does not couple to
   // patient-chart-app slot names that can remount on sub-navigation within the chart.
   setupWarmOnChartOpen(moduleName);
+  // Query results history belongs to one login: cleared at logout or when another user logs in.
+  setupQueryHistoryClearing();
 }
 
 export const omnibar = getAsyncLifecycle(() => import('./omnibar/omnibar.extension'), options);
@@ -54,3 +57,21 @@ export const querystoreChartProvider = getAsyncLifecycle(
 export type * from './omnibar-contract';
 export { OMNIBAR_SELECTED_EVENT } from './omnibar-contract';
 export { withProviderBoundary };
+
+export const queryResultsDashboardLink = getAsyncLifecycle(() => import('./query-results/query-results-link'), options);
+
+export const queryResultsPage = getAsyncLifecycle(() => import('./query-results/query-results.page'), options);
+
+const boundedView =
+  (name: string) =>
+  ({ default: View }) => ({ default: withViewBoundary(View, name) });
+
+export const chartValuesView = getAsyncLifecycle(
+  () => import('./views/chart-values.view').then(boundedView('omnibar-chart-values-view')),
+  options,
+);
+
+export const chartSearchAnswerView = getAsyncLifecycle(
+  () => import('./views/chartsearch-answer.view').then(boundedView('omnibar-chartsearch-answer-view')),
+  options,
+);

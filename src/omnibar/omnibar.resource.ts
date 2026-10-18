@@ -352,9 +352,7 @@ function scannedPatientRow(
   const typed = [query, ...query.split(/\s+/).filter(looksLikeIdentifier)]
     .map((text) => text.trim().toLowerCase())
     .filter(Boolean);
-  const holdsTyped = row.patient.identifiers?.some(({ identifier }) =>
-    typed.includes(identifier.trim().toLowerCase()),
-  );
+  const holdsTyped = row.patient.identifiers?.some(({ identifier }) => typed.includes(identifier.trim().toLowerCase()));
   const patient = row.patient.uuid.toLowerCase();
   const vouchedFor = [patient, chartPatientUuid?.toLowerCase()].filter(Boolean);
   const others = groups.flatMap((candidate) => candidate.results ?? []).filter((result) => result !== row);

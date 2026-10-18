@@ -222,6 +222,60 @@ export interface OmnibarProviderProps {
   contractVersion?: number;
 }
 
+/**
+ * Query results views, new in v1 and optional. Pressing Enter on a query inside a chart opens the
+ * chart's Query results section, which mounts every view in this slot with that query. A view is an
+ * ordinary extension, registered from its own app's routes.json with `OmnibarViewMeta` as its meta.
+ * Unlike a provider it renders: one section of the page, with its own heading. The design rules apply
+ * as they do to providers: a view navigates or opens a workspace, never writes to the record, calls a
+ * model only for a query the user just submitted or when the clinician asks in the view, and uses
+ * `context.patientUuid` only.
+ */
+export const OMNIBAR_QUERY_RESULTS_SLOT = 'omnibar-query-results-slot';
+
+/**
+ * What a view tells the host about its section.
+ * - loading: still looking
+ * - empty: nothing for this query; the host hides the section, and when every view says so, the
+ *   page says plainly that nothing matched
+ * - ready: the section has something to show
+ * - error: it failed; the view says so in its own section, never with a server's message
+ * - unavailable: its server couldn't be reached (see `isServerUnreachable`); the view says
+ *   "Unavailable right now" in its own section
+ */
+export type OmnibarViewState = 'loading' | 'empty' | 'ready' | 'error' | 'unavailable';
+
+/** Declared in the view's routes.json entry as `meta`. */
+export interface OmnibarViewMeta {
+  /** Only 'patient' for now: there is no Query results page outside a chart. */
+  scopes: Array<OmnibarScope>;
+  /** Lower comes first. Defaults to 100. */
+  order?: number;
+  /** As for providers: the contract major version, a whole number. Missing means 1. */
+  contract?: number;
+  /** As for providers: not mounted while the query looks like a patient identifier. */
+  skipIdentifierQueries?: boolean;
+}
+
+/** Props every Query results view receives. */
+export interface OmnibarViewProps {
+  query: string;
+  /** The chart's patient, from the host. Never read the patient from the URL. */
+  context: OmnibarContext;
+  /** The contract version the host speaks. */
+  contractVersion: number;
+  /** Dropped once the host has moved past this mount: another query or chart, or the page closing. */
+  reportState: (state: OmnibarViewState) => void;
+  hints?: OmnibarQueryHints;
+  /**
+   * True when the user asked for this query just now: Enter in the bar, its "see all results" line, or
+   * an earlier query chosen on the page. False when the page was reloaded, reached with back or
+   * forward, or opened from a bookmark or the left nav. A view that calls a model calls it only when
+   * this is true, or when the clinician asks in the view.
+   */
+  submitted?: boolean;
+}
+
 /** Fired on window after the user picks a result, for bookkeeping such as recently viewed patients. */
 export const OMNIBAR_SELECTED_EVENT = 'openmrs:omnibar-selected';
 
