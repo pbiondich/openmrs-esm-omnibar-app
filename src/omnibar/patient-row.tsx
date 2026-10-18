@@ -61,7 +61,7 @@ export const PatientRow: React.FC<{ name: string; patient: OmnibarPatient; note?
     demographics.push(['birthdate', formatPartialDate(patient.birthdate, { time: false })]);
   }
   for (const { identifier, typeName, primary } of identifiers) {
-    const label = typeName && <span>{typeName}: </span>;
+    const label = typeName && <span dir="auto">{typeName}: </span>;
     demographics.push([
       `identifier-${identifier}`,
       // The primary identifier sits in a tag, as PatientBannerPatientIdentifiers shows it.
@@ -69,19 +69,21 @@ export const PatientRow: React.FC<{ name: string; patient: OmnibarPatient; note?
         <span className={styles.primaryIdentifier}>
           <Tag className={styles.tag} type="gray">
             {label}
-            <span className={styles.identifierValue}>{identifier}</span>
+            <span className={styles.identifierValue} dir="auto">
+              {identifier}
+            </span>
           </Tag>
         </span>
       ) : (
         <span className={styles.secondaryIdentifier}>
           {label}
-          <span>{identifier}</span>
+          <span dir="auto">{identifier}</span>
         </span>
       ),
     ]);
   }
   if (note) {
-    demographics.push(['note', note]);
+    demographics.push(['note', <span dir="auto">{note}</span>]);
   }
 
   return (

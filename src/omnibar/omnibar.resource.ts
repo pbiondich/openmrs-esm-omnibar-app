@@ -137,7 +137,11 @@ function cleanPatient(patient: unknown): OmnibarPatient | undefined {
           (identifier): identifier is NonNullable<OmnibarPatient['identifiers']>[number] =>
             isObject(identifier) && typeof identifier.identifier === 'string',
         )
-        .map(({ identifier, typeUuid, typeName }) => ({ identifier, typeUuid, typeName }))
+        .map(({ identifier, typeUuid, typeName }) => ({
+          identifier: plainText(identifier),
+          typeUuid: textOrNothing(typeUuid),
+          typeName: plainTextOrNothing(typeName),
+        }))
     : undefined;
   return {
     uuid: patient.uuid,
