@@ -30,7 +30,7 @@ function normalizeIdentifierToken(token: string): string {
 
 function hasIdentifierShape(query: string): boolean {
   const withoutQuestionMark = query.replace(/\?+$/, '').trim();
-  if (uuidPattern.test(withoutQuestionMark)) {
+  if (uuidPattern.test(withoutQuestionMark) || /^\p{N}+$/u.test(withoutQuestionMark)) {
     return true;
   }
 
@@ -39,8 +39,7 @@ function hasIdentifierShape(query: string): boolean {
     (token) =>
       /\p{N}/u.test(token) &&
       identifierCharacters.test(token) &&
-      (/^\p{N}+$/u.test(token) ||
-        (/^\p{N}/u.test(token) && /\p{L}/u.test(token)) ||
+      ((/^\p{N}/u.test(token) && /\p{L}/u.test(token)) ||
         prefixedIdentifier.test(token) ||
         codedIdentifier.test(token)),
   );

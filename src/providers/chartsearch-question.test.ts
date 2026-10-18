@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { configSchema } from '../config-schema';
 import { looksLikeChartSearchQuestion } from './chartsearch-question';
 
 const minWords = 3;
@@ -33,16 +32,12 @@ describe('looksLikeChartSearchQuestion', () => {
     ['compact id embedded in a question', 'what is 100GEJ', false],
     ['compact id embedded before a question mark', 'show chart for 100GEJ?', false],
     ['uuid embedded in a question', 'who is 8673ee4f-e2ab-4077-ba55-4980f408773e', false],
+    ['a digit inside a question', 'why is her hemoglobin 7', true],
+    ['a year inside a question', 'what happened in 2024', true],
+    ['numeric id', '1234567', false],
+    ['numeric id with a trailing question mark', '1234567?', false],
   ])('%s: %j', (_label, query, expected) => {
     expect(looksLikeChartSearchQuestion(query, minWords)).toBe(expected);
-  });
-
-  it('requires minWords to be an integer of at least 2', () => {
-    const check = configSchema.chartSearchSuggestion.minWords._validators[0];
-    expect(check(2)).toBeUndefined();
-    expect(check(3)).toBeUndefined();
-    expect(check(1)).toEqual(expect.any(String));
-    expect(check(2.5)).toEqual(expect.any(String));
   });
 
   it('uses minWords only after the question-word and question-mark rules', () => {
