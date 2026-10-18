@@ -34,6 +34,10 @@ describe('looksLikeChartSearchQuestion', () => {
     ['uuid embedded in a question', 'who is 8673ee4f-e2ab-4077-ba55-4980f408773e', false],
     ['a digit inside a question', 'why is her hemoglobin 7', true],
     ['a year inside a question', 'what happened in 2024', true],
+    ['five digits inside a question', 'show chart 12345', true],
+    ['six digits inside a question', 'find patient 123456', false],
+    ['a long number inside a question', 'find patient 1234567', false],
+    ['a long number after a label', 'mrn 1234567 allergies', false],
     ['numeric id', '1234567', false],
     ['numeric id with a trailing question mark', '1234567?', false],
   ])('%s: %j', (_label, query, expected) => {

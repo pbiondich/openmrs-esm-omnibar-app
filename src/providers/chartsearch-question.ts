@@ -39,7 +39,8 @@ function hasIdentifierShape(query: string): boolean {
     (token) =>
       /\p{N}/u.test(token) &&
       identifierCharacters.test(token) &&
-      ((/^\p{N}/u.test(token) && /\p{L}/u.test(token)) ||
+      (/^\p{N}{6,}$/u.test(token) ||
+        (/^\p{N}/u.test(token) && /\p{L}/u.test(token)) ||
         prefixedIdentifier.test(token) ||
         codedIdentifier.test(token)),
   );
