@@ -413,3 +413,22 @@ The reviewer approved with one should and some nits. All are fixed:
 - Tests: 162 before, 185 after (45 `sameOriginPhotoUrl` cases, 13 row tests).
 - Failed first: 14 tests, including the proxy flip, a dropped query string, every non-photo path, the namespaced cache key, and a same-origin `/openmrs/logout` link in a row.
 - `corepack yarn build`: `Rspack compiled with 1 warning`, the asset size limit on the same two shared chunks (`150.js` at 755.256 KiB, `132.js` at 605.971 KiB).
+## Recents write race
+
+Round 2 left this open. Recording a recent patient POSTed `userProperties` built from the copy SWR loaded when the recents first showed. The server replaces the whole map on that POST, so anything saved since was dropped: a locale, a default location, or a visit the patient search app or another tab had recorded. Two quick picks both started from the same list, so the second save dropped the first visit.
+
+| Change | Commit |
+| --- | --- |
+| Failing tests first. A fake user resource keeps its properties between requests and replaces the whole map on a POST | d9ea92f |
+| `src/providers/patients-visited.ts` holds the property: parsing (canonical UUIDs only, as before), the 10-patient cut, and the save. Each save GETs `/user/{uuid}?v=custom:(userProperties)` with `cache: 'no-store'`, keeps every property it got, sets `patientsVisited`, and POSTs. Saves from one tab go through a module-level promise chain, so each one reads after the previous one finished. A failed save rejects, is reported through `createErrorHandler` (so it still shows in the console), and the next save still runs. The provider refreshes the recents after each save | 5d880b5 |
+
+Still open:
+- Another tab, another device, or another app in this tab saving the same user can still save between our GET and our POST. Then one of the two saves loses. The queue covers only this module's saves in this tab. The window is now one round trip instead of the whole time since the recents loaded. As far as I know the REST user resource takes no version or `If-Match`, so the client can't detect the conflict. Closing it needs a server endpoint that sets one property.
+- The POST still sends only `userProperties`, so other user fields are left as they are. Inside `userProperties` it now sends the full map.
+- Recording a visit costs one more GET. As before, the omnibar records visits only once the recents have loaded.
+
+- Tests before: 166. After: 180 (102 in `src/omnibar/omnibar.test.tsx`, 11 in `src/providers/patients-visited.test.ts`, 36 in `src/providers/chartsearch-question.test.ts`, 31 in `src/providers/chart-lookup-search.test.ts`).
+- Failed first, on d9ea92f with the old provider: `Tests 2 failed | 167 passed (169)`, `Errors 1 error`. "reads the user again just before saving…" ended with the 2 properties the recents had loaded instead of the 3 on the server (`expected { …(2) } to deeply equal { …(3) }`). "saves quick picks one after another…" ended with the first visit dropped. "keeps saving visits after one save fails" raised an unhandled rejection from the failed POST. The new unit file failed to import before the module existed.
+- Mutation checks on 5d880b5: without the queue, 2 tests fail. Without keeping the read properties, 3 fail. With a queue that stalls after a failure, 3 fail.
+- `corepack yarn test`: 180 passed. `corepack yarn typescript` and `corepack yarn lint` are clean.
+- Not tried on a server. That a POST replaces the whole `userProperties` map is inferred from core's `User.setUserProperties` and the REST resource. The cross-tab race is not tested.
