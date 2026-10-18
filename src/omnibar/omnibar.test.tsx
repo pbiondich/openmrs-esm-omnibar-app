@@ -400,6 +400,74 @@ describe('Omnibar with providers mounted through the slot', () => {
     });
   });
 
+  const numeric = (uuid: string, display: string) => ({ uuid, display, datatype: { display: 'Numeric' } });
+  const vitalSigns = [
+    numeric('systolic-uuid', 'Systolic blood pressure'),
+    numeric('diastolic-uuid', 'Diastolic blood pressure'),
+    numeric('temperature-uuid', 'Temperature (c)'),
+    numeric('weight-uuid', 'Weight (kg)'),
+    numeric('pulse-uuid', 'Pulse'),
+  ];
+  const dictionary: Array<{ names: Array<string>; concept: object; setMembers?: Array<object> }> = [
+    ...vitalSigns.map((concept) => ({ names: [concept.display], concept })),
+    {
+      names: ['Weight loss'],
+      concept: { uuid: 'weight-loss-uuid', display: 'Weight loss', datatype: { display: 'Boolean' } },
+    },
+    {
+      names: ['Vital signs', 'Vitals'],
+      concept: { uuid: 'vitals-uuid', display: 'Vital signs', datatype: { display: 'N/A' } },
+      setMembers: vitalSigns,
+    },
+  ];
+  const latestValues: Record<string, { value: number; unit: string }> = {
+    'systolic-uuid': { value: 120, unit: 'mmHg' },
+    'diastolic-uuid': { value: 80, unit: 'mmHg' },
+    'temperature-uuid': { value: 36.8, unit: '°C' },
+    'weight-uuid': { value: 70, unit: 'kg' },
+    'pulse-uuid': { value: 72, unit: 'beats/min' },
+  };
+  const words = (text: string) => text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  /**
+   * Answers the way the REST concept search does on the CIEL dictionary: a concept matches when
+   * every word of `q` starts a word of one of its names, so "latest weight" matches nothing, and
+   * set members come back only when the representation asks for them.
+   */
+  const serveChartDictionary = () =>
+    mockOpenmrsFetch.mockImplementation((path: string) => {
+      const url = new URL(path, 'http://localhost');
+      if (url.pathname.endsWith('/patient')) {
+        return Promise.resolve({
+          data: { results: url.searchParams.get('q') === '100GEJ' ? [jane] : [] },
+        } as FetchResponse);
+      }
+      if (url.pathname.endsWith('/concept')) {
+        const query = words(url.searchParams.get('q'));
+        const results = dictionary
+          .filter(({ names }) =>
+            names.some((name) => query.every((word) => words(name).some((nameWord) => nameWord.startsWith(word)))),
+          )
+          .map(({ concept, setMembers }) =>
+            setMembers && url.searchParams.get('v').includes('setMembers') ? { ...concept, setMembers } : concept,
+          );
+        return Promise.resolve({ data: { results } } as FetchResponse);
+      }
+      if (url.pathname.endsWith('/Observation/$lastn')) {
+        const entry = url.searchParams
+          .get('code')
+          .split(',')
+          .filter((code) => latestValues[code])
+          .map((code) => ({ resource: { code: { coding: [{ code }] }, valueQuantity: latestValues[code] } }));
+        return Promise.resolve({ data: { entry } } as FetchResponse);
+      }
+      return new Promise(() => {});
+    });
+  const conceptSearches = () =>
+    mockOpenmrsFetch.mock.calls
+      .map(([path]) => new URL(path, 'http://localhost'))
+      .filter((url) => url.pathname.endsWith('/concept'))
+      .map((url) => url.searchParams.get('q'));
+
   it('never mounts a provider outside the scopes it declares', async () => {
     const user = userEvent.setup();
     const chartLookupRenders = vi.fn();
@@ -638,6 +706,30 @@ describe('Omnibar with providers mounted through the slot', () => {
       await user.keyboard('{Enter}');
       expect(landedOn()).toBe('/chart%20result');
       expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('offers the row below the chart value for "what is his latest weight?", never as the default', async () => {
+      const user = userEvent.setup();
+      serveChartDictionary();
+      mountProviders([
+        {
+          name: 'omnibar-chart-lookup-provider',
+          meta: routes.extensions.find((extension) => extension.name === 'omnibar-chart-lookup-provider')
+            .meta as OmnibarProviderMeta,
+          component: ChartLookupProvider,
+        },
+        provider,
+      ]);
+      renderWithFreshCache(<Omnibar />);
+
+      await user.click(screen.getByRole('combobox'));
+      await user.paste('what is his latest weight?');
+
+      const weight = await screen.findByRole('option', { name: /Weight \(kg\): 70 kg/ });
+      const ask = screen.getByRole('option', { name: /ask chartsearch/i });
+      expect(weight).toHaveAttribute('aria-selected', 'true');
+      expect(ask).toHaveAttribute('aria-selected', 'false');
+      expect(weight.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('hides the row outside patient scope and when any runtime gate fails', async () => {
@@ -1523,6 +1615,69 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(await screen.findByRole('option', { name: /CD4 count: 350/ })).toHaveAttribute('aria-selected', 'true');
       await user.keyboard('{Enter}');
       expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+    });
+
+    const searchChart = async (query: string) => {
+      const user = userEvent.setup();
+      window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+      serveChartDictionary();
+      mountProviders([
+        shipped('omnibar-patient-search-provider', PatientSearchProvider),
+        shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+      ]);
+      renderWithFreshCache(<Omnibar />);
+      await user.click(screen.getByRole('combobox', { name: /search this chart/i }));
+      await user.paste(query);
+    };
+
+    it.each([
+      ['weight', ['weight'], ['Weight (kg): 70 kg']],
+      ['latest weight', ['weight'], ['Weight (kg): 70 kg']],
+      ["what's her current weight?", ['weight'], ['Weight (kg): 70 kg']],
+      [
+        'show vitals',
+        ['vitals'],
+        [
+          'Systolic blood pressure: 120 mmHg',
+          'Diastolic blood pressure: 80 mmHg',
+          'Temperature (c): 36.8 °C',
+          'Weight (kg): 70 kg',
+          'Pulse: 72 beats/min',
+        ],
+      ],
+      ['last pulse and weight', ['pulse weight', 'pulse', 'weight'], ['Pulse: 72 beats/min', 'Weight (kg): 70 kg']],
+    ])('answers "%s" from the chart, searching %j', async (query, searched, values) => {
+      await searchChart(query);
+
+      const chart = await screen.findByRole('group', { name: 'In this chart' });
+      await waitFor(() =>
+        expect(
+          within(chart)
+            .getAllByRole('option')
+            .map((option) => option.textContent),
+        ).toEqual(values.map((value) => expect.stringContaining(value))),
+      );
+      expect(within(chart).getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');
+      expect(conceptSearches()).toEqual(searched);
+    });
+
+    it('searches the concept dictionary for an ID as before, and still lists the patient it matches', async () => {
+      await searchChart('100GEJ');
+
+      const otherPatients = await screen.findByRole('group', { name: 'Other patients' });
+      expect(within(otherPatients).getByRole('option', { name: /jane doe/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
+      );
+      expect(screen.queryByRole('group', { name: 'In this chart' })).not.toBeInTheDocument();
+      expect(conceptSearches()).toEqual(['100GEJ']);
+    });
+
+    it('makes no concept search for a query of only filler words', async () => {
+      await searchChart('show latest');
+
+      expect(await screen.findByText(/nothing matches/i)).toBeInTheDocument();
+      expect(conceptSearches()).toEqual([]);
     });
   });
 
