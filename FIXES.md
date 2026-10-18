@@ -760,3 +760,36 @@ Tests:
 - The host tests passed five runs in a row.
 - `src/omnibar-contract/` is unchanged. No new translation keys.
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 534 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+
+### Review round 3 (Cursor cloud), with the Grok r3 code and security addendum
+
+Cursor's cloud review of 979dce9 found one blocker, two should-fixes and a nit. Grok's r3 code (S1) and security (S3, N9) reviews confirmed the blocker and gave the design used for it.
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 (Cursor BLOCKER, Grok S1/S3) | The query store reports its first `projecting` or `not_indexed` body as `ready`, even with no rows. The collector counted that as answered, so the hold ended at once and the ward was pinned. The admission row the re-check brought couldn't take the pin back. Rows that a slow provider sent after the 1.5 s grace couldn't either | Inside a chart only. An unanswered provider is a default-eligible record-lane one with no report, `loading` with no rows, or `projecting` with no rows and no `note`. The note is set only once the provider has given up re-checking, so a chart that never indexes still releases. Idle, error, `unavailable`, `failed` and `ready` without projecting are answers. `loading` keeps the 1.5 s cap (`chartValuesGraceMs`). An empty indexing answer gets its own cap, `chartIndexingGraceMs` = 10 s, since the first re-check comes 1.5 s after the empty body. An automatic highlight moves up to a default-eligible record-lane row from a provider ranked before its own once one arrives. A chosen row stays. Global scope keeps the plain pin, and the Home-before-slow-patient test passes unchanged | 6eac1b5, 7a521e1 (tests), aea680e, 8636474, 60be654 |
+| N9 (Grok) | `graceOverFor` was never cleared, so coming back to a query whose wait had ended skipped it | Both waits are stored with their query key and reset during render when the key changes, so any new query, including one the user returns to, waits again | 7a521e1 (test), 8636474 |
+| 2 (Cursor SHOULD-FIX) | In `source: 'both'` the query store rows carry no `dedupeId`. If they answered first, the pin kept them highlighted after chart lookup's higher-ranked row arrived, against the contract doc's "chart lookup wins" | The host rule is general rather than special to destinations. A row isn't chosen as the default while a default-eligible record-lane provider that ranks before it hasn't answered, and the give-way also moves an automatic highlight up to such a provider's row. In `both` mode the query store row waits for chart lookup (order 10). If chart lookup finds nothing, the query store row takes the highlight. Comparison keeps both copies, so no dedupe id comes back. Tested with the real providers in `both` mode | accb836 (test), 8636474 |
+| 3 (Cursor SHOULD-FIX) | The extension is gated only on `Get Observations`, but the rows include conditions, diagnoses, allergies, orders, dispenses, encounters and visits | Each row is shown only if `userHasAccess` grants that type's core privilege to the session's user. The map is the query store backend's own (core `PrivilegeConstants`): `obs` Get Observations, `condition` Get Conditions, `diagnosis` Get Diagnoses (the brief suggested Get Conditions; core has its own), `allergy` Get Allergies, the three order types Get Orders, `medication_dispense` Get Medication Dispense, `encounter` Get Encounters, `visit` Get Visits. Unknown types are dropped, and so is everything when the session has no user. The server must still filter per type itself | 14ec4e2 (test), 6b63854 |
+| 4 (Cursor NIT) | A group whose `conceptUuid` isn't text, or a row with nothing to title it, was reported and then dropped by `cleanResult` | Rows without a text id and title, neither empty, are dropped in the provider | 6026b10 (test), fdc643f |
+| Docs | The contract doc's "The default highlight" said a page takes the default once the provider "reports none", which described a no-row `projecting` report as a finished empty answer | Rewritten. It covers the ranked wait, what counts as an answer (a no-row `projecting` report without a note doesn't), the 1.5 s and 10 s caps, the per-query reset, and the give-way. The "Stale data" guard notes the one exception to "stays where it first landed". AGENTS.md and the `chartLookup.source` description match | b36d926, 197b213 |
+
+How aea680e was superseded:
+- I first counted any no-row `projecting` report as unanswered, and moved the first re-check to 0.5 s so it landed inside the 1.5 s grace.
+- The addendum's design replaced that: the note releases the hold, a separate 10 s cap covers indexing, and late rows give way. So 60be654 restores the reviewed `[1500, 3000, 6000, 12000, 24000]` schedule.
+
+Tests rewritten:
+- The cherry-picked targets test expected an unknown type and a path-like type to land on the chart root. They are now dropped (item 3).
+- The round-3 test "gives the destination the highlight when the chart is still indexing with nothing found past the grace period" became the indexing-cap test. With fake timers, the ward is still not highlighted 3 s in, and is highlighted after the 10 s cap.
+- The first not-indexed test now starts with `not_indexed` and checks that Enter does nothing meanwhile.
+
+- Tests: 534 before, 567 after (`omnibar.test.tsx` +7, provider test +26).
+- Failed first:
+  - 6eac1b5 2 (the ward was pinned at once).
+  - accb836 1 (the query store row held the highlight). Its chart-lookup-finds-nothing case passed and is a guard.
+  - 7a521e1 4: slow first answer, the 10 s cap, the given-up note, and the returning query. The `not_indexed` case passed with aea680e's 0.5 s re-check.
+  - 14ec4e2 26 (24 privilege cases and the two targets tests).
+  - 6026b10 2.
+- The new host tests and the query store tests passed five runs in a row.
+- `src/omnibar-contract/` is unchanged. N8, the `dedupeKey` comment in `types.ts`, is still a follow-up for the original.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 567 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
