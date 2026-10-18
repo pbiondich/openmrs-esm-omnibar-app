@@ -15,6 +15,7 @@ import {
   navigate,
   openmrsFetch,
   PatientPhoto,
+  showSnackbar,
   showToast,
   useAssignedExtensions,
   useConfig,
@@ -834,6 +835,84 @@ describe('Omnibar with providers mounted through the slot', () => {
       openChartGroup(null);
       await executeTarget(target);
       expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('resolves false only when it refuses the launch', async () => {
+      const target = {
+        type: 'workspace' as const,
+        workspaceName: 'ai-chat-workspace',
+        workspaceProps: { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+      };
+      expect(await executeTarget(target)).toBe(true);
+      expect(await executeTarget({ type: 'workspace', workspaceName: 'order-basket' })).toBe(true);
+      expect(await executeTarget({ type: 'navigate', to: '${openmrsSpaBase}/home' })).toBe(true);
+
+      openChartGroup('0c1d2e3f-4a5b-4c6d-8e7f-901234567890');
+      expect(await executeTarget(target)).toBe(false);
+      openChartGroup(null);
+      expect(await executeTarget(target)).toBe(false);
+    });
+
+    describe('when the chart group changes between seeing the row and picking it', () => {
+      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+
+      // A capturing listener on window runs before React's own listener on the root, so the store
+      // changes after the row was drawn and before the omnibar handles the pick.
+      const changeGroupOn = (eventType: 'click' | 'keydown', patientUuid: string | null) =>
+        window.addEventListener(eventType, () => openChartGroup(patientUuid), { capture: true, once: true });
+
+      it.each([
+        ['closes', 'a click', null],
+        ['closes', 'Enter', null],
+        ['opens for another patient', 'a click', otherPatientUuid],
+        ['opens for another patient', 'Enter', otherPatientUuid],
+      ] as const)(
+        'warns in a snackbar and opens nothing when the group %s before %s',
+        async (_, how, patientUuid) => {
+          const user = userEvent.setup();
+          const selected = vi.fn();
+          window.addEventListener(OMNIBAR_SELECTED_EVENT, selected);
+          mountProviders([provider]);
+          render(<Omnibar />);
+
+          await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+          const row = await screen.findByRole('option', { name: /ask chartsearch/i });
+          await user.keyboard('{ArrowDown}');
+          expect(row).toHaveAttribute('aria-selected', 'true');
+
+          if (how === 'a click') {
+            changeGroupOn('click', patientUuid);
+            await user.click(row);
+          } else {
+            changeGroupOn('keydown', patientUuid);
+            await user.keyboard('{Enter}');
+          }
+
+          expect(selected).toHaveBeenCalledTimes(1);
+          expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+          expect(launchWorkspace2).not.toHaveBeenCalled();
+          await waitFor(() => expect(showSnackbar).toHaveBeenCalledTimes(1));
+          expect(showSnackbar).toHaveBeenCalledWith({
+            kind: 'warning',
+            title: 'Couldn’t open the side panel',
+            subtitle: 'This chart’s side panel closed before it could open. Search again to retry.',
+          });
+          window.removeEventListener(OMNIBAR_SELECTED_EVENT, selected);
+        },
+      );
+
+      it('shows no snackbar when the group is still open', async () => {
+        const user = userEvent.setup();
+        mountProviders([provider]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+        await user.click(await screen.findByRole('option', { name: /ask chartsearch/i }));
+
+        await waitFor(() => expect(launchWorkspace2).toHaveBeenCalledTimes(1));
+        expect(showSnackbar).not.toHaveBeenCalled();
+      });
     });
 
     it('hides the row when the question is longer than ChartSearch accepts', async () => {
