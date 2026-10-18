@@ -100,7 +100,7 @@ These rules are what make it safe to let many teams contribute to one search box
 5. **Answers must cite records.** A finished answer with no sources is hidden, with a note saying why.
 6. **Show early, act late.** The bar is a launcher, not a decision-maker. It can suggest anything, but it acts only when the user picks a result, and then only by going somewhere. Nothing typed into it calls a model: a model runs only when the clinician presses Send in the tool that owns it, such as ChartSearch.
 
-Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is still arbitrary code that could call `navigate()` itself. The host's guards are for a provider's mistakes: inside a chart, a result that names another patient never takes the default highlight and a workspace launch for another patient is refused; Enter runs only the target that was highlighted; and a report the bar can't draw is ignored. See [what the host guards against](docs/design/omnibar-provider-contract.md#what-the-host-guards-against).
+Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is still arbitrary code that could call `navigate()` itself. The host's guards are for a provider's mistakes: inside a chart, a result that names another patient never takes the default highlight (except the one patient the built-in patient search finds for a scanned ID) and a workspace launch for another patient is refused; Enter runs only the target that was highlighted; and a report the bar can't draw is ignored. See [what the host guards against](docs/design/omnibar-provider-contract.md#what-the-host-guards-against).
 
 ### The provider contract
 
