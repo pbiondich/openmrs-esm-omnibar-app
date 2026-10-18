@@ -230,6 +230,29 @@ describe('setupWarmOnChartOpen', () => {
       expect(mockOpenmrsFetch).toHaveBeenCalledTimes(3);
     });
 
+    it("cancels the current chart's retry on teardown even after a late 503 from a chart the user left", async () => {
+      let answerFirst: (error: unknown) => void;
+      mockOpenmrsFetch
+        .mockReturnValueOnce(new Promise((_, reject) => (answerFirst = reject)))
+        .mockRejectedValueOnce(unavailable('10'))
+        .mockResolvedValue({ data: { status: 'indexed' } } as FetchResponse);
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+      fireRoutingEvent(chartUrl(otherUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2));
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The second chart's retry is waiting when the first chart's 503 finally arrives.
+      answerFirst(unavailable('30'));
+      await vi.advanceTimersByTimeAsync(0);
+      teardown();
+      teardown = undefined;
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2);
+    });
+
     it('does not retry other failures', async () => {
       mockOpenmrsFetch.mockRejectedValue(
         Object.assign(new Error('403'), { response: { status: 403, headers: { get: () => null } } }),
