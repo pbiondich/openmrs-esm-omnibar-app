@@ -2813,9 +2813,9 @@ describe('Omnibar with providers mounted through the slot', () => {
 
         await user.type(screen.getByRole('combobox'), 'ward');
 
-        const line = screen.getByText((text) => text.startsWith('Indexing the visit notes.'));
-        expect(Array.from(line.textContent)).toHaveLength(200);
-        expect(line.textContent).toBe(`${long.slice(0, 199)}…`);
+        const cut = `${long.slice(0, 199)}…`;
+        expect(Array.from(cut)).toHaveLength(200);
+        expect(screen.getByText(cut)).toBeInTheDocument();
       });
 
       it('shows a note of exactly 200 characters whole', async () => {

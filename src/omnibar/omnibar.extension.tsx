@@ -44,6 +44,17 @@ import styles from './omnibar.scss';
 
 export const providersSlot = 'omnibar-providers-slot';
 
+const maxNoteLength = 200;
+
+/** A provider's note, cut to 200 characters so a server's message in it can't fill the panel. */
+function capNote(note: string | undefined): string | undefined {
+  if (!note) {
+    return undefined;
+  }
+  const characters = Array.from(note);
+  return characters.length > maxNoteLength ? `${characters.slice(0, maxNoteLength - 1).join('')}…` : note;
+}
+
 /** The highlighted row. `chosen` when the user arrowed or pointed to it, rather than it being the default. */
 interface Selection {
   key: string;
@@ -333,15 +344,17 @@ const Omnibar: React.FC = () => {
   const providerError = t('providerError', 'Couldn’t load results');
 
   // The quiet line under a group's heading for the state of its source. A provider's note replaces
-  // the host's words. It is plain text, never a live region: a source going away isn't urgent.
+  // the host's words while indexing or unavailable, cut to 200 characters. A failed group always
+  // says the host's words, as for any error. It is plain text, never a live region: a source going
+  // away isn't urgent.
   const detailLine = (group: OmnibarReport) => {
     switch (group.detail?.state) {
       case 'unavailable':
-        return group.detail.note ?? t('providerUnavailable', 'Unavailable right now');
+        return capNote(group.detail.note) ?? t('providerUnavailable', 'Unavailable right now');
       case 'failed':
-        return group.detail.note ?? providerError;
+        return providerError;
       case 'projecting':
-        return group.detail.note ?? t('providerProjecting', 'Still indexing; results may be incomplete');
+        return capNote(group.detail.note) ?? t('providerProjecting', 'Still indexing; results may be incomplete');
       default:
         return null;
     }
