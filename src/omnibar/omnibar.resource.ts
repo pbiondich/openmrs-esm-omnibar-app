@@ -1,5 +1,6 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { interpolateUrl, launchWorkspace2, navigate } from '@openmrs/esm-framework';
+import { decodeSegment, patientIdsInPath, patientIdsInText } from './patient-path';
 import { getWorkspace2Store, workspaceGroupIsOpen } from './workspace-group';
 import {
   OMNIBAR_CONTRACT_VERSION,
@@ -348,26 +349,31 @@ export function speaksContractOf(extensionName: string, meta: Pick<OmnibarProvid
   return false;
 }
 
-const patientInPath = /\/patient\/([0-9a-f-]{36})(?=\/|$)/gi;
-
 /**
- * The patients a target names: by UUID in a link's path, as in /patient/<uuid>/chart, or as a string
- * `patientUuid` in any of a workspace's props. Null for a link that can't be read, which names no
- * one this host can vouch for.
+ * The patients a target names. A link names one by an id (a UUID, or its 32 hex digits) in the
+ * `/patient/<id>/` position of its path, each segment decoded as the router decodes it, or after
+ * `patient/` in its query string or hash. A workspace names one by a string `patientUuid` in any of
+ * its props, decoded the same way. Null for a link that can't be read, or that still holds a `${`
+ * placeholder after interpolation: it names no one this host can vouch for.
  */
 function patientsNamedBy(target: OmnibarTarget): Array<string> | null {
   if (target.type === 'navigate') {
     let url: URL;
     try {
-      url = new URL(interpolateUrl(target.to), window.location.href);
+      const interpolated = interpolateUrl(target.to);
+      if (interpolated.includes('${')) {
+        return null;
+      }
+      url = new URL(interpolated, window.location.href);
     } catch {
       return null;
     }
-    return Array.from(url.pathname.matchAll(patientInPath), ([, uuid]) => uuid);
+    return [...patientIdsInPath(url.pathname), ...patientIdsInText(url.search + url.hash)];
   }
   return [target.workspaceProps, target.windowProps, target.groupProps]
     .map((props) => (props as { patientUuid?: unknown } | undefined)?.patientUuid)
-    .filter((uuid): uuid is string => typeof uuid === 'string');
+    .filter((uuid): uuid is string => typeof uuid === 'string')
+    .map(decodeSegment);
 }
 
 /** True when the target names a patient other than the chart's, or can't be read. */
