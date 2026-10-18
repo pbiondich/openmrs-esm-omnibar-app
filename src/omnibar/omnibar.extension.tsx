@@ -87,6 +87,7 @@ const Omnibar: React.FC = () => {
           lane: meta.lane,
           order: getProviderOrder(meta, context.scope),
           neverDefault: context.scope === 'patient' && !meta.defaultInChart,
+          dedupeKey: meta.dedupeKey,
         };
       }
     }

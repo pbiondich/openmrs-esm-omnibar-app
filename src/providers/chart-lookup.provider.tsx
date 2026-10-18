@@ -16,6 +16,8 @@ import { type ConceptHit, pickValueConcepts, toConceptSearch } from './chart-loo
  */
 
 interface FhirObservation {
+  /** The obs uuid. */
+  id?: string;
   code: { coding?: Array<{ code?: string; system?: string }> };
   effectiveDateTime?: string;
   valueQuantity?: { value?: number; unit?: string };
@@ -135,6 +137,7 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
             ? t('recordedOn', 'Latest, recorded {{date}}', { date: when, interpolation: { escapeValue: false } })
             : undefined,
           target: { type: 'navigate', to: resultsUrl },
+          dedupeId: obs.id ? `obs:${obs.id}` : undefined,
         };
       });
 

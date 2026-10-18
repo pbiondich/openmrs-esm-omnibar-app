@@ -17,6 +17,7 @@ export interface ProviderGroup extends OmnibarReport {
   providerId: string;
   lane: OmnibarLane;
   order: number;
+  dedupeKey?: string;
 }
 
 export interface SelectableResult extends OmnibarResult {
@@ -30,6 +31,7 @@ export interface ProviderInfo {
   order: number;
   /** Its results are never highlighted by default, only by an arrow key or the pointer. */
   neverDefault?: boolean;
+  dedupeKey?: string;
 }
 
 const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 2 };
@@ -37,6 +39,28 @@ const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 
 /** A failed or unavailable group shows only its heading and one line, so its results are dropped. */
 export function isCollapsed(report: OmnibarReport): boolean {
   return report.detail?.state === 'failed' || report.detail?.state === 'unavailable';
+}
+
+/**
+ * Among providers that share a dedupe key, drops each result whose `dedupeId` a group ranked above it
+ * already shows, so the copy kept is the one from the provider that ranks first. A group left with
+ * nothing is dropped too. Groups must already be in rank order.
+ */
+function dropCopies(groups: Array<ProviderGroup>): Array<ProviderGroup> {
+  const shown = new Map<string, Set<string>>();
+  return groups.flatMap((group) => {
+    if (!group.dedupeKey || !group.results?.length) {
+      return [group];
+    }
+    const shownForKey = shown.get(group.dedupeKey) ?? new Set<string>();
+    shown.set(group.dedupeKey, shownForKey);
+    const results = group.results.filter((result) => !result.dedupeId || !shownForKey.has(result.dedupeId));
+    results.forEach((result) => result.dedupeId && shownForKey.add(result.dedupeId));
+    if (!results.length) {
+      return [];
+    }
+    return [results.length === group.results.length ? group : { ...group, results }];
+  });
 }
 
 /**
@@ -79,7 +103,7 @@ export function useResultCollector(query: string, providerInfo: Record<string, P
     [reports, query, providerInfo],
   );
 
-  const listGroups = useMemo(() => groups.filter((group) => group.lane !== 'answer'), [groups]);
+  const listGroups = useMemo(() => dropCopies(groups.filter((group) => group.lane !== 'answer')), [groups]);
   const answerGroups = useMemo(
     () => groups.filter((group) => group.lane === 'answer' && group.status !== 'idle'),
     [groups],

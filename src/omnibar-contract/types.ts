@@ -74,6 +74,12 @@ export interface OmnibarProviderMeta {
    * search must not set it.
    */
   skipIdentifierQueries?: boolean;
+  /**
+   * Providers that may find the same record share a key, such as `chart-values`. When two mounted
+   * providers with the same key report results with the same `dedupeId`, only the copy from the one
+   * that ranks first (lane, then order) is shown, and a group left with nothing isn't shown at all.
+   */
+  dedupeKey?: string;
 }
 
 /** Facts about the query, worked out once by the host for every provider. */
@@ -118,6 +124,8 @@ export interface OmnibarResult {
    */
   patient?: OmnibarPatient;
   target: OmnibarTarget;
+  /** The record this result shows, such as `obs:<obs uuid>`, compared across providers that share a `dedupeKey`. */
+  dedupeId?: string;
 }
 
 export interface OmnibarPatient {

@@ -23,7 +23,7 @@
       "component": "chartLookupProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Observations"],
-      "meta": { "lane": "record", "scopes": ["patient"], "order": 10, "defaultInChart": true, "contract": 1 }
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 10, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values" }
     },
     {
       "name": "omnibar-chartsearch-suggestion-provider",

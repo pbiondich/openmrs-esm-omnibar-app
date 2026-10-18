@@ -2365,7 +2365,7 @@ describe('Omnibar with providers mounted through the slot', () => {
           {
             name: 'projection',
             meta: foundInRecord,
-            component: ({ query, report }) => {
+            component: function FoundInRecord({ query, report }) {
               useEffect(
                 () =>
                   report({
@@ -2465,7 +2465,7 @@ describe('Omnibar with providers mounted through the slot', () => {
           {
             name: 'querystore-chart-omnibar-provider',
             meta: { lane: 'record', scopes: ['patient'], order: 15, dedupeKey: 'chart-values' },
-            component: ({ query, report }) => {
+            component: function QuerystoreChart({ query, report }) {
               useEffect(
                 () =>
                   report({
