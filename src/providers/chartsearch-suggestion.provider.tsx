@@ -74,7 +74,7 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
   const offered =
     chartSearchSuggestion.enabled &&
     Boolean(patientUuid) &&
-    query.length <= maxQuestionLength &&
+    query.trim().length <= maxQuestionLength &&
     Boolean(user && userHasAccess(privilege, user)) &&
     workspaceRegistered &&
     chartGroupIsOpen &&
