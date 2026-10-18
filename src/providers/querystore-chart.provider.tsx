@@ -3,7 +3,12 @@ import useSWR from 'swr';
 import { useTranslation } from 'react-i18next';
 import { formatDate, interpolateUrl, openmrsFetch, restBaseUrl, useConfig } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
-import { type OmnibarProviderProps, type OmnibarResult, type OmnibarTarget } from '../omnibar-contract';
+import {
+  looksLikeIdentifier,
+  type OmnibarProviderProps,
+  type OmnibarResult,
+  type OmnibarTarget,
+} from '../omnibar-contract';
 
 /**
  * Inside a chart, queries the querystore index for matching concepts (grouped by concept) or
@@ -111,13 +116,16 @@ function targetForHit(hit: QuerystoreHit, patientUuid: string, resultsUrl: strin
   }
 }
 
-const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
+const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, context, report, hints }) => {
   const { t } = useTranslation();
   const { chartLookup } = useConfig<OmnibarConfig>();
   const patientUuid = context.patientUuid;
 
   const active = (chartLookup.source === 'querystore' || chartLookup.source === 'both') && Boolean(patientUuid);
-  const searching = active && query.length >= chartLookup.minSearchCharacters;
+  // The host doesn't mount this provider for an ID-shaped query (skipIdentifierQueries), but an older
+  // host passes no hints and mounts it anyway, so a scanned MRN never reaches the index either way.
+  const identifier = hints?.looksLikeIdentifier ?? looksLikeIdentifier(query);
+  const searching = active && !identifier && query.length >= chartLookup.minSearchCharacters;
   const recents = active && query.length === 0;
 
   const base = active ? `${restBaseUrl}/querystore/patient/${patientUuid}` : null;
@@ -149,7 +157,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
       return;
     }
 
-    // Below minimum length but query is not empty — stay idle so the group is hidden.
+    // Below minimum length but not empty, or an identifier: stay idle so the group is hidden.
     if (!searching && !recents) {
       report({ query, title, status: 'idle' });
       return;
