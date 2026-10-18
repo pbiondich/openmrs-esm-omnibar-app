@@ -78,9 +78,11 @@ export interface OmnibarProviderMeta {
    */
   skipIdentifierQueries?: boolean;
   /**
-   * Providers that may find the same record share a key, such as `chart-values`. When two mounted
-   * providers with the same key report results with the same `dedupeId`, only the copy from the one
-   * that ranks first (lane, then order) is shown, and a group left with nothing isn't shown at all.
+   * Providers that may find the same record share a key, such as `chart-values`. When mounted
+   * providers with the same key report results with the same `dedupeId`, only one copy is shown: the
+   * first (lane, then order) from a provider whose results may take the default highlight, or the
+   * first of all when none may. So inside a chart a provider without `defaultInChart` never pushes
+   * out a `defaultInChart` provider's copy. A group left with nothing isn't shown at all.
    */
   dedupeKey?: string;
 }
@@ -105,7 +107,8 @@ export type OmnibarTarget =
       groupProps?: object;
       /**
        * When set, the launch is refused unless this workspace's window group is already open
-       * for this patient. Null group props stay null so an existing group is left alone.
+       * for this patient, and refused when `workspaceProps.patientUuid` names a different patient.
+       * Null group props stay null so an existing group is left alone.
        * The selection event has already fired and the bar has already closed, so the omnibar shows
        * a warning snackbar when it refuses.
        */
@@ -183,8 +186,9 @@ export interface OmnibarReportDetail {
    */
   state: 'projecting' | 'indexed' | 'failed' | 'unavailable';
   /**
-   * Shown instead of the host's line, already translated. Never put a server's message here: it can
-   * quote the query or the record.
+   * Shown instead of the host's line for `projecting` and `unavailable`, already translated, and cut
+   * to 200 characters. A `failed` group always shows the host's "Couldn't load results". Never put a
+   * server's message here: it can quote the query or the record.
    */
   note?: string;
 }
