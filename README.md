@@ -108,10 +108,12 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 
 | Provider | Lane | Scopes | Data source |
 | --- | --- | --- | --- |
-| Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property |
+| Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property; photos from REST `/obs`, once per patient |
 | Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale) on the query without filler words such as "latest" or "show", a concept set standing for its members, then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
 | ChartSearch suggestion | navigate | patient | Local question heuristic; opens a registered workspace |
+
+Patient rows show the patient's photo over the generated pattern tile, found as `PatientPhoto` finds it: the latest obs of the styleguide's `patientPhotoConceptUuid`. Unlike `PatientPhoto`, the row loads the photo only when its link resolves to this origin, so a stored link such as `https://emr.example//evil.example/pixel` can't make every search ping another server. Protocol-relative, backslashed, off-origin, credentialed and non-http(s) links are dropped. Each patient's photo is looked up once per page load and shared by every row that shows them, so typing makes no extra photo requests. No photo, a failed lookup, a rejected link or an image that fails to load all leave the tile. The proper fix belongs in esm-styleguide's `PatientPhoto`; once it loads only same-origin photos, rows can go back to using it.
 
 Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch row appears only for question-like input of at most 1000 characters, only for users with `AI Query Patient Data`, only when `ai-chat-workspace` is registered, and only while that workspace's window group is already open for this patient. It never takes the default highlight.
 
@@ -240,6 +242,7 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 4. Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.
 5. Add cohort questions, which needs the Cohort Builder to accept a query definition by URL.
 6. Move the slot and types into esm-framework through an RFC once the contract settles.
+7. Fix `PatientPhoto` in esm-styleguide to load only same-origin photos, then use it in patient rows again.
 
 Open questions:
 

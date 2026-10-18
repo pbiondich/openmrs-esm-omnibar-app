@@ -387,3 +387,15 @@ Unchanged: one query still makes at most three concept searches plus one `$lastn
 Logged, not fixed (quick-hotfix rule: one review, blockers only):
 - NIT `FIXES.md`: no Hotfix 4 entry yet. Fixed by this entry. The Hotfix 3 entry still says `maxConcepts` applies before values are looked up, which was true then.
 - NIT `src/providers/chart-lookup-search.ts:108`: each set's members are cut to `maxCandidates` before members that hold no value are dropped, so a set that starts with many N/A members can push value members out of the pool. Filtering before the cut would fix it.
+
+## Issue #1: same-origin patient photos
+
+Patient rows show the real photo again, without `PatientPhoto`'s off-origin load. `PatientPhoto` sets `img.src` to `new URL(link, origin).pathname`, so a stored link of `https://emr.example//evil.example/pixel` loads `//evil.example/pixel` from another host.
+
+- `sameOriginPhotoUrl` in `src/omnibar/patient-photo.ts` resolves the obs value link with `new URL(link, window.location.origin)`. It keeps it only for http(s) on this origin with no credentials (`isOnThisSite`, shared with `executeTarget`), then rebuilds it on this origin with leading slashes collapsed. Protocol-relative (`//host`, `/\host`, `\\host`), off-origin, `javascript:`, `data:`, `blob:` and `file:` links are dropped.
+- `usePatientPhotoUrl` asks `/obs?patient=&concept=&v=full&limit=1` with the styleguide's `patientPhotoConceptUuid`, through `useSWRImmutable` keyed by that URL. Each patient costs one request per page load, shared by every row and opening. A failed lookup counts as no photo. With no concept configured, nothing is requested.
+- The row draws the photo as an `<img alt="" loading="lazy">` over the existing geopattern tile. The tile shows until the photo loads. If the image fails to load, the cached URL becomes null, so every row for that patient goes back to the tile and never retries.
+- Not changed: esm-framework. An upstream `PatientPhoto` fix is the better home for this, and the rows could then reuse it.
+- Not tested live: a real photo obs on the sandbox, the exact shape of `value.links` there (taken from `usePatientPhoto`'s types), and servers that write links with an internal host such as `http://localhost:8080/...`. Those links are off-origin, so their rows keep the tile.
+- Tests: 127 before, 162 after. 24 are `sameOriginPhotoUrl` cases in `src/omnibar/patient-photo.test.ts` and 11 are row tests in `src/omnibar/patient-row.test.tsx`.
+- Failed first: the guard suite could not import `./patient-photo`, and 10 of the 11 row tests failed because no photo was requested or shown. The no-concept test passed, as it should.
