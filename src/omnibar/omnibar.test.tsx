@@ -221,6 +221,40 @@ describe('useResultCollector', () => {
 
       expect(result.current.listGroups.map((group) => group.providerId)).toEqual(['rest']);
     });
+
+    it('keeps the copy a chart lets take the default over a higher-ranked copy it never highlights', () => {
+      const inChart = {
+        index: { lane: 'record' as const, order: 5, dedupeKey: 'chart-values', neverDefault: true },
+        rest: { lane: 'record' as const, order: 10, dedupeKey: 'chart-values' },
+        projection: { lane: 'record' as const, order: 15, dedupeKey: 'chart-values', neverDefault: true },
+      };
+      const { result } = renderHook(() => useResultCollector('weight', inChart));
+
+      act(() => {
+        result.current.getReporter('index')(
+          withDedupeIds('weight', 'Index', [
+            ['index-weight', 'obs:1'],
+            ['index-only', 'obs:2'],
+            ['index-both', 'obs:3'],
+          ]),
+        );
+        result.current.getReporter('rest')(withDedupeIds('weight', 'In this chart', [['weight', 'obs:1']]));
+        result.current.getReporter('projection')(
+          withDedupeIds('weight', 'Found in the record', [
+            ['projected-weight', 'obs:1'],
+            ['projected-both', 'obs:3'],
+          ]),
+        );
+      });
+
+      // obs:1: the default-eligible copy wins wherever it ranks. obs:3: no copy may be the default, so the first stays.
+      expect(result.current.selectable.map((r) => r.key)).toEqual([
+        'index:index-only',
+        'index:index-both',
+        'rest:weight',
+      ]);
+      expect(result.current.listGroups.map((group) => group.providerId)).toEqual(['index', 'rest']);
+    });
   });
 
   it('ignores reports from providers that are not active in the current scope', () => {
@@ -2484,6 +2518,39 @@ describe('Omnibar with providers mounted through the slot', () => {
           await user.keyboard('{Enter}');
           expect(navigate).not.toHaveBeenCalled();
         });
+      });
+
+      it('never lets a higher-ranked row that a chart never highlights drop the chart value it repeats', async () => {
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const user = userEvent.setup();
+        const reportsOne = (title: string, row: ReturnType<typeof result>): React.FC<OmnibarProviderProps> =>
+          function ReportsOne({ query, report }) {
+            useEffect(() => report({ query, title, status: 'ready', results: query ? [row] : [] }), [query, report]);
+            return null;
+          };
+        mountProviders([
+          {
+            name: 'early-index',
+            meta: { lane: 'record', scopes: ['patient'], order: 5, dedupeKey: 'chart-values' },
+            component: reportsOne('Early index', {
+              ...result('weight elsewhere', 'obs:1'),
+              target: { type: 'navigate', to: '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/' },
+            }),
+          },
+          {
+            name: 'chart',
+            meta: { lane: 'record', scopes: ['patient'], order: 10, dedupeKey: 'chart-values', defaultInChart: true },
+            component: reportsOne('In this chart', result('weight 70 kg', 'obs:1')),
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
+        expect(screen.queryByText('Early index')).not.toBeInTheDocument();
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/weight%2070%20kg');
       });
 
       it('never lets a default highlight follow its copy onto a row that cannot be the default in a chart', async () => {
