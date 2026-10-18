@@ -592,6 +592,27 @@ describe('QuerystoreChartProvider', () => {
       }
     });
 
+    it('drops a row once the session changes to a user who may not read it', async () => {
+      serveEveryType();
+      const report = vi.fn();
+      const ui = () => (
+        <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+          <QuerystoreChartProvider query={query} context={patientContext} report={report} />
+        </SWRConfig>
+      );
+      const { rerender } = render(ui());
+      expect(await shownTypes(report)).toContain('condition');
+
+      const nurse = { ...user, uuid: 'nurse-uuid' } as Session['user'];
+      vi.mocked(useSession).mockReturnValue({ authenticated: true, sessionId: 's', user: nurse } as Session);
+      vi.mocked(userHasAccess).mockImplementation((required) => required !== 'Get Conditions');
+      rerender(ui());
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].results).toHaveLength(privileges.length - 1));
+      expect(await shownTypes(report)).not.toContain('condition');
+      expect(userHasAccess).toHaveBeenCalledWith('Get Conditions', nurse);
+    });
+
     it('shows nothing when the session has no user', async () => {
       vi.mocked(useSession).mockReturnValue({ authenticated: false, sessionId: 's' } as Session);
       serveEveryType();
