@@ -71,13 +71,16 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
   const { minSearchCharacters, maxResults, showRecentPatients, includeDead, patientChartUrl } = config.patientSearch;
 
   const isSearching = query.length >= minSearchCharacters;
+  // For an ID, at least two, so a second patient given the same ID always shows: inside a chart the
+  // one patient an ID finds can be the default.
+  const limit = hints?.looksLikeIdentifier ? Math.max(maxResults, 2) : maxResults;
   const showingRecents = !query && showRecentPatients;
 
   const searchUrl = isSearching
     ? `${restBaseUrl}/patient?${new URLSearchParams({
         q: query,
         v: representation,
-        limit: String(maxResults),
+        limit: String(limit),
         includeDead: String(includeDead),
       })}`
     : null;

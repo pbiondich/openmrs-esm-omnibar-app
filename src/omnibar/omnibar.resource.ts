@@ -2,6 +2,7 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import { interpolateUrl, launchWorkspace2, navigate } from '@openmrs/esm-framework';
 import { decodeSegment, patientIdsInPath, patientIdsInText } from './patient-path';
 import { getWorkspace2Store, workspaceGroupIsOpen } from './workspace-group';
+import { looksLikeIdentifier } from '../omnibar-contract';
 import {
   OMNIBAR_CONTRACT_VERSION,
   OMNIBAR_SELECTED_EVENT,
@@ -331,7 +332,8 @@ function namesNoOneBut(result: OmnibarResult, uuids: Array<string>): boolean {
 
 /**
  * The patient row the group with `defaultsToSolePatient` may make the default: the only patient row
- * of a group that has finished searching, holding exactly an identifier typed (in any case), and
+ * of a group that has finished searching, holding exactly the query or an ID-shaped word of it (in
+ * any case), and
  * linking on this site to that patient and no one else. None while any other row on screen names
  * someone besides that patient and the chart's, so Enter never picks between two people. Rows that
  * aren't a patient, such as "All patient results", don't count.
@@ -347,7 +349,9 @@ function scannedPatientRow(
     return undefined;
   }
   const [row] = patients;
-  const typed = [query, ...query.split(/\s+/)].map((text) => text.trim().toLowerCase()).filter(Boolean);
+  const typed = [query, ...query.split(/\s+/).filter(looksLikeIdentifier)]
+    .map((text) => text.trim().toLowerCase())
+    .filter(Boolean);
   const holdsTyped = row.patient.identifiers?.some(({ identifier }) =>
     typed.includes(identifier.trim().toLowerCase()),
   );
