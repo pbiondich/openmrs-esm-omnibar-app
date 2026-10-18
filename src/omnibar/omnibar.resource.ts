@@ -168,7 +168,8 @@ const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url
 
 /**
  * The only place a result turns into an action. Resolves false when a workspace launch is refused
- * because its required group is no longer open for that patient, and true otherwise.
+ * because its required group is no longer open for that patient, or because its workspace props
+ * name another patient, and true otherwise.
  */
 export async function executeTarget(target: OmnibarTarget): Promise<boolean> {
   switch (target.type) {
@@ -188,10 +189,15 @@ export async function executeTarget(target: OmnibarTarget): Promise<boolean> {
       return true;
     }
     case 'workspace': {
+      // The group check vouches for one patient, so props that name another one are refused too.
       const required = target.requiresOpenGroup;
+      const propsPatientUuid = (target.workspaceProps as { patientUuid?: unknown } | undefined)?.patientUuid;
       if (
         required &&
-        !workspaceGroupIsOpen(getWorkspace2Store().getState(), required.workspaceName, required.patientUuid)
+        (!workspaceGroupIsOpen(getWorkspace2Store().getState(), required.workspaceName, required.patientUuid) ||
+          (typeof propsPatientUuid === 'string' &&
+            typeof required.patientUuid === 'string' &&
+            propsPatientUuid !== required.patientUuid))
       ) {
         return false;
       }
