@@ -895,6 +895,37 @@ describe('Omnibar with providers mounted through the slot', () => {
       await waitFor(() => expect(lastStatus()).toBe('idle'));
     });
 
+    it("decides from the host's open group and the group its config names, never from the store's registry", async () => {
+      getGlobalStore('workspace2').setState({ registeredWorkspacesByName: {}, registeredWindowsByName: {} });
+      const report = vi.fn();
+      const ask = (groupName: string) => (
+        <ChartSearchSuggestionProvider
+          query="what happened at the last visit"
+          context={{
+            scope: 'patient',
+            patientUuid: chartPatientUuid,
+            locale: 'en',
+            workspaceGroup: { groupName, patientUuid: chartPatientUuid },
+          }}
+          report={report}
+        />
+      );
+      const lastStatus = () => report.mock.calls.at(-1)[0].status;
+
+      const { rerender } = render(ask('patient-chart'));
+      await waitFor(() => expect(lastStatus()).toBe('ready'));
+
+      const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+      mockUseConfig.mockReturnValue({
+        ...defaults,
+        chartSearchSuggestion: { ...defaults.chartSearchSuggestion, workspaceGroupName: 'ai-panel' },
+      } as OmnibarConfig);
+      rerender(ask('patient-chart'));
+      await waitFor(() => expect(lastStatus()).toBe('idle'));
+      rerender(ask('ai-panel'));
+      await waitFor(() => expect(lastStatus()).toBe('ready'));
+    });
+
     it('offers no row on a host that does not say which group is open, whatever the store says', async () => {
       const report = vi.fn();
       render(
