@@ -175,6 +175,14 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
   // A query the user just submitted is asked at once: Enter was the request. A page reloaded, reached
   // with back or forward, or opened from a link asks only when the clinician presses the button, so
   // nothing sends the question again on its own. Each query is a new mount, so this runs once.
+  // An answer no longer offered, say ChartSearch unregistered or the user's privileges changed, is
+  // stopped rather than read to the end unseen.
+  useEffect(() => {
+    if (!offered) {
+      controller.current?.abort();
+    }
+  }, [offered]);
+
   useEffect(() => {
     if (submitted && offered && !asked.current) {
       asked.current = true;

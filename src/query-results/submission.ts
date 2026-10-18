@@ -30,7 +30,11 @@ const currentUser = (): string | null => {
   return (state?.loaded && state.session?.authenticated && state.session.user?.uuid) || null;
 };
 
-const onQueryResultsPage = () => window.location.pathname.split('/').includes(queryResultsPath);
+const onQueryResultsPage = () => {
+  const segments = window.location.pathname.split('/');
+  const at = segments.indexOf(queryResultsPath);
+  return at > 0 && segments[at - 1] === 'chart';
+};
 
 let watchingRoutes = false;
 function watchRoutes() {

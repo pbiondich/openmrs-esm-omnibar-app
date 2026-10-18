@@ -403,6 +403,26 @@ describe('the Ask ChartSearch view', () => {
     expect(await screen.findByText('ChartSearch couldn’t answer this question.')).toBeInTheDocument();
   });
 
+  it('stops an answer that is no longer offered', async () => {
+    const stream = streamingResponse();
+    fetchMock.mockImplementation(stream.fetch);
+    const { rerender } = renderView(question, true);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const { signal } = fetchMock.mock.calls[0][1];
+
+    vi.mocked(userHasAccess).mockReturnValue(false);
+    rerender(
+      <ChartSearchAnswerView
+        query={question}
+        context={{ scope: 'patient', patientUuid: humprey, locale: 'en' }}
+        contractVersion={1}
+        reportState={() => {}}
+        submitted
+      />,
+    );
+    expect(signal.aborted).toBe(true);
+  });
+
   it('stops reading when the page moves on', async () => {
     const user = userEvent.setup();
     const stream = streamingResponse();

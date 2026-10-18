@@ -66,6 +66,10 @@ describe('the "just asked" mark', () => {
     markSubmitted(humprey, 'cd4');
     goTo(`/openmrs/spa/patient/${humprey}/chart/Results`);
     expect(takeSubmission(humprey, 'cd4')).toBe(false);
+
+    markSubmitted(humprey, 'cd4');
+    goTo('/openmrs/spa/reports/query-results');
+    expect(takeSubmission(humprey, 'cd4')).toBe(false);
   });
 
   it('tells a page already showing the query', () => {
