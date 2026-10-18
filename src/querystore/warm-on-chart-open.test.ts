@@ -64,9 +64,10 @@ describe('setupWarmOnChartOpen', () => {
     fireRoutingEvent(chartUrl(patientUuid));
 
     await vi.waitFor(() =>
-      expect(mockOpenmrsFetch).toHaveBeenCalledWith(`/ws/rest/v1/querystore/patient/${patientUuid}/warm`, {
-        method: 'POST',
-      }),
+      expect(mockOpenmrsFetch).toHaveBeenCalledWith(
+        `/ws/rest/v1/querystore/patient/${patientUuid}/warm`,
+        expect.objectContaining({ method: 'POST' }),
+      ),
     );
   });
 
@@ -107,9 +108,10 @@ describe('setupWarmOnChartOpen', () => {
     teardown = setupWarmOnChartOpen(moduleName);
 
     await vi.waitFor(() =>
-      expect(mockOpenmrsFetch).toHaveBeenCalledWith(`/ws/rest/v1/querystore/patient/${otherUuid}/warm`, {
-        method: 'POST',
-      }),
+      expect(mockOpenmrsFetch).toHaveBeenCalledWith(
+        `/ws/rest/v1/querystore/patient/${otherUuid}/warm`,
+        expect.objectContaining({ method: 'POST' }),
+      ),
     );
   });
 
@@ -134,9 +136,10 @@ describe('setupWarmOnChartOpen', () => {
     mockOpenmrsFetch.mockClear();
     fireRoutingEvent(chartUrl(otherUuid));
     await vi.waitFor(() =>
-      expect(mockOpenmrsFetch).toHaveBeenCalledWith(`/ws/rest/v1/querystore/patient/${otherUuid}/warm`, {
-        method: 'POST',
-      }),
+      expect(mockOpenmrsFetch).toHaveBeenCalledWith(
+        `/ws/rest/v1/querystore/patient/${otherUuid}/warm`,
+        expect.objectContaining({ method: 'POST' }),
+      ),
     );
   });
 
@@ -164,6 +167,86 @@ describe('setupWarmOnChartOpen', () => {
     expect(() => fireRoutingEvent(chartUrl(patientUuid))).not.toThrow();
     // No unhandled rejection — the promise chain is fire-and-forget.
     await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  describe('lifecycle', () => {
+    const deferredConfig = () => {
+      let resolve: (config: unknown) => void;
+      mockGetConfig.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+      return () => resolve({ chartLookup: { source: 'querystore' } });
+    };
+    const warmUrl = (uuid: string) => `/ws/rest/v1/querystore/patient/${uuid}/warm`;
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+    it('sends nothing when the user has left the chart before the config arrives, and warms once on coming back', async () => {
+      const configArrives = deferredConfig();
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      fireRoutingEvent('/openmrs/spa/home');
+      configArrives();
+      await settle();
+      expect(mockOpenmrsFetch).not.toHaveBeenCalled();
+
+      fireRoutingEvent(chartUrl(patientUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+      await settle();
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends nothing for a chart the user left for another before the config arrived', async () => {
+      const firstConfigArrives = deferredConfig();
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      fireRoutingEvent(chartUrl(otherUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+      firstConfigArrives();
+      await settle();
+
+      expect(mockOpenmrsFetch.mock.calls.map(([url]) => url)).toEqual([warmUrl(otherUuid)]);
+    });
+
+    it('sends nothing once torn down, even if the config arrives later', async () => {
+      const configArrives = deferredConfig();
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      teardown();
+      teardown = undefined;
+      configArrives();
+      await settle();
+
+      expect(mockOpenmrsFetch).not.toHaveBeenCalled();
+    });
+
+    it('aborts a warm still on its way when torn down', async () => {
+      mockOpenmrsFetch.mockReturnValue(new Promise(() => {}));
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+      const { signal } = mockOpenmrsFetch.mock.calls[0][1];
+      expect(signal.aborted).toBe(false);
+
+      teardown();
+      teardown = undefined;
+      expect(signal.aborted).toBe(true);
+    });
+
+    it('replaces an earlier setup rather than stacking a second listener', async () => {
+      const first = setupWarmOnChartOpen(moduleName);
+      teardown = setupWarmOnChartOpen(moduleName);
+      try {
+        fireRoutingEvent(chartUrl(patientUuid));
+        await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+        await settle();
+        expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+
+        // Tearing down the replaced setup leaves the current one working.
+        first();
+        fireRoutingEvent(chartUrl(otherUuid));
+        await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2));
+      } finally {
+        first();
+      }
+    });
   });
 
   describe('when the server has no indexing slot free', () => {
@@ -293,6 +376,20 @@ describe('setupWarmOnChartOpen', () => {
 
       await vi.advanceTimersByTimeAsync(60_000);
       expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not arm a retry for a 503 that arrives after teardown', async () => {
+      let answer: (error: unknown) => void;
+      mockOpenmrsFetch.mockReturnValueOnce(new Promise((_, reject) => (answer = reject)));
+      teardown = setupWarmOnChartOpen(moduleName);
+      fireRoutingEvent(chartUrl(patientUuid));
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+
+      teardown();
+      teardown = undefined;
+      answer(unavailable('3'));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
     });
 
     it('does not retry other failures', async () => {
