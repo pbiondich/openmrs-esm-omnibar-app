@@ -30,13 +30,15 @@ import {
 import { formatPartialDate } from '@openmrs/esm-utils';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
+import packageJson from '../../package.json';
 import ChartLookupProvider from '../providers/chart-lookup.provider';
 import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.provider';
 import DestinationsProvider from '../providers/destinations.provider';
-import PatientSearchProvider from '../providers/patient-search.provider';
+import PatientSearchProvider, { providerId as patientSearchProviderId } from '../providers/patient-search.provider';
 import QuerystoreChartProvider from '../providers/querystore-chart.provider';
 import Omnibar, { chartIndexingGraceMs, chartValuesGraceMs } from './omnibar.extension';
 import {
+  builtInPatientSearch,
   cleanReport,
   executeTarget,
   getProviderOrder,
@@ -2640,6 +2642,38 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(highlighted()).toEqual([]);
         await user.keyboard('{Enter}');
         expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it("never highlights the one patient found by another app's provider under the built-in name", async () => {
+        const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+        mockUseConfig.mockReturnValue({ ...defaults, chartLookup: { ...defaults.chartLookup, source: 'querystore' } });
+        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+        mockOpenmrsFetch.mockImplementation((url: string) =>
+          url.includes('/patient?')
+            ? Promise.resolve({ data: { results: [john] } } as FetchResponse)
+            : new Promise(() => {}),
+        );
+        const builtIn = shipped('omnibar-patient-search-provider', PatientSearchProvider);
+        mountProviders([builtIn]);
+        mockUseAssignedExtensions.mockReturnValue([
+          { id: builtIn.name, name: builtIn.name, moduleName: '@openmrs/esm-other-app', meta: builtIn.meta, config: null },
+        ]);
+        renderWithFreshCache(<Omnibar />);
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+        await user.click(screen.getByRole('combobox', { name: /search this chart/i }));
+        await user.paste(scanned);
+        await screen.findByRole('option', { name: /John Moyo/ });
+        await wait(chartIndexingGraceMs);
+        expect(highlighted()).toEqual([]);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it('knows its own patient search by the name and module it is registered under', () => {
+        expect(builtInPatientSearch.name).toBe(patientSearchProviderId);
+        expect(routes.extensions.map((extension) => extension.name)).toContain(builtInPatientSearch.name);
+        expect(builtInPatientSearch.moduleName).toBe(packageJson.name);
       });
     });
 

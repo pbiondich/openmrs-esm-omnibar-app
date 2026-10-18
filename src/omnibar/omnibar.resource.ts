@@ -22,6 +22,7 @@ export interface ProviderGroup extends OmnibarReport {
   lane: OmnibarLane;
   order: number;
   neverDefault?: boolean;
+  defaultsToSolePatient?: boolean;
   dedupeKey?: string;
 }
 
@@ -31,7 +32,8 @@ export interface SelectableResult extends OmnibarResult {
   key: string;
   /**
    * It may take the default highlight: its provider may inside a chart, and it doesn't name another
-   * patient than the chart's. Otherwise only an arrow key or the pointer selects it.
+   * patient than the chart's; or it is the one patient row its group allows by `defaultsToSolePatient`.
+   * Otherwise only an arrow key or the pointer selects it.
    */
   mayBeDefault: boolean;
   /** Its target names another patient than the chart's. A highlight never moves onto it by itself. */
@@ -43,8 +45,20 @@ export interface ProviderInfo {
   order: number;
   /** Its results are never highlighted by default, only by an arrow key or the pointer. */
   neverDefault?: boolean;
+  /**
+   * When its group has exactly one patient row, that row may be the default even so, whichever
+   * patient it names. The host sets this only for its own patient search, inside a chart, for a query
+   * that looks like an identifier: a scanned wristband then opens on Enter.
+   */
+  defaultsToSolePatient?: boolean;
   dedupeKey?: string;
 }
+
+/** The host's own patient search: the only provider whose one patient row the host vouches for. */
+export const builtInPatientSearch = {
+  name: 'omnibar-patient-search-provider',
+  moduleName: '@openmrs/esm-omnibar-app',
+};
 
 const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 2 };
 
@@ -301,6 +315,22 @@ function dropCopies(
 }
 
 /**
+ * The group's one patient row, when it has exactly one and its target names that patient and no one
+ * else. Rows that aren't a patient, such as "All patient results", don't count.
+ */
+function solePatientRow(group: ProviderGroup): OmnibarResult | undefined {
+  const patients = (group.results ?? []).filter((result) => result.patient);
+  if (patients.length !== 1) {
+    return undefined;
+  }
+  const [row] = patients;
+  const named = patientsNamedBy(row.target);
+  return named?.length && named.every((uuid) => uuid.toLowerCase() === row.patient.uuid.toLowerCase())
+    ? row
+    : undefined;
+}
+
+/**
  * Collects reports from providers for the current query. A report for any other query is dropped,
  * so a slow response to "cd" can never overwrite results for "cd4".
  *
@@ -403,15 +433,16 @@ export function useResultCollector(
 
   const selectable = useMemo<Array<SelectableResult>>(
     () =>
-      listGroups.flatMap((group) =>
-        (group.results ?? []).map((result) => ({
+      listGroups.flatMap((group) => {
+        const solePatient = group.defaultsToSolePatient ? solePatientRow(group) : undefined;
+        return (group.results ?? []).map((result) => ({
           ...result,
           providerId: group.providerId,
           key: `${group.providerId}:${result.id}`,
-          mayBeDefault: !group.neverDefault && !namesOtherPatient(result),
+          mayBeDefault: result === solePatient || (!group.neverDefault && !namesOtherPatient(result)),
           namesOtherPatient: namesOtherPatient(result),
-        })),
-      ),
+        }));
+      }),
     [listGroups, namesOtherPatient],
   );
 

@@ -18,6 +18,7 @@ import {
 } from '@openmrs/esm-framework';
 import {
   announceSelection,
+  builtInPatientSearch,
   executeTarget,
   getProviderOrder,
   isCollapsed,
@@ -126,6 +127,13 @@ const Omnibar: React.FC = () => {
           lane: meta.lane,
           order: getProviderOrder(meta, context.scope),
           neverDefault: context.scope === 'patient' && !meta.defaultInChart,
+          // Inside a chart, the one patient an ID finds may still be the default, so a scanned wristband
+          // opens on Enter. Only the host's own patient search, whose rows the host vouches for.
+          defaultsToSolePatient:
+            context.scope === 'patient' &&
+            hints.looksLikeIdentifier &&
+            extension.name === builtInPatientSearch.name &&
+            extension.moduleName === builtInPatientSearch.moduleName,
           dedupeKey: meta.dedupeKey,
         };
       }
