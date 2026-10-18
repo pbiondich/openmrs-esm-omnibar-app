@@ -66,7 +66,7 @@ const ENROLLED_WORDS = new Set(['enrolled', 'enroled', 'enrollment', 'enrolment'
 const PROGRAM_WORDS = new Set(['program', 'programs', 'programme', 'programmes']);
 const DRUG_VERBS = new Set(['on', 'taking', 'receiving']);
 
-const maxAge = 150;
+const oldestAge = 150;
 const maxCriteria = 5;
 const maxDrugs = 50;
 
@@ -193,7 +193,7 @@ function describeAge(minAge?: number, maxAge?: number): string | null {
 }
 
 const isAge = (value: number | undefined) =>
-  value == null || (Number.isInteger(value) && value >= 0 && value <= maxAge);
+  value == null || (Number.isInteger(value) && value >= 0 && value <= oldestAge);
 
 export function parseCohortCriteria(text: string, config: CohortCriteriaConfig): CohortDefinition | null {
   const tokens = tokenize(text);
