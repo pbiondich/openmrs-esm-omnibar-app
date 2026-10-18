@@ -1,16 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type FetchResponse, getConfig, openmrsFetch } from '@openmrs/esm-framework';
+import {
+  type FetchResponse,
+  type Session,
+  getConfig,
+  getCurrentUser,
+  openmrsFetch,
+  userHasAccess,
+} from '@openmrs/esm-framework';
 import { setupWarmOnChartOpen } from './warm-on-chart-open';
 
 vi.mock('@openmrs/esm-framework', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   restBaseUrl: '/ws/rest/v1',
   getConfig: vi.fn(),
+  getCurrentUser: vi.fn(),
+  userHasAccess: vi.fn(),
   openmrsFetch: vi.fn().mockResolvedValue({ data: { status: 'indexed' } }),
 }));
 
 const mockGetConfig = vi.mocked(getConfig);
 const mockOpenmrsFetch = vi.mocked(openmrsFetch);
+const mockGetCurrentUser = vi.mocked(getCurrentUser as () => Promise<Session>);
+const mockUserHasAccess = vi.mocked(userHasAccess);
+const user = { uuid: 'user-uuid', privileges: [], roles: [] } as unknown as Session['user'];
 
 const moduleName = '@openmrs/esm-omnibar-app';
 const patientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
@@ -31,6 +43,8 @@ describe('setupWarmOnChartOpen', () => {
 
   beforeEach(() => {
     mockGetConfig.mockResolvedValue({ chartLookup: { source: 'querystore' } });
+    mockGetCurrentUser.mockResolvedValue({ authenticated: true, sessionId: 's', user } as Session);
+    mockUserHasAccess.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -54,6 +68,34 @@ describe('setupWarmOnChartOpen', () => {
         method: 'POST',
       }),
     );
+  });
+
+  it('POSTs warm only after checking the user may see observations, as the provider requires', async () => {
+    teardown = setupWarmOnChartOpen(moduleName);
+    fireRoutingEvent(chartUrl(patientUuid));
+
+    await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+    expect(mockUserHasAccess).toHaveBeenCalledWith('Get Observations', user);
+  });
+
+  it('does not POST for a user without Get Observations', async () => {
+    mockUserHasAccess.mockReturnValue(false);
+    teardown = setupWarmOnChartOpen(moduleName);
+    fireRoutingEvent(chartUrl(patientUuid));
+    await vi.waitFor(() => expect(mockUserHasAccess).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(mockOpenmrsFetch).not.toHaveBeenCalled();
+  });
+
+  it('does not POST when the session has no user', async () => {
+    mockGetCurrentUser.mockResolvedValue({ authenticated: false, sessionId: 's' } as Session);
+    teardown = setupWarmOnChartOpen(moduleName);
+    fireRoutingEvent(chartUrl(patientUuid));
+    await vi.waitFor(() => expect(mockGetCurrentUser).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(mockOpenmrsFetch).not.toHaveBeenCalled();
   });
 
   it('POSTs warm for a chart that was already open when the module started', async () => {
