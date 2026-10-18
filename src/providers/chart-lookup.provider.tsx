@@ -57,8 +57,8 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
 
   const phrase = useSWR<ConceptResults>(search ? conceptUrl(search.phrase) : null, fetcher);
   const phraseConcepts = useMemo(
-    () => pickValueConcepts([phrase.data?.results ?? []], chartLookup.maxConcepts),
-    [phrase.data, chartLookup.maxConcepts],
+    () => pickValueConcepts([phrase.data?.results ?? []], chartLookup.maxCandidates),
+    [phrase.data, chartLookup.maxCandidates],
   );
   const words = useSWR<Array<ConceptResults>>(
     phrase.data && !phraseConcepts.length && search.words.length ? search.words.map(conceptUrl) : null,
@@ -69,10 +69,10 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
       words.data
         ? pickValueConcepts(
             words.data.map((hits) => hits.results),
-            chartLookup.maxConcepts,
+            chartLookup.maxCandidates,
           )
         : phraseConcepts,
-    [words.data, phraseConcepts, chartLookup.maxConcepts],
+    [words.data, phraseConcepts, chartLookup.maxCandidates],
   );
 
   const obsUrl =
@@ -110,6 +110,7 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
     const resultsUrl = interpolateUrl(chartLookup.resultsUrl, { patientUuid });
     const results: Array<OmnibarResult> = candidates
       .filter((concept) => latest.has(concept.uuid))
+      .slice(0, chartLookup.maxConcepts)
       .map((concept) => {
         const obs = latest.get(concept.uuid);
         const value = formatValue(obs, t('yes', 'Yes'), t('no', 'No'));
@@ -143,6 +144,7 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
     observations.data,
     observations.error,
     observations.isLoading,
+    chartLookup.maxConcepts,
     chartLookup.resultsUrl,
     report,
     t,

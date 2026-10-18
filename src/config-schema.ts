@@ -44,7 +44,12 @@ export const configSchema = {
     maxConcepts: {
       _type: Type.Number,
       _default: 5,
-      _description: 'Matching concepts to look up values for.',
+      _description: 'Chart values to show. Matching concepts with no value for this patient are skipped.',
+    },
+    maxCandidates: {
+      _type: Type.Number,
+      _default: 20,
+      _description: 'Matching concepts, including the members of a matching set, to ask for values in one request.',
     },
     resultsUrl: {
       _type: Type.String,
@@ -154,6 +159,7 @@ export interface OmnibarConfig {
   chartLookup: {
     minSearchCharacters: number;
     maxConcepts: number;
+    maxCandidates: number;
     resultsUrl: string;
   };
   chartSearchSuggestion: ChartSearchSuggestionConfig;

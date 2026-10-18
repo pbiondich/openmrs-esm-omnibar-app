@@ -71,6 +71,7 @@ const FILLER_WORDS = new Set([
   'to',
   'value',
   'values',
+  'view',
   'was',
   'were',
   'what',
@@ -97,13 +98,17 @@ export function toConceptSearch(query: string, minCharacters: number): ConceptSe
   return { phrase, words };
 }
 
-/** Concepts that can hold a value, in search order. A set's members follow the set. */
-export function pickValueConcepts(searches: Array<Array<ConceptHit>>, maxConcepts: number): Array<ConceptHit> {
+/**
+ * Concepts that can hold a value, in search order, at most `maxCandidates`. Concepts the searches
+ * found directly come first, then the members of the sets they found.
+ */
+export function pickValueConcepts(searches: Array<Array<ConceptHit>>, maxCandidates: number): Array<ConceptHit> {
+  const hits = searches.flat();
   const picked = new Map<string, ConceptHit>();
-  for (const hit of searches.flat().flatMap((concept) => [concept, ...(concept.setMembers ?? [])])) {
+  for (const hit of [...hits, ...hits.flatMap((concept) => concept.setMembers?.slice(0, maxCandidates) ?? [])]) {
     if (!nonValueDatatypes.has(hit.datatype?.display) && !picked.has(hit.uuid)) {
       picked.set(hit.uuid, hit);
     }
   }
-  return [...picked.values()].slice(0, maxConcepts);
+  return [...picked.values()].slice(0, maxCandidates);
 }
