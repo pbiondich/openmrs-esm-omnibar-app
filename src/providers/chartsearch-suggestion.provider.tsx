@@ -1,51 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  getConfig,
-  getRegisteredWorkspace2Names,
-  useConfig,
-  usePatient,
-  useSession,
-  userHasAccess,
-} from '@openmrs/esm-framework';
+import { getRegisteredWorkspace2Names, useConfig, usePatient, useSession, userHasAccess } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
-import { defaultMaxQuestionLength, looksLikeChartSearchQuestion, maxQuestionLengthFrom } from './chartsearch-question';
+import { looksLikeChartSearchQuestion, useChartSearchMaxQuestionLength } from './chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
-const chartSearchModuleName = '@openmrs/esm-chartsearchai-app';
-
 interface ChartSearchWorkspaceProps {
   patientUuid: string;
   initialQuestion: string;
-}
-
-/**
- * ChartSearch's live `maxQuestionLength`. A longer query cannot be sent from that app's input.
- * `getConfig` waits for ChartSearch to define its schema, and never settles if it isn't installed,
- * so it is only asked once its workspace is registered. `useConfig` would suspend the provider instead.
- * Each mount before ChartSearch's `startupApp` runs leaves one `getConfig` subscription,
- * and they all clear when its config loads.
- */
-function useChartSearchMaxQuestionLength(workspaceRegistered: boolean): number {
-  const [maxQuestionLength, setMaxQuestionLength] = useState(defaultMaxQuestionLength);
-
-  useEffect(() => {
-    if (!workspaceRegistered) {
-      return;
-    }
-    let active = true;
-    getConfig(chartSearchModuleName).then((config) => {
-      if (active) {
-        setMaxQuestionLength(maxQuestionLengthFrom(config?.maxQuestionLength));
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [workspaceRegistered]);
-
-  return maxQuestionLength;
 }
 
 const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {

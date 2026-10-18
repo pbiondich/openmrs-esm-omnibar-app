@@ -1,6 +1,6 @@
 import { defineConfigSchema, getAsyncLifecycle } from '@openmrs/esm-framework';
 import { configSchema } from './config-schema';
-import { withProviderBoundary } from './omnibar-contract';
+import { withProviderBoundary, withViewBoundary } from './omnibar-contract';
 import { setupQueryHistoryClearing } from './query-results/query-history';
 import { setupWarmOnChartOpen } from './querystore/warm-on-chart-open';
 
@@ -61,3 +61,17 @@ export { withProviderBoundary };
 export const queryResultsDashboardLink = getAsyncLifecycle(() => import('./query-results/query-results-link'), options);
 
 export const queryResultsPage = getAsyncLifecycle(() => import('./query-results/query-results.page'), options);
+
+const boundedView =
+  (name: string) =>
+  ({ default: View }) => ({ default: withViewBoundary(View, name) });
+
+export const chartValuesView = getAsyncLifecycle(
+  () => import('./views/chart-values.view').then(boundedView('omnibar-chart-values-view')),
+  options,
+);
+
+export const chartSearchAnswerView = getAsyncLifecycle(
+  () => import('./views/chartsearch-answer.view').then(boundedView('omnibar-chartsearch-answer-view')),
+  options,
+);

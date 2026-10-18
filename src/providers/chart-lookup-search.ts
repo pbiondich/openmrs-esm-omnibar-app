@@ -112,3 +112,35 @@ export function pickValueConcepts(searches: Array<Array<ConceptHit>>, maxCandida
   }
   return [...picked.values()].slice(0, maxCandidates);
 }
+
+/** True for a concept that can hold a value, so may have observations. */
+export const holdsValues = (concept: ConceptHit) => !nonValueDatatypes.has(concept.datatype?.display);
+
+/**
+ * The concepts the Query results page shows values for, narrower than chart lookup's: the concepts
+ * the searches found directly that have values for this patient, and only when none of those do, the
+ * members of the sets they found. So "cd4" shows CD4 and not the rest of its panel, while "vitals",
+ * which names a set, shows the vitals. `withValues` is the set of concept uuids the patient has
+ * values for, from the same candidates chart lookup asks about.
+ */
+export function pickQueryConcepts(
+  searches: Array<Array<ConceptHit>>,
+  withValues: Set<string>,
+  maxCandidates: number,
+): Array<ConceptHit> {
+  const hits = searches.flat();
+  const unique = (concepts: Array<ConceptHit>) => {
+    const picked = new Map<string, ConceptHit>();
+    for (const concept of concepts) {
+      if (holdsValues(concept) && withValues.has(concept.uuid) && !picked.has(concept.uuid)) {
+        picked.set(concept.uuid, concept);
+      }
+    }
+    return [...picked.values()];
+  };
+  const direct = unique(hits);
+  if (direct.length) {
+    return direct.slice(0, maxCandidates);
+  }
+  return unique(hits.flatMap((concept) => concept.setMembers?.slice(0, maxCandidates) ?? [])).slice(0, maxCandidates);
+}

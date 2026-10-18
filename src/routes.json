@@ -60,6 +60,20 @@
       "component": "queryResultsPage",
       "slot": "omnibar-query-results-dashboard-slot",
       "meta": { "fullWidth": true }
+    },
+    {
+      "name": "omnibar-chart-values-view",
+      "component": "chartValuesView",
+      "slot": "omnibar-query-results-slot",
+      "privileges": ["Get Observations"],
+      "meta": { "scopes": ["patient"], "order": 10, "contract": 1 }
+    },
+    {
+      "name": "omnibar-chartsearch-answer-view",
+      "component": "chartSearchAnswerView",
+      "slot": "omnibar-query-results-slot",
+      "privileges": ["AI Query Patient Data"],
+      "meta": { "scopes": ["patient"], "order": 100, "contract": 1, "skipIdentifierQueries": true }
     }
   ]
 }
