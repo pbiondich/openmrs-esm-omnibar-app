@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  getConfig,
   getRegisteredWorkspace2Names,
   useConfig,
   usePatient,
@@ -11,16 +12,41 @@ import {
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
 import { getWorkspace2Store, workspaceGroupIsOpen, type Workspace2Snapshot } from '../omnibar/workspace-group';
-import { looksLikeChartSearchQuestion } from './chartsearch-question';
+import { defaultMaxQuestionLength, looksLikeChartSearchQuestion, maxQuestionLengthFrom } from './chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
-/** ChartSearch's default `maxQuestionLength`. A longer query cannot be sent from that input. */
-const maxQuestionLength = 1000;
+const chartSearchModuleName = '@openmrs/esm-chartsearchai-app';
 const workspace2Store = getWorkspace2Store();
 
 interface ChartSearchWorkspaceProps {
   patientUuid: string;
   initialQuestion: string;
+}
+
+/**
+ * ChartSearch's live `maxQuestionLength`. A longer query cannot be sent from that app's input.
+ * `getConfig` waits for ChartSearch to define its schema, and never settles if it isn't installed,
+ * so it is only asked once its workspace is registered. `useConfig` would suspend the provider instead.
+ */
+function useChartSearchMaxQuestionLength(workspaceRegistered: boolean): number {
+  const [maxQuestionLength, setMaxQuestionLength] = useState(defaultMaxQuestionLength);
+
+  useEffect(() => {
+    if (!workspaceRegistered) {
+      return;
+    }
+    let active = true;
+    getConfig(chartSearchModuleName).then((config) => {
+      if (active) {
+        setMaxQuestionLength(maxQuestionLengthFrom(config?.maxQuestionLength));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [workspaceRegistered]);
+
+  return maxQuestionLength;
 }
 
 const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
@@ -35,6 +61,8 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
   }, [patient]);
 
   const workspaceName = chartSearchSuggestion.workspaceName.trim();
+  const workspaceRegistered = Boolean(workspaceName && getRegisteredWorkspace2Names().includes(workspaceName));
+  const maxQuestionLength = useChartSearchMaxQuestionLength(workspaceRegistered);
   const chartGroupIsOpen = useStore(
     workspace2Store,
     useCallback(
@@ -48,7 +76,7 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
     Boolean(patientUuid) &&
     query.length <= maxQuestionLength &&
     Boolean(user && userHasAccess(privilege, user)) &&
-    Boolean(workspaceName && getRegisteredWorkspace2Names().includes(workspaceName)) &&
+    workspaceRegistered &&
     chartGroupIsOpen &&
     looksLikeChartSearchQuestion(query, chartSearchSuggestion.minWords);
 
