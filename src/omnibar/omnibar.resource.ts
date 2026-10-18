@@ -77,24 +77,51 @@ function dropCopies(groups: Array<ProviderGroup>): Array<ProviderGroup> {
 /**
  * Collects reports from providers for the current query. A report for any other query is dropped,
  * so a slow response to "cd" can never overwrite results for "cd4".
+ *
+ * Each mount of a provider also reports through its own function, tied to a generation. A change of
+ * `contextKey` (chart or scope) starts a new generation for every provider, and a provider that leaves
+ * starts one for itself, so a mount that is gone reports into nothing, even from a timer or fetch it
+ * never cancelled and for the same query. Generations move on during render, before the providers
+ * are handed their new `report`.
  */
-export function useResultCollector(query: string, providerInfo: Record<string, ProviderInfo>) {
+export function useResultCollector(query: string, providerInfo: Record<string, ProviderInfo>, contextKey = '') {
   const [reports, setReports] = useState<Record<string, OmnibarReport>>({});
   const queryRef = useRef(query);
   queryRef.current = query;
-  const reporters = useRef(new Map<string, (report: OmnibarReport) => void>());
 
-  const getReporter = useCallback((providerId: string) => {
-    let reporter = reporters.current.get(providerId);
-    if (!reporter) {
-      reporter = (report: OmnibarReport) => {
-        if (report.query !== queryRef.current) {
-          return;
-        }
-        setReports((previous) => ({ ...previous, [providerId]: report }));
-      };
-      reporters.current.set(providerId, reporter);
+  const generations = useRef({
+    contextKey,
+    context: 0,
+    mounted: new Set(Object.keys(providerInfo)),
+    left: new Map<string, number>(),
+  });
+  const live = generations.current;
+  if (live.contextKey !== contextKey) {
+    live.contextKey = contextKey;
+    live.context += 1;
+  }
+  for (const providerId of live.mounted) {
+    if (!providerInfo[providerId]) {
+      live.left.set(providerId, (live.left.get(providerId) ?? 0) + 1);
     }
+  }
+  live.mounted = new Set(Object.keys(providerInfo));
+
+  const reporters = useRef(new Map<string, { generation: string; reporter: (report: OmnibarReport) => void }>());
+  const getReporter = useCallback((providerId: string) => {
+    const generationOf = () => `${generations.current.context}:${generations.current.left.get(providerId) ?? 0}`;
+    const generation = generationOf();
+    const cached = reporters.current.get(providerId);
+    if (cached?.generation === generation) {
+      return cached.reporter;
+    }
+    const reporter = (report: OmnibarReport) => {
+      if (generationOf() !== generation || report.query !== queryRef.current) {
+        return;
+      }
+      setReports((previous) => ({ ...previous, [providerId]: report }));
+    };
+    reporters.current.set(providerId, { generation, reporter });
     return reporter;
   }, []);
 

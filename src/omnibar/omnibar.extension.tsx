@@ -113,7 +113,14 @@ const Omnibar: React.FC = () => {
     return info;
   }, [assigned, context.scope, hints]);
 
-  const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(debouncedQuery, providerInfo);
+  // Reports from a mount that belongs to another chart or scope are dropped, so this is worked out
+  // before the providers are given their `report`.
+  const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
+  const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(
+    debouncedQuery,
+    providerInfo,
+    contextKey,
+  );
 
   // Out-of-scope providers are dropped with `select`, never by returning null from the slot's render
   // function: ExtensionSlot renders `children(extension) ?? <Extension state={slotState} />`, so a null
@@ -145,7 +152,6 @@ const Omnibar: React.FC = () => {
     clear();
     setSelection(null);
   }, [clear, context]);
-  const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
 
   // The side panel opening or closing isn't a change of chart, so it stays out of `context` above:
   // providers re-render with the new group, and the results, the selection and the mounts stay.
@@ -315,7 +321,8 @@ const Omnibar: React.FC = () => {
     }
   };
 
-  // State objects are cached per query and context so providers only re-render when those change.
+  // State objects are cached per query, context and set of providers, so providers only re-render
+  // when those change. A provider that comes back gets a new `report` for its new generation.
   const providerState = useMemo(() => {
     const cache = new Map<string, OmnibarProviderProps>();
     return (providerId: string) => {
@@ -332,7 +339,10 @@ const Omnibar: React.FC = () => {
       }
       return state;
     };
-  }, [debouncedQuery, providerContext, hints, getReporter]);
+    // providerInfo isn't read here, but a provider leaving and coming back changes it, and that
+    // provider's earlier `report` no longer counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery, providerContext, hints, getReporter, providerInfo]);
 
   const placeholder =
     context.scope === 'patient'
