@@ -2480,12 +2480,27 @@ describe('Omnibar with providers mounted through the slot', () => {
         vi.mocked(useSession).mockReturnValue({ authenticated: true, sessionId: 's', user: { uuid: 'u' } } as Session);
       });
 
-      it('opens the chart record, not the destination, when a word matches both', async () => {
-        const user = userEvent.setup();
+      const cd4 = {
+        ...admission,
+        conceptUuid: 'cd4-uuid',
+        conceptName: 'CD4 count',
+        latest: {
+          resourceType: 'obs',
+          resourceUuid: 'f1e2d3c4-0000-4000-8000-000000000001',
+          date: '2026-03-12',
+          snippet: 'CD4 count: 350 cells/µL',
+          valueNumeric: 350,
+          units: 'cells/µL',
+          conceptName: 'CD4 count',
+          conceptUuid: 'cd4-uuid',
+        },
+      };
+      const openChartOnQueryStore = (groupsByQuery: Record<string, Array<object>>) => {
         window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
         mockOpenmrsFetch.mockImplementation((url: string) => {
           if (url.includes('/querystore/patient/')) {
-            return Promise.resolve({ data: { status: 'indexed', groups: [admission] } } as FetchResponse);
+            const groups = groupsByQuery[new URL(url, 'http://localhost').searchParams.get('q')] ?? [];
+            return Promise.resolve({ data: { status: 'indexed', groups } } as FetchResponse);
           }
           if (url.includes('/patient?')) {
             return Promise.resolve({ data: { results: [] } } as FetchResponse);
@@ -2499,12 +2514,38 @@ describe('Omnibar with providers mounted through the slot', () => {
           shipped('omnibar-destinations-provider', DestinationsProvider),
         ]);
         renderWithFreshCache(<Omnibar />);
+      };
 
-        await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+      it('opens the chart value on Enter, with chart lookup idle', async () => {
+        const user = userEvent.setup();
+        openChartOnQueryStore({ cd4: [cd4] });
+
+        await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'cd4');
+        expect(await screen.findByRole('option', { name: /CD4 count: 350/ })).toHaveAttribute('aria-selected', 'true');
+
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+      });
+
+      it('opens the chart record, not the destination, when a word matches both and both are on screen', async () => {
+        const user = userEvent.setup();
+        openChartOnQueryStore({ admission: [admission] });
+        const field = screen.getByRole('combobox', { name: /search this chart/i });
+
+        // The first time, the destination answers before the query store's request returns, and the
+        // host pins the default to the first row it lands on. Typed again, the query store answers
+        // from its cache, so both rows arrive together.
+        await user.type(field, 'admission');
+        await screen.findByRole('option', { name: /Admission: Ward 3/ });
+        await user.keyboard('{Backspace}');
+        await waitFor(() =>
+          expect(screen.queryByRole('option', { name: /Admission: Ward 3/ })).not.toBeInTheDocument(),
+        );
+        await user.type(field, 'n');
+
         const record = await screen.findByRole('option', { name: /Admission: Ward 3/ });
-        expect(screen.getByRole('option', { name: /^Ward/ })).toHaveAttribute('aria-selected', 'false');
         expect(record).toHaveAttribute('aria-selected', 'true');
-
+        expect(screen.getByRole('option', { name: /^Ward/ })).toHaveAttribute('aria-selected', 'false');
         await user.keyboard('{Enter}');
         expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Visits`);
       });
