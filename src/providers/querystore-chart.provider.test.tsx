@@ -475,6 +475,12 @@ describe('QuerystoreChartProvider', () => {
       expect(report.mock.calls.at(-1)[0].results.map((result) => result.target)).toEqual(
         tabs.map(([, to]) => ({ type: 'navigate', to })),
       );
+      const urls = mockOpenmrsFetch.mock.calls.map(([url]) => url);
+      expect(urls.length).toBeGreaterThan(0);
+      for (const url of urls) {
+        expect(url).toContain(`/ws/rest/v1/querystore/patient/${patientUuid}/${query ? 'search' : 'recent'}?`);
+        expect(url).not.toContain(otherPatient);
+      }
     });
   });
 
