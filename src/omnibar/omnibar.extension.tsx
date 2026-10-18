@@ -119,13 +119,14 @@ const Omnibar: React.FC = () => {
   }, [assigned, context.scope, hints]);
 
   // Reports from a mount that belongs to another chart or scope are dropped, so this is worked out
-  // before the providers are given their `report`.
+  // before the providers are given their `report`. The providers are unmounted while the bar is
+  // closed, so closing and opening it start new generations too.
   const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
   const scopePatientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
   const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(
     debouncedQuery,
     providerInfo,
-    contextKey,
+    `${contextKey}:${open ? 'open' : 'closed'}`,
     scopePatientUuid,
   );
 
@@ -369,10 +370,11 @@ const Omnibar: React.FC = () => {
       }
       return state;
     };
-    // providerInfo isn't read here, but a provider leaving and coming back changes it, and that
-    // provider's earlier `report` no longer counts.
+    // providerInfo and open aren't read here, but a provider leaving and coming back changes the
+    // first, the bar closing and opening again changes the second, and either way the earlier
+    // `report` no longer counts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, providerContext, hints, getReporter, providerInfo]);
+  }, [debouncedQuery, providerContext, hints, getReporter, providerInfo, open]);
 
   const placeholder =
     context.scope === 'patient'

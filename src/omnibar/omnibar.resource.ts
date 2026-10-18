@@ -294,10 +294,10 @@ function dropCopies(
  * so a slow response to "cd" can never overwrite results for "cd4".
  *
  * Each mount of a provider also reports through its own function, tied to a generation. A change of
- * `contextKey` (chart or scope) starts a new generation for every provider, and a provider that leaves
- * starts one for itself, so a mount that is gone reports into nothing, even from a timer or fetch it
- * never cancelled and for the same query. Generations move on during render, before the providers
- * are handed their new `report`.
+ * `contextKey` (chart, scope, or the bar closing and opening) starts a new generation for every
+ * provider, and a provider that leaves starts one for itself, so a mount that is gone reports into
+ * nothing, even from a timer or fetch it never cancelled and for the same query. Generations move on
+ * during render, before the providers are handed their new `report`.
  */
 export function useResultCollector(
   query: string,
