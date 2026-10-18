@@ -75,6 +75,26 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **Provisionally, Enter inside a chart submits the query to Query results.** Unless the user has arrowed or pointed to a row, in which case Enter opens that row. The default highlight stays as a visual cue. A config option, `queryResults.enterBehavior`, can restore today's "Enter opens the highlight", so both can be tried on o3.pgb.md before this is settled.
 *Why:* it's the only option where "press Enter to see everything" is always true. The alternatives were a separate key for Query results, or opening the highlight only on an exact match. Paul isn't sure yet, so this is a starting point to try, not a final call.
 
+### From building the first Query results prototype
+
+**ChartSearch answers on the Query results page, asked by Enter.** Pressing Enter on a question inside a chart opens Query results and asks ChartSearch there, and the answer streams into the page. The bar's hint says so beforehand ("Enter to see all results for '…' and ask ChartSearch"). Choosing an earlier query on the page asks again. A page reloaded, reached with back or forward, or opened from a bookmark or the left nav doesn't ask by itself; it shows an Ask button.
+*Why:* Paul didn't want the page to depend on the side panel, and Enter is the clinician affirming the question, so making them ask a second time is friction. Design rule 6 changes with it: typing still never calls a model, but Enter on a question now does, and the README and AGENTS.md say so. Reopening a page isn't an affirmation, so it doesn't spend another model call or resend the question on its own. Views learn which case they're in from `submitted`, held in memory by the omnibar, so a link can't set it.
+
+**For now the Ask ChartSearch view lives in this repo.** It is a recorded exception to the light-omnibar rule, like the query store provider, and should move into ChartSearch's own app as a view registered from its `routes.json`.
+*Why:* there's no fork of `openmrs-esm-chartsearchai` to put a local variant in yet. The cost is that it repeats part of ChartSearch's own display of an answer: citations unverified until the stream ends, reference material apart from chart records, safety findings whole, each caveat as a caveat. It follows that module's README for each, but ChartSearch's own app is the better home for that display.
+
+**Chart values on Query results show only what the query names.** Only the concepts the query matched directly that have values for this patient; a matched set's members only when none of those do (so `vitals` shows the vitals, while `cd4` doesn't bring in the rest of its panel); word-by-word matches only when the whole phrase matched nothing. No Results viewer link, panels, filters or date controls.
+*Why:* Paul wants the answer to the query, not a general results viewer. The Results viewer is a click away in the left nav.
+
+**Views report how their section stands, and the page decides what that means.** `reportState` takes `loading`, `empty`, `ready`, `error` or `unavailable`. The page hides empty sections and says "Nothing in … matches" only when every view says `empty`; a view that hasn't reported counts as loading.
+*Why:* the page needs one honest empty state across apps, and a view that says nothing mustn't be read as having found nothing.
+
+**Query history is kept for the logged-in user, never with the session id.** Each entry is the query text under the patient's uuid, in `sessionStorage`, owned by the user's uuid. It clears when the framework's session store goes unauthenticated (its `logout()` calls `clearCurrentUser`) or another user logs in, and a history owned by someone else is never read.
+*Why:* there's no logout event in the framework, but the session store is the signal every logout path goes through. The session id would also separate two logins by the same user, but it is as good as the session cookie, which script can't read, so it mustn't be copied where script can. The gap that leaves: a user who logs out and back in without the page seeing the logged-out state in between (another tab, for instance) keeps their own history, never anyone else's.
+
+**The left-nav link to Query results drops the query.** Following it shows this session's earlier queries and how to search, not the last result.
+*Why:* the link is a dashboard link like any other, and a page whose contents change with each query shouldn't silently replay one.
+
 ## Open
 
 These came up but aren't decided yet.
