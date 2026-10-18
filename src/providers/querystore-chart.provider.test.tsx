@@ -427,6 +427,57 @@ describe('QuerystoreChartProvider', () => {
     });
   });
 
+  describe.each(['cd4', ''])('targets (query "%s")', (query) => {
+    const otherPatient = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+    const chart = `/openmrs/spa/patient/${patientUuid}/chart`;
+    const tabs: Array<[string, string]> = [
+      ['obs', `${chart}/Results`],
+      ['condition', `${chart}/Conditions`],
+      ['diagnosis', `${chart}/Conditions`],
+      ['allergy', `${chart}/Allergies`],
+      ['drug_order', `${chart}/Medications`],
+      ['medication_dispense', `${chart}/Medications`],
+      ['test_order', `${chart}/Orders`],
+      ['referral_order', `${chart}/Orders`],
+      ['encounter', `${chart}/Visits`],
+      ['visit', `${chart}/Visits`],
+      ['something_new', `${chart}/`],
+      [`../../patient/${otherPatient}/chart`, `${chart}/`],
+    ];
+    const location = window.location;
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', { value: location, writable: true, configurable: true });
+    });
+
+    it("keeps every record type on the open chart's patient, whatever the address bar says", async () => {
+      // The provider takes the patient from context, never from the URL.
+      Object.defineProperty(window, 'location', {
+        value: { ...location, pathname: `/openmrs/spa/patient/${otherPatient}/chart/Results` },
+        writable: true,
+        configurable: true,
+      });
+      const hits = tabs.map(([resourceType], i) => ({
+        ...makeGroup({ resourceType, conceptUuid: `c${i}`, resourceUuid: `r${i}` }).latest,
+        patientUuid: otherPatient,
+      }));
+      mockOpenmrsFetch.mockResolvedValue({
+        data: {
+          status: 'indexed',
+          groups: hits.map((latest, i) => ({ ...makeGroup(), conceptUuid: `c${i}`, latest })),
+          hits,
+        },
+      } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].results).toHaveLength(tabs.length));
+      expect(report.mock.calls.at(-1)[0].results.map((result) => result.target)).toEqual(
+        tabs.map(([, to]) => ({ type: 'navigate', to })),
+      );
+    });
+  });
+
   it('uses the recent endpoint for empty query and titles the group "Recent in this chart"', async () => {
     mockOpenmrsFetch.mockResolvedValue({
       data: {
