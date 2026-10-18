@@ -22,6 +22,7 @@ import {
   getProviderOrder,
   isCollapsed,
   type ProviderInfo,
+  ranksBefore,
   type SelectableResult,
   speaksContractOf,
   targetSignature,
@@ -74,6 +75,13 @@ interface Selection {
  * slow link, and a provider stuck loading can't leave Enter doing nothing for longer.
  */
 export const chartValuesGraceMs = 1500;
+
+/**
+ * The same, for a chart-values provider that answered that its source is still indexing with nothing
+ * found yet. It re-checks on its own, the first time 1.5 seconds later, so it needs longer than
+ * chartValuesGraceMs; it ends sooner if the provider gives up and says so in a note.
+ */
+export const chartIndexingGraceMs = 10_000;
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -130,7 +138,7 @@ const Omnibar: React.FC = () => {
   // closed, so closing and opening it start new generations too.
   const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
   const scopePatientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
-  const { getReporter, clear, listGroups, answerGroups, selectable, awaitingRecordDefault } = useResultCollector(
+  const { getReporter, clear, listGroups, answerGroups, selectable, unanswered } = useResultCollector(
     debouncedQuery,
     providerInfo,
     `${contextKey}:${open ? 'open' : 'closed'}`,
@@ -145,16 +153,28 @@ const Omnibar: React.FC = () => {
     [providerInfo],
   );
 
-  // Inside a chart, a page doesn't take the default while a provider of chart values is still
-  // searching, so the first Enter on "admission" opens the chart's record rather than the ward page.
-  // Only the automatic default waits, and for at most chartValuesGraceMs per query.
+  // Inside a chart, a row doesn't take the default while a provider of chart values that ranks before
+  // it hasn't answered, so the first Enter on "admission" opens the chart's record rather than the
+  // ward page. Only the automatic default waits: for at most chartValuesGraceMs per query, or
+  // chartIndexingGraceMs while that provider says it is still indexing with nothing found. Each new
+  // query, including one the user comes back to, starts both waits again.
   const graceKey = `${contextKey}:${open}:${debouncedQuery}`;
-  const [graceOverFor, setGraceOverFor] = useState<string>();
+  const [waited, setWaited] = useState({ key: graceKey, grace: false, indexing: false });
+  if (waited.key !== graceKey) {
+    setWaited({ key: graceKey, grace: false, indexing: false });
+  }
+  const graceOver = waited.key === graceKey && waited.grace;
+  const indexingOver = waited.key === graceKey && waited.indexing;
   useEffect(() => {
-    const timer = setTimeout(() => setGraceOverFor(graceKey), chartValuesGraceMs);
-    return () => clearTimeout(timer);
+    const over = (wait: 'grace' | 'indexing') => () =>
+      setWaited((current) => (current.key === graceKey ? { ...current, [wait]: true } : current));
+    const timers = [setTimeout(over('grace'), chartValuesGraceMs), setTimeout(over('indexing'), chartIndexingGraceMs)];
+    return () => timers.forEach(clearTimeout);
   }, [graceKey]);
-  const holdPageDefault = Boolean(scopePatientUuid) && awaitingRecordDefault && graceOverFor !== graceKey;
+  const waitingFor = useMemo(
+    () => (scopePatientUuid ? unanswered.filter((provider) => !(provider.indexing ? indexingOver : graceOver)) : []),
+    [scopePatientUuid, unanswered, graceOver, indexingOver],
+  );
 
   // The result the user arrowed or pointed to, else the first one that may be the default. When
   // none may, nothing is highlighted and Enter does nothing. The highlight also remembers the record
@@ -189,13 +209,27 @@ const Omnibar: React.FC = () => {
   // to nothing, never to the default: that would be another record, and Enter would open it. The kept
   // copy takes over a highlight the user chose, or one it could have taken as the default anyway, but
   // never when it names another patient: the user chose this patient's row, not that one. A default
-  // highlight whose row is reported again in a way that can't be the default is dropped.
+  // highlight whose row is reported again in a way that can't be the default is dropped. Inside a
+  // chart, a default highlight moves up to a chart row from a record-lane provider that ranks before
+  // its own once one arrives, such as the chart's admission over the ward page; a row the user chose
+  // stays.
   const { selected, chosen } = useMemo(() => {
+    const infoOf = (result: SelectableResult) => providerInfo[result.providerId];
     const mayBeDefault = (result: SelectableResult) => result.mayBeDefault;
     const mayBeDefaultNow = (result: SelectableResult) =>
-      mayBeDefault(result) && !(holdPageDefault && providerInfo[result.providerId]?.lane === 'navigate');
+      mayBeDefault(result) && !waitingFor.some((provider) => ranksBefore(provider, infoOf(result)));
     const same = selection && selectable.find((result) => result.key === selection.key);
     if (same) {
+      const earlierChartRow =
+        scopePatientUuid &&
+        !selection.chosen &&
+        selectable.find(
+          (result) =>
+            infoOf(result).lane === 'record' && ranksBefore(infoOf(result), infoOf(same)) && mayBeDefaultNow(result),
+        );
+      if (earlierChartRow) {
+        return { selected: earlierChartRow, chosen: false };
+      }
       return { selected: selection.chosen || mayBeDefault(same) ? same : undefined, chosen: selection.chosen };
     }
     if (selection?.dedupeKey && selection.dedupeId) {
@@ -213,7 +247,7 @@ const Omnibar: React.FC = () => {
       return { selected: undefined, chosen: true };
     }
     return { selected: selectable.find(mayBeDefaultNow), chosen: false };
-  }, [selection, selectable, providerInfo, holdPageDefault]);
+  }, [selection, selectable, providerInfo, waitingFor, scopePatientUuid]);
   const selectedIndex = selected ? selectable.indexOf(selected) : -1;
   const selectableByKey = useMemo(() => new Map(selectable.map((result) => [result.key, result])), [selectable]);
 

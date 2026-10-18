@@ -48,6 +48,17 @@ export interface ProviderInfo {
 
 const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 2 };
 
+/** `a` comes before `b` in the list: an earlier lane, or the same lane and a lower order. */
+export const ranksBefore = (a: Pick<ProviderInfo, 'lane' | 'order'>, b: Pick<ProviderInfo, 'lane' | 'order'>) =>
+  laneRank[a.lane] < laneRank[b.lane] || (a.lane === b.lane && a.order < b.order);
+
+/** A provider whose rows may be the default and that hasn't answered the current query yet. */
+export interface UnansweredProvider extends ProviderInfo {
+  providerId: string;
+  /** It answered that the source is still indexing, with nothing found yet. */
+  indexing: boolean;
+}
+
 /** The most results one group shows, after dedupe. Any more are dropped. */
 export const maxResultsPerGroup = 50;
 /** The most results read from one report, so one report can't make the bar walk an endless list. */
@@ -404,23 +415,35 @@ export function useResultCollector(
     [listGroups, namesOtherPatient],
   );
 
-  // A record-lane provider that may take the default and hasn't answered this query yet: no report
-  // for it, or `loading` or still indexing (`projecting`) with nothing to show. Read before dedupe,
-  // which drops a group left empty.
-  const awaitingRecordDefault = useMemo(
+  // The record-lane providers that may take the default and haven't answered this query yet: no
+  // report for it, `loading` with nothing to show, or still indexing (`projecting`) with nothing to
+  // show and no note. A provider adds the note once it has stopped re-checking, so that one has
+  // answered. Read before dedupe, which drops a group left empty.
+  const unanswered = useMemo<Array<UnansweredProvider>>(
     () =>
-      Object.entries(providerInfo).some(([providerId, info]) => {
+      Object.entries(providerInfo).flatMap<UnansweredProvider>(([providerId, info]) => {
         if (info.lane !== 'record' || info.neverDefault) {
-          return false;
+          return [];
         }
         const report = reports[providerId];
-        const pending = report?.status === 'loading' || report?.detail?.state === 'projecting';
-        return !report || report.query !== query || (pending && !report.results?.length);
+        if (!report || report.query !== query) {
+          return [{ ...info, providerId, indexing: false }];
+        }
+        if (report.results?.length) {
+          return [];
+        }
+        if (report.status === 'loading') {
+          return [{ ...info, providerId, indexing: false }];
+        }
+        if (report.detail?.state === 'projecting' && !report.detail.note) {
+          return [{ ...info, providerId, indexing: true }];
+        }
+        return [];
       }),
     [reports, query, providerInfo],
   );
 
-  return { getReporter, clear, listGroups, answerGroups, selectable, awaitingRecordDefault };
+  return { getReporter, clear, listGroups, answerGroups, selectable, unanswered };
 }
 
 export function getProviderOrder(
