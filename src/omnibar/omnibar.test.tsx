@@ -36,7 +36,7 @@ import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
 import { executeTarget, getProviderOrder, useResultCollector } from './omnibar.resource';
-import { withProviderBoundary } from './provider-boundary';
+import { withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
 import {
   OMNIBAR_SELECTED_EVENT,

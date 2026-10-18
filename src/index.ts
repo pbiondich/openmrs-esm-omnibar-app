@@ -1,6 +1,6 @@
 import { defineConfigSchema, getAsyncLifecycle } from '@openmrs/esm-framework';
 import { configSchema } from './config-schema';
-import { withProviderBoundary } from './omnibar/provider-boundary';
+import { withProviderBoundary } from './omnibar-contract';
 
 const moduleName = '@openmrs/esm-omnibar-app';
 
@@ -41,6 +41,6 @@ export const destinationsProvider = getAsyncLifecycle(
   options,
 );
 
-export type * from './omnibar/types';
-export { OMNIBAR_SELECTED_EVENT } from './omnibar/types';
+export type * from './omnibar-contract';
+export { OMNIBAR_SELECTED_EVENT } from './omnibar-contract';
 export { withProviderBoundary };

@@ -1,9 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import * as contract from '../omnibar-contract';
 
 // Other apps copy src/omnibar-contract/ as it is, so it may only import what every O3 app already has.
-const folder = new URL('../omnibar-contract/', import.meta.url);
+// Paths, not URLs: the test environment's URL is happy-dom's, which node:fs doesn't accept.
+const folder = join(dirname(fileURLToPath(import.meta.url)), '../omnibar-contract');
 const allowedPackages = ['react', 'react-i18next', '@openmrs/esm-framework'];
 
 const sourceFiles = () =>
@@ -19,7 +22,7 @@ describe('the contract folder', () => {
     const files = sourceFiles();
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
-      for (const specifier of importsOf(readFileSync(new URL(file, folder), 'utf8'))) {
+      for (const specifier of importsOf(readFileSync(join(folder, file), 'utf8'))) {
         const ownFile = specifier.startsWith('./') && !specifier.includes('..');
         expect({ file, specifier, allowed: ownFile || allowedPackages.includes(specifier) }).toEqual({
           file,
@@ -31,7 +34,7 @@ describe('the contract folder', () => {
   });
 
   it('has a README for the apps that copy it', () => {
-    expect(existsSync(new URL('README.md', folder))).toBe(true);
+    expect(existsSync(join(folder, 'README.md'))).toBe(true);
   });
 
   it('exports the boundary and the selection event', () => {
