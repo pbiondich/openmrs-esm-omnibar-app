@@ -45,6 +45,7 @@ O3 runs in clinics with poor or no internet, so a change must not add a CDN, web
 - **This repo** is the owner's own, and changes land here through PRs.
 - **Cohort Builder, the query store and ChartSearch** belong to other maintainers. Changes to them stay as **local variants** on the owner's personal forks and are built into the test server as local tests. **Don't open PRs on upstream `openmrs/*` repos, or push to them,** until the owner has tried the change and agreed. The patches in [`docs/upstream/`](docs/upstream/) are proposals, not merged work.
 - Never merge someone else's PR, and never push to `main` without the owner's OK.
+- **On the query store fork,** `prototype/omnibar-endpoints` holds the endpoint work, the candidate to propose upstream. `prototype/omnibar-endpoints-o3` adds benchmark-only commits for o3.pgb.md and must **never** be merged into any `main`. See [`docs/decisions.md`](docs/decisions.md).
 
 ## Review policy
 
@@ -57,6 +58,15 @@ O3 runs in clinics with poor or no internet, so a change must not add a CDN, web
 - Agents **commit locally on a feature branch and don't push** unless the owner asks for that push. Never force-push, and never rewrite pushed history.
 - Write commit messages as one plain sentence that says what changed and why. Keep test commits next to the change they cover, as the history does.
 - Never commit secrets, `.env` files, hostnames, IP addresses or personal data. [`example.env`](example.env) shows the shape.
+- **Docs-only changes go through a PR too,** like code. Raw outputs, logs and anything not fit for a public repo go in the gitignored `scratch/` folder instead.
+
+## Working in parallel
+
+Several agents often work on this repo at once, from different tools.
+
+- **Give each session its own branch in its own git worktree,** so no two sessions share a checkout: `git worktree add -b <branch> ../openmrs-esm-omnibar-app-<topic> origin/main`. Remove the worktree and its local branch once the PR merges.
+- **Bring `main` into a pushed branch with a merge, never a rebase.**
+- **Before starting, read [`docs/decisions.md`](docs/decisions.md) and the [briefs index](docs/briefs/README.md),** so you don't reopen a settled question or duplicate work in flight. When you finish a brief, update its status there.
 
 ## Verify, build and test
 
@@ -66,6 +76,8 @@ yarn verify   # lint, type-check, and the vitest suite with coverage (turbo)
 yarn build    # rspack production build into dist/
 yarn test     # vitest only, while iterating
 ```
+
+If plain `yarn` isn't on the PATH (Homebrew's Node ships without corepack), use the copy the repo pins: `node .yarn/releases/yarn-4.10.3.cjs <command>`.
 
 `yarn verify` and `yarn build` must both pass before a change is offered for review or deploy. The one expected build warning is the asset size limit. When you change the contract folder, keep `src/conformance/` passing, and expect the copies in other apps to need updating.
 
