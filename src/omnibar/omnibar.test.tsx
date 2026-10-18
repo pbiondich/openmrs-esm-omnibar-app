@@ -40,6 +40,7 @@ import { withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
 import {
   OMNIBAR_SELECTED_EVENT,
+  type OmnibarContext,
   type OmnibarProviderMeta,
   type OmnibarProviderProps,
   type OmnibarReport,
@@ -613,6 +614,33 @@ describe('Omnibar with providers mounted through the slot', () => {
     });
 
     afterEach(() => window.history.pushState({}, '', '/'));
+
+    it('checks the side panel group the host reports, not the store, when the host reports one', async () => {
+      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      const report = vi.fn();
+      const ask = (workspaceGroup: OmnibarContext['workspaceGroup']) => (
+        <ChartSearchSuggestionProvider
+          query="what happened at the last visit"
+          context={{ scope: 'patient', patientUuid: chartPatientUuid, locale: 'en', workspaceGroup }}
+          report={report}
+        />
+      );
+      const lastStatus = () => report.mock.calls.at(-1)[0].status;
+
+      // The store has the group open for this patient; the host says it's open for someone else.
+      const { rerender } = render(ask({ groupName: 'patient-chart', patientUuid: otherPatientUuid }));
+      await waitFor(() => expect(lastStatus()).toBe('idle'));
+
+      act(() => openChartGroup(null));
+      rerender(ask({ groupName: 'patient-chart', patientUuid: chartPatientUuid }));
+      await waitFor(() => expect(lastStatus()).toBe('ready'));
+
+      rerender(ask({ groupName: 'other-group', patientUuid: chartPatientUuid }));
+      await waitFor(() => expect(lastStatus()).toBe('idle'));
+
+      rerender(ask(null));
+      await waitFor(() => expect(lastStatus()).toBe('idle'));
+    });
 
     it('declares patient scope and the backend privilege without opting into the chart default', () => {
       expect(providerRoute.privileges).toEqual(['AI Query Patient Data']);
@@ -2180,6 +2208,82 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(warn.mock.calls[0].join(' ')).toContain('from-the-future');
       expect(warn.mock.calls.flat().join(' ')).not.toMatch(/100GEJ|jane/);
       warn.mockRestore();
+    });
+
+    describe('the chart side panel', () => {
+      const chartPatientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+      const setOpenedGroup = (openedGroup: { groupName: string; props: object | null } | null) =>
+        getGlobalStore('workspace2').setState({ openedGroup });
+
+      beforeEach(() => {
+        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
+        setOpenedGroup({ groupName: 'patient-chart', props: { patientUuid: chartPatientUuid } });
+      });
+
+      afterEach(() => {
+        setOpenedGroup(null);
+        window.history.pushState({}, '', '/');
+      });
+
+      it('tells providers which group is open, and for which patient', async () => {
+        const user = userEvent.setup();
+        const props: Array<OmnibarProviderProps> = [];
+        mountProviders([{ name: 'recorder', meta: recordLane, component: recordProps(props) }]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'cd4');
+        expect(props.at(-1).context).toEqual(
+          expect.objectContaining({
+            scope: 'patient',
+            patientUuid: chartPatientUuid,
+            workspaceGroup: { groupName: 'patient-chart', patientUuid: chartPatientUuid },
+          }),
+        );
+
+        act(() => setOpenedGroup(null));
+        expect(props.at(-1).context.workspaceGroup).toBeNull();
+      });
+
+      it('keeps the results, the selection and the mounted providers when it opens or closes', async () => {
+        const user = userEvent.setup();
+        const props: Array<OmnibarProviderProps> = [];
+        let mounts = 0;
+        const ChartValues: React.FC<OmnibarProviderProps> = (current) => {
+          props.push(current);
+          const { query, report } = current;
+          useEffect(() => {
+            mounts += 1;
+          }, []);
+          useEffect(() => report(ready(query, 'In this chart', query ? ['first', 'second'] : [])), [query, report]);
+          return null;
+        };
+        mountProviders([
+          {
+            name: 'chart',
+            meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
+            component: ChartValues,
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'cd4');
+        await user.keyboard('{ArrowDown}');
+        expect(screen.getByRole('option', { name: 'second' })).toHaveAttribute('aria-selected', 'true');
+
+        act(() => setOpenedGroup(null));
+        expect(props.at(-1).context.workspaceGroup).toBeNull();
+        act(() => setOpenedGroup({ groupName: 'patient-chart', props: { patientUuid: chartPatientUuid } }));
+        expect(props.at(-1).context.workspaceGroup).toEqual({
+          groupName: 'patient-chart',
+          patientUuid: chartPatientUuid,
+        });
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['first', 'second']);
+        expect(screen.getByRole('option', { name: 'second' })).toHaveAttribute('aria-selected', 'true');
+        expect(mounts).toBe(1);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/second');
+      });
     });
   });
 });
