@@ -2703,6 +2703,89 @@ describe('Omnibar with providers mounted through the slot', () => {
           expect(landedOn()).toBe('/openmrs/spa/ward');
         });
 
+        describe('in the side-by-side comparison mode', () => {
+          // Chart lookup's concepts wait until the test lets them through; the query store answers at once.
+          const openChartComparing = (concepts: Array<object>) => {
+            const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+            mockUseConfig.mockReturnValue({ ...defaults, chartLookup: { ...defaults.chartLookup, source: 'both' } });
+            window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+            let conceptsArrive: () => void;
+            const conceptResults = new Promise<FetchResponse>((resolve) => {
+              conceptsArrive = () => resolve({ data: { results: concepts } } as FetchResponse);
+            });
+            mockOpenmrsFetch.mockImplementation((url: string) => {
+              if (url.includes('/querystore/patient/')) {
+                const q = new URL(url, 'http://localhost').searchParams.get('q');
+                return Promise.resolve({
+                  data: { status: 'indexed', groups: q === 'cd4' ? [cd4] : [] },
+                } as FetchResponse);
+              }
+              if (url.includes('/concept?')) {
+                return conceptResults;
+              }
+              if (url.includes('/Observation')) {
+                return Promise.resolve({
+                  data: {
+                    entry: [
+                      {
+                        resource: {
+                          id: 'f1e2d3c4-0000-4000-8000-000000000001',
+                          code: { coding: [{ code: 'cd4-uuid' }] },
+                          valueQuantity: { value: 350, unit: 'cells/µL' },
+                        },
+                      },
+                    ],
+                  },
+                } as FetchResponse);
+              }
+              if (url.includes('/patient?')) {
+                return Promise.resolve({ data: { results: [] } } as FetchResponse);
+              }
+              return new Promise(() => {});
+            });
+            mountProviders([
+              shipped('omnibar-patient-search-provider', PatientSearchProvider),
+              shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+              shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+              shipped('omnibar-destinations-provider', DestinationsProvider),
+            ]);
+            renderWithFreshCache(<Omnibar />);
+            return () => act(async () => conceptsArrive());
+          };
+          const rowIn = async (group: string) =>
+            within(await screen.findByRole('group', { name: group })).findByRole('option', { name: /CD4 count: 350/ });
+
+          it("gives chart lookup's row the highlight though the query store answered first", async () => {
+            const user = userEvent.setup();
+            const conceptsArrive = openChartComparing([
+              { uuid: 'cd4-uuid', display: 'CD4 count', datatype: { display: 'Numeric' } },
+            ]);
+
+            await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'cd4');
+            const queryStoreRow = await rowIn('In this chart (query store)');
+            expect(queryStoreRow).toHaveAttribute('aria-selected', 'false');
+
+            await conceptsArrive();
+            expect(await rowIn('In this chart')).toHaveAttribute('aria-selected', 'true');
+            expect(queryStoreRow).toHaveAttribute('aria-selected', 'false');
+          });
+
+          it("gives the query store's row the highlight when chart lookup finds nothing", async () => {
+            const user = userEvent.setup();
+            const conceptsArrive = openChartComparing([]);
+
+            await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'cd4');
+            await rowIn('In this chart (query store)');
+            await conceptsArrive();
+
+            await waitFor(async () =>
+              expect(await rowIn('In this chart (query store)')).toHaveAttribute('aria-selected', 'true'),
+            );
+            await user.keyboard('{Enter}');
+            expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+          });
+        });
+
         it('waits for chart lookup the same way under the REST source', async () => {
           const user = userEvent.setup();
           mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig);
