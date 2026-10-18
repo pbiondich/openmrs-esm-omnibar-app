@@ -605,6 +605,12 @@ describe('QuerystoreChartProvider registration', () => {
     });
   });
 
+  it('is mounted only for users who may see observations, like chart lookup, the provider it replaces', () => {
+    const privilegesOf = (name: string) => routes.extensions.find((extension) => extension.name === name).privileges;
+    expect(privilegesOf('omnibar-querystore-chart-provider')).toEqual(['Get Observations']);
+    expect(privilegesOf('omnibar-querystore-chart-provider')).toEqual(privilegesOf('omnibar-chart-lookup-provider'));
+  });
+
   it('shares its dedupe key with chart lookup', () => {
     expect(metaOf('omnibar-querystore-chart-provider').dedupeKey).toBe(
       metaOf('omnibar-chart-lookup-provider').dedupeKey,
