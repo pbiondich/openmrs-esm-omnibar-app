@@ -363,3 +363,27 @@ Logged, not fixed (quick-hotfix rule: one review, blockers only):
 - NIT `src/providers/chart-lookup-search.ts:100,105`: set members go in where the set ranked, before the `maxConcepts` slice, so a top-ranked set can fill the cap and hide a direct hit (`show vitals` covers five of ten Vital signs members). Cap members per set, or rank direct hits first.
 - NIT `src/providers/chart-lookup.provider.tsx:35`: `setMembers` has no member cap, so a large set makes one big (same-origin, still single) response.
 - NIT `src/providers/chart-lookup-search.ts:21-81`: `view` isn't in `FILLER_WORDS`, though the brief and this file list it.
+
+## Hotfix 4
+
+In Nicanor Majiga John's chart on Homelab, "show vitals" showed only temperature, height and weight. `pickValueConcepts` capped the concepts at `chartLookup.maxConcepts` (5) before the one `Observation/$lastn` request. Systolic and diastolic pressure took two of the five slots though he has no blood pressure observations. Pulse, respiratory rate and SpO2 were never asked for.
+
+| Change | Commit |
+| --- | --- |
+| Failing tests first. The fake Vital signs set has ten members in CIEL order. Blood pressure, height and MUAC have no observations. Temperature, weight, pulse, SpO2, respiratory rate and Karnofsky do | 2408a1c |
+| `$lastn` asks about up to `chartLookup.maxCandidates` concepts (new, default 20) in the same single request, still with `subject=Patient/<chart patient>`. The first `maxConcepts` concepts that have a value are shown, in ranking order. Concepts with no value are skipped. Twenty UUIDs make a `code` parameter of about 800 characters | 2986d0b |
+| From the hotfix 3 review: `view` is a filler word. Concepts the searches found directly rank ahead of the members of a set they found. Each set's members are capped at `maxCandidates` | 2986d0b |
+| `docs/design/omnibar-context-rules.md` describes the rule | 2986d0b |
+
+Unchanged: one query still makes at most three concept searches plus one `$lastn`. ID handling, the default highlight, "In this chart" above Suggestions, other patients never being the default, and the ChartSearch row rules are as before. Still not fixed from the hotfix 3 review: the word fallback searches the first two remaining words, not the most useful ones. The REST representation still returns every member of a matched set, because the cap applies after the response arrives.
+
+- Tests before: 166. After: 170 (101 in `src/omnibar/omnibar.test.tsx`, 36 in `src/providers/chartsearch-question.test.ts`, 33 in `src/providers/chart-lookup-search.test.ts`).
+- Failed first, on 2408a1c with the old source: "show vitals" showed only temperature and weight, with no pulse, SpO2 or respiratory rate. `$lastn` asked about only the first five members. "view weight" searched `view weight`. `toConceptSearch('view weight')` kept `view`. A set's members ranked ahead of a direct hit. "caps a large set" passed before and after, because the total cap already held.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`. Tests: 170 passed.
+- `corepack yarn build`: `Rspack compiled with 1 warning in 15.91 s` (asset size limit on `132.js` at 605.969 KiB and `769.js` at 755.256 KiB).
+
+### Hotfix 4 review (one quick pass, Grok): APPROVE WITH NITS
+
+Logged, not fixed (quick-hotfix rule: one review, blockers only):
+- NIT `FIXES.md`: no Hotfix 4 entry yet. Fixed by this entry. The Hotfix 3 entry still says `maxConcepts` applies before values are looked up, which was true then.
+- NIT `src/providers/chart-lookup-search.ts:108`: each set's members are cut to `maxCandidates` before members that hold no value are dropped, so a set that starts with many N/A members can push value members out of the pool. Filtering before the cut would fix it.
