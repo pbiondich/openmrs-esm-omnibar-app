@@ -75,19 +75,24 @@ Because providers are extensions, they get lazy loading, privilege gating, featu
 
 ### The provider contract
 
-The full contract is in [`src/omnibar/types.ts`](src/omnibar/types.ts). The core of it:
+This is contract version 1. Everything another app needs is in [`src/omnibar-contract/`](src/omnibar-contract/): the types, `withProviderBoundary`, `looksLikeIdentifier`, `isServerUnreachable` and `OMNIBAR_CONTRACT_VERSION`. Apps copy that folder as it is; it imports only `react`, `react-i18next` and the framework. Every field, the versioning rules, the order registry and how to copy the folder are in [`docs/design/omnibar-provider-contract.md`](docs/design/omnibar-provider-contract.md). The core of it:
 
 ```ts
 type OmnibarScope = 'global' | 'patient';
 type OmnibarLane = 'navigate' | 'record' | 'answer';
 
-interface OmnibarContext { scope: OmnibarScope; patientUuid?: string; locale: string }
+interface OmnibarContext {
+  scope: OmnibarScope;
+  patientUuid?: string;
+  locale: string;
+  workspaceGroup?: { groupName: string; patientUuid?: string } | null; // the open side panel, if any
+}
 
 type OmnibarTarget =
   | { type: 'navigate'; to: string }
   | { type: 'workspace'; workspaceName: string; workspaceProps?: object; windowProps?: object; groupProps?: object };
 
-interface OmnibarResult { id: string; title: string; subtitle?: string; target: OmnibarTarget }
+interface OmnibarResult { id: string; title: string; subtitle?: string; target: OmnibarTarget; dedupeId?: string }
 
 interface OmnibarAnswer { text: string; streaming: boolean; sources: Array<{ label: string; target: OmnibarTarget }> }
 
@@ -97,10 +102,19 @@ interface OmnibarReport {
   title: string; // group heading, translated by the provider
   results?: Array<OmnibarResult>;
   answer?: OmnibarAnswer; // answer lane only
+  detail?: { state: 'projecting' | 'indexed' | 'failed' | 'unavailable'; note?: string };
 }
 
-interface OmnibarProviderProps { query: string; context: OmnibarContext; report: (r: OmnibarReport) => void }
+interface OmnibarProviderProps {
+  query: string;
+  context: OmnibarContext;
+  report: (r: OmnibarReport) => void;
+  hints?: { looksLikeIdentifier: boolean };
+  contractVersion?: number;
+}
 ```
+
+`meta` adds `contract` (the major version the provider was built for), `skipIdentifierQueries` (never mounted for an ID-shaped query) and `dedupeKey` (providers that may find the same record show it once, from the one that ranks first). A provider that can't reach its server reports `status: 'error'` with `detail.state: 'unavailable'`, and the group shrinks to its heading and "Unavailable right now". The host doesn't mount a provider built for a newer contract than it speaks.
 
 After a selection the shell fires `openmrs:omnibar-selected` on `window` with the provider and result ids, for bookkeeping such as recently viewed patients.
 
@@ -115,7 +129,9 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 
 Patient rows show the patient's photo over the generated pattern tile, found as `PatientPhoto` finds it: the latest obs of the styleguide's `patientPhotoConceptUuid`. Unlike `PatientPhoto`, the row loads the photo only when its link has the shape the server writes for a complex obs value, `<openmrsBase>/ws/rest/v1/obs/<uuid>/value`, on this origin. The image is always loaded from this origin, so a stored link such as `https://emr.example//evil.example/pixel` can't make every search ping another server, and a link to any other path on this server, such as a logout page, isn't fetched either. Protocol-relative, backslashed, off-origin, credentialed and non-http(s) links are dropped. The one host allowed besides this origin is its `http://` twin (same hostname, default ports), because a TLS-terminating proxy such as Cloudflare can make the server write `http://` links for an `https://` page. Each patient's photo is looked up once per page load and shared by every row that shows them, so typing makes no extra photo requests. No photo, a failed lookup, a rejected link or an image that fails to load all leave the tile. The proper fix belongs in esm-styleguide's `PatientPhoto`; once it loads only same-origin photos, rows can go back to using it.
 
-Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch row appears only for question-like input no longer than ChartSearch's `maxQuestionLength`, only for users with `AI Query Patient Data`, only when `ai-chat-workspace` is registered, and only while that workspace's window group is already open for this patient. It never takes the default highlight. If that group closes, or opens for another patient, after the row is drawn and before it is picked, nothing opens and a warning snackbar asks the clinician to open the side panel again on this chart, then search again. The omnibar does not reopen the group, because the chart owns its group props.
+Patient search and chart lookup show "Unavailable right now" under their heading when the server can't be reached, and "Couldn't load results" for any other failure. Chart lookup declares the `chart-values` dedupe key, so another provider with that key never repeats a value it already shows.
+
+Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch row appears only for question-like input no longer than ChartSearch's `maxQuestionLength`, only for users with `AI Query Patient Data`, only when `ai-chat-workspace` is registered, and only while that workspace's window group is already open for this patient, which the shell passes to providers as `context.workspaceGroup`. Its provider declares `skipIdentifierQueries`, so the shell doesn't mount it for an ID-shaped query. It never takes the default highlight. If that group closes, or opens for another patient, after the row is drawn and before it is picked, nothing opens and a warning snackbar asks the clinician to open the side panel again on this chart, then search again. The omnibar does not reopen the group, because the chart owns its group props.
 
 The omnibar sends no ChartSearch request while the user types or when the row opens the workspace. [`docs/upstream/esm-chartsearchai-initial-question.patch`](docs/upstream/esm-chartsearchai-initial-question.patch) fills the existing ChartSearch input, clamped to `maxQuestionLength`, and only when the workspace patient matches. The clinician still presses **Send**. [`docs/upstream/esm-chartsearchai-no-warmup.patch`](docs/upstream/esm-chartsearchai-no-warmup.patch) removes the chart-open `/warmup` request. On an unpatched sandbox that request still runs from ChartSearch's Ask AI button when a chart opens. The omnibar does not cause it. ChartSearch owns the request, citations, safety UI, feedback, and errors. At the pinned upstream commit, ChartSearch has no client request timeout.
 
@@ -206,7 +222,7 @@ const LabOrdersProvider: React.FC<OmnibarProviderProps> = ({ query, context, rep
 };
 ```
 
-It registers in its own `routes.json`, where `meta` declares the lane, the scopes it runs in and its order:
+It registers in its own `routes.json`, where `meta` declares the lane, the scopes it runs in, its order and the contract it was built for:
 
 ```json
 {
@@ -214,9 +230,11 @@ It registers in its own `routes.json`, where `meta` declares the lane, the scope
   "component": "labOrdersOmnibarProvider",
   "slot": "omnibar-providers-slot",
   "privileges": ["Get Orders"],
-  "meta": { "lane": "record", "scopes": ["patient"], "order": 20 }
+  "meta": { "lane": "record", "scopes": ["patient"], "order": 20, "contract": 1 }
 }
 ```
+
+Copy [`src/omnibar-contract/`](src/omnibar-contract/) into the app for the types and `withProviderBoundary`, and wrap the provider in it in `index.ts`. Copy it again only when the omnibar bumps the contract version. Pick an order from the [registry](docs/design/omnibar-provider-contract.md#order-registry).
 
 ChartSearch uses the same provider contract. Its provider reports a workspace target and never calls the model.
 
