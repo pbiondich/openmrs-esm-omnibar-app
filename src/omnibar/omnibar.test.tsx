@@ -4,37 +4,54 @@ import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@te
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type FetchConfig,
   type FetchResponse,
   type Session,
+  getConfig,
+  getGlobalStore,
+  getRegisteredWorkspace2Names,
   getDefaultsFromConfigSchema,
   interpolateUrl,
   launchWorkspace2,
   navigate,
   openmrsFetch,
   PatientPhoto,
+  showSnackbar,
   showToast,
   useAssignedExtensions,
   useConfig,
   useDebounce,
   useLayoutType,
+  usePatient,
   usePrimaryIdentifierCode,
   useSession,
+  userHasAccess,
 } from '@openmrs/esm-framework';
 import { formatPartialDate } from '@openmrs/esm-utils';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
 import ChartLookupProvider from '../providers/chart-lookup.provider';
+import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.provider';
 import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
-import { executeTarget, getProviderOrder, useResultCollector } from './omnibar.resource';
-import { withProviderBoundary } from './provider-boundary';
+import {
+  cleanReport,
+  executeTarget,
+  getProviderOrder,
+  type ProviderInfo,
+  useResultCollector,
+} from './omnibar.resource';
+import { withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
 import {
   OMNIBAR_SELECTED_EVENT,
+  type OmnibarContext,
   type OmnibarProviderMeta,
   type OmnibarProviderProps,
   type OmnibarReport,
+  type OmnibarResult,
+  type OmnibarTarget,
 } from './types';
 
 // The framework mock's ExtensionSlot renders a render-function child as a React child, and its
@@ -57,6 +74,9 @@ vi.mock('@openmrs/esm-framework', async (importOriginal) => {
     ...framework,
     // Missing from the framework mock; the real one, as the app shell provides it.
     formatPartialDate: (await import('@openmrs/esm-utils')).formatPartialDate,
+    getRegisteredWorkspace2Names: vi.fn(),
+    // ChartSearch's config with its default limit, so no test depends on the schema the config mock last saw.
+    getConfig: vi.fn(() => Promise.resolve({ maxQuestionLength: 1000 })),
     ExtensionSlot: ({ name, select = (extensions) => extensions, children, state }) =>
       select(framework.useAssignedExtensions(name)).map((extension) =>
         createElement(
@@ -92,6 +112,7 @@ const mockUseConfig = vi.mocked(useConfig<OmnibarConfig>);
 const mockUseLayoutType = vi.mocked(useLayoutType);
 const mockUseAssignedExtensions = vi.mocked(useAssignedExtensions);
 const mockOpenmrsFetch = vi.mocked(openmrsFetch);
+const mockGetRegisteredWorkspace2Names = vi.mocked(getRegisteredWorkspace2Names);
 
 const providers = {
   patients: { lane: 'record' as const, order: 10 },
@@ -122,6 +143,35 @@ describe('useResultCollector', () => {
     expect(result.current.selectable).toHaveLength(0);
   });
 
+  it('drops a report from a mount that was there before the chart changed', () => {
+    const { result, rerender } = renderHook(({ contextKey }) => useResultCollector('q', providers, contextKey), {
+      initialProps: { contextKey: 'patient:first' },
+    });
+    const before = result.current.getReporter('patients');
+
+    rerender({ contextKey: 'patient:second' });
+    act(() => before(ready('q', 'Patients', ['stale'])));
+    expect(result.current.selectable).toHaveLength(0);
+
+    act(() => result.current.getReporter('patients')(ready('q', 'Patients', ['fresh'])));
+    expect(result.current.selectable.map((r) => r.id)).toEqual(['fresh']);
+  });
+
+  it('drops a report from a mount of a provider that has since left and come back', () => {
+    const { result, rerender } = renderHook(({ info }) => useResultCollector('q', info), {
+      initialProps: { info: providers as Record<string, ProviderInfo> },
+    });
+    const before = result.current.getReporter('patients');
+
+    rerender({ info: { pages: providers.pages } });
+    rerender({ info: providers });
+    act(() => before(ready('q', 'Patients', ['stale'])));
+    expect(result.current.selectable).toHaveLength(0);
+
+    act(() => result.current.getReporter('patients')(ready('q', 'Patients', ['fresh'])));
+    expect(result.current.selectable.map((r) => r.id)).toEqual(['fresh']);
+  });
+
   it('puts records before pages and keeps answers out of the arrow-key list', () => {
     const { result } = renderHook(() => useResultCollector('q', providers));
 
@@ -140,6 +190,119 @@ describe('useResultCollector', () => {
     expect(result.current.answerGroups.map((g) => g.providerId)).toEqual(['answers']);
   });
 
+  describe('with providers that share a dedupe key', () => {
+    const sharing = {
+      rest: { lane: 'record' as const, order: 10, dedupeKey: 'chart-values' },
+      projection: { lane: 'record' as const, order: 15, dedupeKey: 'chart-values' },
+      unkeyed: { lane: 'record' as const, order: 20 },
+      otherKey: { lane: 'record' as const, order: 30, dedupeKey: 'notes' },
+      late: { lane: 'navigate' as const, order: 5, dedupeKey: 'chart-values' },
+    };
+    const withDedupeIds = (query: string, title: string, results: Array<[string, string?]>): OmnibarReport => ({
+      query,
+      title,
+      status: 'ready',
+      results: results.map(([id, dedupeId]) => ({
+        id,
+        title: id,
+        dedupeId,
+        target: { type: 'navigate', to: `/${id}` },
+      })),
+    });
+
+    it('keeps only the copy from the provider that ranks first, whichever reports first', () => {
+      const { result } = renderHook(() => useResultCollector('weight', sharing));
+
+      act(() => {
+        result.current.getReporter('late')(withDedupeIds('weight', 'Later lane', [['late-weight', 'obs:1']]));
+        result.current.getReporter('otherKey')(withDedupeIds('weight', 'Notes', [['note-weight', 'obs:1']]));
+        result.current.getReporter('unkeyed')(withDedupeIds('weight', 'Unkeyed', [['unkeyed-weight', 'obs:1']]));
+        result.current.getReporter('projection')(
+          withDedupeIds('weight', 'Found in the record', [
+            ['projected-weight', 'obs:1'],
+            ['narrative', 'obs:3'],
+            ['plain'],
+          ]),
+        );
+        result.current.getReporter('rest')(
+          withDedupeIds('weight', 'In this chart', [
+            ['weight', 'obs:1'],
+            ['height', 'obs:2'],
+          ]),
+        );
+      });
+
+      expect(result.current.selectable.map((r) => r.key)).toEqual([
+        'rest:weight',
+        'rest:height',
+        'projection:narrative',
+        'projection:plain',
+        'unkeyed:unkeyed-weight',
+        'otherKey:note-weight',
+      ]);
+      expect(result.current.listGroups.map((group) => group.providerId)).toEqual([
+        'rest',
+        'projection',
+        'unkeyed',
+        'otherKey',
+      ]);
+    });
+
+    it('drops a group whose every result was a copy', () => {
+      const { result } = renderHook(() => useResultCollector('weight', sharing));
+
+      act(() => {
+        result.current.getReporter('projection')(withDedupeIds('weight', 'Found in the record', [['copy', 'obs:1']]));
+        result.current.getReporter('rest')(withDedupeIds('weight', 'In this chart', [['weight', 'obs:1']]));
+      });
+
+      expect(result.current.listGroups.map((group) => group.providerId)).toEqual(['rest']);
+    });
+
+    it('keeps the copy a chart lets take the default over a higher-ranked copy it never highlights', () => {
+      const inChart = {
+        index: { lane: 'record' as const, order: 5, dedupeKey: 'chart-values', neverDefault: true },
+        rest: { lane: 'record' as const, order: 10, dedupeKey: 'chart-values' },
+        projection: { lane: 'record' as const, order: 15, dedupeKey: 'chart-values', neverDefault: true },
+      };
+      const { result } = renderHook(() => useResultCollector('weight', inChart));
+
+      act(() => {
+        result.current.getReporter('index')(
+          withDedupeIds('weight', 'Index', [
+            ['index-weight', 'obs:1'],
+            ['index-only', 'obs:2'],
+            ['index-both', 'obs:3'],
+          ]),
+        );
+        result.current.getReporter('rest')(withDedupeIds('weight', 'In this chart', [['weight', 'obs:1']]));
+        result.current.getReporter('projection')(
+          withDedupeIds('weight', 'Found in the record', [
+            ['projected-weight', 'obs:1'],
+            ['projected-both', 'obs:3'],
+          ]),
+        );
+      });
+
+      // obs:1: the default-eligible copy wins wherever it ranks. obs:3: no copy may be the default, so the first stays.
+      expect(result.current.selectable.map((r) => r.key)).toEqual([
+        'index:index-only',
+        'index:index-both',
+        'rest:weight',
+      ]);
+      expect(result.current.listGroups.map((group) => group.providerId)).toEqual(['index', 'rest']);
+    });
+  });
+
+  it('reads at most 200 results of a report, and leaves the cut to 50 until after dedupe', () => {
+    const report = ready(
+      'q',
+      'Many',
+      Array.from({ length: 300 }, (_, index) => `row ${index}`),
+    );
+    expect(cleanReport(report).results).toHaveLength(200);
+  });
+
   it('ignores reports from providers that are not active in the current scope', () => {
     const { result } = renderHook(() => useResultCollector('q', { pages: providers.pages }));
     act(() => result.current.getReporter('patients')(ready('q', 'Patients', ['jane'])));
@@ -152,6 +315,14 @@ describe('scope and ordering', () => {
     const uuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
     expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid}/chart/Patient%20Summary`)).toBe(uuid);
     expect(getPatientUuidFromPath('/openmrs/spa/home')).toBeUndefined();
+  });
+
+  it('reads the chart patient from the path the way the router does', () => {
+    const uuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+    expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid.replace(/-/g, '%2D')}/chart/Results`)).toBe(uuid);
+    expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid.toUpperCase()}/chart`)).toBe(uuid.toUpperCase());
+    expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid}x/chart`)).toBeUndefined();
+    expect(getPatientUuidFromPath(`/openmrs/spa/patient/${uuid.replace(/-/g, '%2F')}/chart`)).toBeUndefined();
   });
 
   it('uses patientScopeOrder inside a chart', () => {
@@ -185,8 +356,9 @@ describe('executeTarget', () => {
     `${window.location.origin}//evil.example/phish`,
     `${window.location.origin}/\\evil.example/phish`,
     `${window.location.origin}/${window.location.origin}//evil.example`,
-  ])('refuses to follow %s', async (to) => {
-    await expect(executeTarget({ type: 'navigate', to })).rejects.toThrow();
+    'http://[',
+  ])('refuses to follow %s, and says so by resolving false', async (to) => {
+    expect(await executeTarget({ type: 'navigate', to })).toBe(false);
     expect(navigate).not.toHaveBeenCalled();
   });
 });
@@ -207,6 +379,18 @@ describe('DestinationsProvider', () => {
     const report = vi.fn();
     render(<DestinationsProvider query="triage" context={{ scope: 'global', locale: 'en' }} report={report} />);
     expect(report.mock.calls.at(-1)[0].results.map((r) => r.title)).toEqual(['Service queues']);
+  });
+
+  // "cohort" belongs to the Cohort Builder's own provider once it ships, so it gives one row, not two.
+  it('finds Patient lists by "list", but not by "cohort"', () => {
+    const report = vi.fn();
+    const titlesFor = (query: string) => {
+      render(<DestinationsProvider query={query} context={{ scope: 'global', locale: 'en' }} report={report} />);
+      return report.mock.calls.at(-1)[0].results.map((r) => r.title);
+    };
+
+    expect(titlesFor('cohort')).not.toContain('Patient lists');
+    expect(titlesFor('list')).toContain('Patient lists');
   });
 });
 
@@ -393,6 +577,81 @@ describe('Omnibar with providers mounted through the slot', () => {
     });
   });
 
+  const numeric = (uuid: string, display: string) => ({ uuid, display, datatype: { display: 'Numeric' } });
+  const vitalSigns = [
+    numeric('systolic-uuid', 'Systolic blood pressure'),
+    numeric('diastolic-uuid', 'Diastolic blood pressure'),
+    numeric('temperature-uuid', 'Temperature (c)'),
+    numeric('height-uuid', 'Height (cm)'),
+    numeric('weight-uuid', 'Weight (kg)'),
+    numeric('pulse-uuid', 'Pulse'),
+    numeric('spo2-uuid', 'Blood oxygen saturation'),
+    numeric('muac-uuid', 'Mid-upper arm circumference'),
+    numeric('respiratory-rate-uuid', 'Respiratory rate'),
+    numeric('karnofsky-uuid', 'Karnofsky performance score'),
+  ];
+  const dictionary: Array<{ names: Array<string>; concept: object; setMembers?: Array<object> }> = [
+    ...vitalSigns.map((concept) => ({ names: [concept.display], concept })),
+    {
+      names: ['Weight loss'],
+      concept: { uuid: 'weight-loss-uuid', display: 'Weight loss', datatype: { display: 'Boolean' } },
+    },
+    {
+      names: ['Vital signs', 'Vitals'],
+      concept: { uuid: 'vitals-uuid', display: 'Vital signs', datatype: { display: 'N/A' } },
+      setMembers: vitalSigns,
+    },
+  ];
+  // Like the chart in the bug report: no blood pressure, height or MUAC, but pulse, SpO2 and respiratory rate.
+  const latestValues: Record<string, { value: number; unit: string }> = {
+    'temperature-uuid': { value: 36.8, unit: '°C' },
+    'weight-uuid': { value: 70, unit: 'kg' },
+    'pulse-uuid': { value: 72, unit: 'beats/min' },
+    'spo2-uuid': { value: 97, unit: '%' },
+    'respiratory-rate-uuid': { value: 18, unit: 'breaths/min' },
+    'karnofsky-uuid': { value: 90, unit: '%' },
+  };
+  const words = (text: string) => text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  /**
+   * Answers the way the REST concept search does on the CIEL dictionary: a concept matches when
+   * every word of `q` starts a word of one of its names, so "latest weight" matches nothing, and
+   * set members come back only when the representation asks for them.
+   */
+  const serveChartDictionary = () =>
+    mockOpenmrsFetch.mockImplementation((path: string) => {
+      const url = new URL(path, 'http://localhost');
+      if (url.pathname.endsWith('/patient')) {
+        return Promise.resolve({
+          data: { results: url.searchParams.get('q') === '100GEJ' ? [jane] : [] },
+        } as FetchResponse);
+      }
+      if (url.pathname.endsWith('/concept')) {
+        const query = words(url.searchParams.get('q'));
+        const results = dictionary
+          .filter(({ names }) =>
+            names.some((name) => query.every((word) => words(name).some((nameWord) => nameWord.startsWith(word)))),
+          )
+          .map(({ concept, setMembers }) =>
+            setMembers && url.searchParams.get('v').includes('setMembers') ? { ...concept, setMembers } : concept,
+          );
+        return Promise.resolve({ data: { results } } as FetchResponse);
+      }
+      if (url.pathname.endsWith('/Observation/$lastn')) {
+        const entry = url.searchParams
+          .get('code')
+          .split(',')
+          .filter((code) => latestValues[code])
+          .map((code) => ({ resource: { code: { coding: [{ code }] }, valueQuantity: latestValues[code] } }));
+        return Promise.resolve({ data: { entry } } as FetchResponse);
+      }
+      return new Promise(() => {});
+    });
+  const conceptSearches = () =>
+    mockOpenmrsFetch.mock.calls
+      .map(([path]) => new URL(path, 'http://localhost'))
+      .filter((url) => url.pathname.endsWith('/concept'))
+      .map((url) => url.searchParams.get('q'));
+
   it('never mounts a provider outside the scopes it declares', async () => {
     const user = userEvent.setup();
     const chartLookupRenders = vi.fn();
@@ -466,6 +725,88 @@ describe('Omnibar with providers mounted through the slot', () => {
     consoleError.mockRestore();
   });
 
+  it.each([
+    ['an error named after what was typed', Object.assign(new Error('failed'), { name: 'Jane Doe 100GEJ' })],
+    ['a thrown string', 'Jane Doe 100GEJ'],
+    ['a thrown object', { name: 'Jane Doe 100GEJ' }],
+  ])('names only the fixed word Error in its console line for %s', async (_, thrown) => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const settings = (window as unknown as { happyDOM: { settings: { disableErrorCapturing: boolean } } }).happyDOM
+      .settings;
+    settings.disableErrorCapturing = false;
+    const ignore = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener('error', ignore);
+    const Broken: React.FC<OmnibarProviderProps> = () => {
+      throw thrown;
+    };
+    mountProviders([{ name: 'broken', meta: recordLane, component: withProviderBoundary(Broken, 'broken') }]);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'ward');
+
+    const boundaryLines = consoleError.mock.calls
+      .map(([line]) => String(line))
+      .filter((line) => line.startsWith('Omnibar'));
+    expect(boundaryLines.length).toBeGreaterThan(0);
+    expect(new Set(boundaryLines)).toEqual(new Set(['Omnibar provider broken failed with Error']));
+    window.removeEventListener('error', ignore);
+    settings.disableErrorCapturing = true;
+    consoleError.mockRestore();
+  });
+
+  describe('when a picked result cannot be opened', () => {
+    const offersRow = (target: OmnibarTarget): React.FC<OmnibarProviderProps> =>
+      function OffersRow({ query, report }) {
+        useEffect(
+          () =>
+            report({
+              query,
+              title: 'Rows',
+              status: 'ready',
+              results: query ? [{ id: 'row', title: 'The row', target }] : [],
+            }),
+          [query, report],
+        );
+        return null;
+      };
+
+    it('warns in a snackbar when a link leads off this site', async () => {
+      const user = userEvent.setup();
+      mountProviders([
+        { name: 'rows', meta: recordLane, component: offersRow({ type: 'navigate', to: 'https://evil.example/home' }) },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'row');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' })));
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('warns in a snackbar when the workspace fails to launch', async () => {
+      const user = userEvent.setup();
+      vi.mocked(launchWorkspace2).mockRejectedValue(new Error('Jane Doe 100GEJ'));
+      mountProviders([
+        { name: 'rows', meta: recordLane, component: offersRow({ type: 'workspace', workspaceName: 'notes' }) },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'row');
+      await user.click(screen.getByRole('option', { name: 'The row' }));
+
+      await waitFor(() =>
+        expect(showSnackbar).toHaveBeenCalledWith({
+          kind: 'warning',
+          title: 'Couldn’t open the side panel',
+          subtitle:
+            'The side panel was closed or opened for another patient. Open it again on this chart, then search again.',
+        }),
+      );
+    });
+  });
+
   it('renders nothing for a provider mounted without the omnibar props', () => {
     const provider = vi.fn(() => null);
     const Bounded = withProviderBoundary(provider);
@@ -480,6 +821,832 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     expect(container).toBeEmptyDOMElement();
     expect(provider).not.toHaveBeenCalled();
+  });
+
+  describe('ChartSearch suggestion provider', () => {
+    const chartPatientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+    const providerName = 'omnibar-chartsearch-suggestion-provider';
+    const providerRoute = routes.extensions.find((extension) => extension.name === providerName) as {
+      privileges: Array<string>;
+      meta: OmnibarProviderMeta;
+    };
+    const provider = {
+      name: providerName,
+      meta: providerRoute?.meta,
+      component: ChartSearchSuggestionProvider,
+    };
+
+    const openChartGroup = (patientUuid: string | null, groupName = 'patient-chart') => {
+      getGlobalStore('workspace2').setState({
+        registeredWorkspacesByName: {
+          'ai-chat-workspace': { window: 'ai-chat' },
+        },
+        registeredWindowsByName: {
+          'ai-chat': { group: 'patient-chart' },
+        },
+        openedGroup: patientUuid ? { groupName, props: { patientUuid } } : null,
+      });
+    };
+
+    beforeEach(() => {
+      window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
+      openChartGroup(chartPatientUuid);
+      mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
+      vi.mocked(useSession).mockReturnValue({
+        authenticated: true,
+        sessionId: 'session',
+        user: { uuid: 'user-uuid', privileges: [], roles: [] },
+      } as Session);
+      vi.mocked(userHasAccess).mockReturnValue(true);
+      vi.mocked(usePatient).mockReturnValue({
+        patient: { id: chartPatientUuid, name: [{ given: ['Jane'], family: 'Doe' }] },
+        patientUuid: chartPatientUuid,
+        isLoading: false,
+        error: null,
+      });
+    });
+
+    afterEach(() => window.history.pushState({}, '', '/'));
+
+    it('checks the side panel group the host reports, not the store, when the host reports one', async () => {
+      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      const report = vi.fn();
+      const ask = (workspaceGroup: OmnibarContext['workspaceGroup']) => (
+        <ChartSearchSuggestionProvider
+          query="what happened at the last visit"
+          context={{ scope: 'patient', patientUuid: chartPatientUuid, locale: 'en', workspaceGroup }}
+          report={report}
+        />
+      );
+      const lastStatus = () => report.mock.calls.at(-1)[0].status;
+
+      // The store has the group open for this patient; the host says it's open for someone else.
+      const { rerender } = render(ask({ groupName: 'patient-chart', patientUuid: otherPatientUuid }));
+      await waitFor(() => expect(lastStatus()).toBe('idle'));
+
+      act(() => openChartGroup(null));
+      rerender(ask({ groupName: 'patient-chart', patientUuid: chartPatientUuid }));
+      await waitFor(() => expect(lastStatus()).toBe('ready'));
+
+      rerender(ask({ groupName: 'other-group', patientUuid: chartPatientUuid }));
+      await waitFor(() => expect(lastStatus()).toBe('idle'));
+
+      rerender(ask(null));
+      await waitFor(() => expect(lastStatus()).toBe('idle'));
+    });
+
+    it("decides from the host's open group and the group its config names, never from the store's registry", async () => {
+      getGlobalStore('workspace2').setState({ registeredWorkspacesByName: {}, registeredWindowsByName: {} });
+      const report = vi.fn();
+      const ask = (groupName: string) => (
+        <ChartSearchSuggestionProvider
+          query="what happened at the last visit"
+          context={{
+            scope: 'patient',
+            patientUuid: chartPatientUuid,
+            locale: 'en',
+            workspaceGroup: { groupName, patientUuid: chartPatientUuid },
+          }}
+          report={report}
+        />
+      );
+      const lastStatus = () => report.mock.calls.at(-1)[0].status;
+
+      const { rerender } = render(ask('patient-chart'));
+      await waitFor(() => expect(lastStatus()).toBe('ready'));
+
+      const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+      mockUseConfig.mockReturnValue({
+        ...defaults,
+        chartSearchSuggestion: { ...defaults.chartSearchSuggestion, workspaceGroupName: 'ai-panel' },
+      } as OmnibarConfig);
+      rerender(ask('patient-chart'));
+      await waitFor(() => expect(lastStatus()).toBe('idle'));
+      rerender(ask('ai-panel'));
+      await waitFor(() => expect(lastStatus()).toBe('ready'));
+    });
+
+    it('offers no row on a host that does not say which group is open, whatever the store says', async () => {
+      const report = vi.fn();
+      render(
+        <ChartSearchSuggestionProvider
+          query="what happened at the last visit"
+          context={{ scope: 'patient', patientUuid: chartPatientUuid, locale: 'en' }}
+          report={report}
+        />,
+      );
+
+      await waitFor(() => expect(report).toHaveBeenCalled());
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(report.mock.calls.map(([sent]) => sent.status)).not.toContain('ready');
+    });
+
+    it('declares patient scope and the backend privilege without opting into the chart default', () => {
+      expect(providerRoute.privileges).toEqual(['AI Query Patient Data']);
+      expect(providerRoute.meta).toEqual(
+        expect.objectContaining({ lane: 'navigate', scopes: ['patient'], order: 100 }),
+      );
+      expect(providerRoute.meta.defaultInChart).toBeUndefined();
+    });
+
+    it.each([
+      [
+        'ArrowDown and Enter',
+        async (user: ReturnType<typeof userEvent.setup>, row: HTMLElement) => {
+          await user.keyboard('{ArrowDown}{Enter}');
+        },
+      ],
+      [
+        'a click',
+        async (user: ReturnType<typeof userEvent.setup>, row: HTMLElement) => {
+          await user.click(row);
+        },
+      ],
+    ])('makes no ChartSearch request while typing and launches only after %s', async (_, pick) => {
+      const user = userEvent.setup();
+      const fetch = vi.spyOn(window, 'fetch').mockResolvedValue(new Response('{}'));
+      const selected = vi.fn();
+      window.addEventListener(OMNIBAR_SELECTED_EVENT, selected);
+      mountProviders([provider]);
+      render(<Omnibar />);
+
+      const input = screen.getByRole('combobox', { name: /search this chart/i });
+      await user.type(input, 'what happened at the last visit');
+      const row = await screen.findByRole('option', { name: /ask chartsearch.*jane doe/i });
+
+      expect(row).toHaveAttribute('aria-selected', 'false');
+      expect(input).not.toHaveAttribute('aria-activedescendant');
+      await user.keyboard('{Enter}');
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+      expect(mockOpenmrsFetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+      expect(fetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+
+      await pick(user, row);
+
+      expect(launchWorkspace2).toHaveBeenCalledWith(
+        'ai-chat-workspace',
+        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        null,
+        null,
+      );
+      expect(selected.mock.calls[0][0].detail).toEqual({
+        providerId: providerName,
+        resultId: 'ask-chartsearch',
+      });
+      expect(mockOpenmrsFetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+      expect(fetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+      window.removeEventListener(OMNIBAR_SELECTED_EVENT, selected);
+    });
+
+    it('reopens an already-open Ask AI chat with the new workspace props', async () => {
+      const user = userEvent.setup();
+      getGlobalStore('workspace2').setState({
+        openedWindows: [
+          {
+            windowName: 'ai-chat',
+            openedWorkspaces: [{ workspaceName: 'ai-chat-workspace', props: {} }],
+          },
+        ],
+      });
+      mountProviders([provider]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      expect(launchWorkspace2).toHaveBeenCalledWith(
+        'ai-chat-workspace',
+        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        null,
+        null,
+      );
+    });
+
+    it('keeps a real chart result as the default above the suggestion', async () => {
+      const user = userEvent.setup();
+      const ChartResult: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => report(ready(query, 'In this chart', ['chart result'])), [query, report]);
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'chart',
+          meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
+          component: ChartResult,
+        },
+        provider,
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'show the latest viral load');
+
+      expect(screen.getByRole('option', { name: 'chart result' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'false');
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe('/chart%20result');
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('offers the row below the chart value for "what is his latest weight?", never as the default', async () => {
+      const user = userEvent.setup();
+      serveChartDictionary();
+      mountProviders([
+        {
+          name: 'omnibar-chart-lookup-provider',
+          meta: routes.extensions.find((extension) => extension.name === 'omnibar-chart-lookup-provider')
+            .meta as OmnibarProviderMeta,
+          component: ChartLookupProvider,
+        },
+        provider,
+      ]);
+      renderWithFreshCache(<Omnibar />);
+
+      await user.click(screen.getByRole('combobox'));
+      await user.paste('what is his latest weight?');
+
+      const weight = await screen.findByRole('option', { name: /Weight \(kg\): 70 kg/ });
+      const ask = screen.getByRole('option', { name: /ask chartsearch/i });
+      expect(weight).toHaveAttribute('aria-selected', 'true');
+      expect(ask).toHaveAttribute('aria-selected', 'false');
+      expect(weight.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('hides the row outside patient scope and when any runtime gate fails', async () => {
+      const user = userEvent.setup();
+      mountProviders([provider]);
+      window.history.pushState({}, '', '/openmrs/spa/home');
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+
+      act(() => {
+        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      vi.mocked(userHasAccess).mockReturnValue(false);
+      await user.clear(screen.getByRole('combobox'));
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    it('hides the row when disabled or when the workspace is not registered', async () => {
+      const user = userEvent.setup();
+      const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+      mockUseConfig.mockReturnValue({
+        ...defaults,
+        chartSearchSuggestion: { ...defaults.chartSearchSuggestion, enabled: false },
+      });
+      mountProviders([provider]);
+      const { unmount } = render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+
+      unmount();
+      mockUseConfig.mockReturnValue(defaults);
+      mockGetRegisteredWorkspace2Names.mockReturnValue([]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['no open group', null],
+      ['another group', 'other-group'],
+      ['a different patient', 'patient-chart'],
+    ] as const)('hides the row when the chart group is %s', async (label, groupName) => {
+      const user = userEvent.setup();
+      if (label === 'a different patient') {
+        openChartGroup('0c1d2e3f-4a5b-4c6d-8e7f-901234567890', groupName);
+      } else if (groupName) {
+        openChartGroup(chartPatientUuid, groupName);
+      } else {
+        openChartGroup(null);
+      }
+      mountProviders([provider]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    it('does not launch after the chart group closes', async () => {
+      const user = userEvent.setup();
+      mountProviders([provider]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'true');
+
+      act(() => {
+        openChartGroup(null);
+      });
+
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+      await user.keyboard('{Enter}');
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('refuses a workspace launch when the required chart group is no longer open', async () => {
+      openChartGroup(chartPatientUuid);
+      const target = {
+        type: 'workspace' as const,
+        workspaceName: 'ai-chat-workspace',
+        workspaceProps: { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+      };
+      await executeTarget(target);
+      expect(launchWorkspace2).toHaveBeenCalledWith(
+        'ai-chat-workspace',
+        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        null,
+        null,
+      );
+
+      vi.mocked(launchWorkspace2).mockClear();
+      openChartGroup(null);
+      await executeTarget(target);
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('refuses a launch whose workspace props name another patient than the open group it requires', async () => {
+      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      const target = (workspacePatientUuid: unknown) => ({
+        type: 'workspace' as const,
+        workspaceName: 'ai-chat-workspace',
+        workspaceProps: { patientUuid: workspacePatientUuid, initialQuestion: 'what happened at the last visit' },
+        requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+      });
+
+      expect(await executeTarget(target(otherPatientUuid))).toBe(false);
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+
+      // Only two strings that differ are refused; props without a patient string launch as before.
+      expect(await executeTarget(target(undefined))).toBe(true);
+      expect(await executeTarget(target(42))).toBe(true);
+      expect(await executeTarget(target(chartPatientUuid))).toBe(true);
+      expect(launchWorkspace2).toHaveBeenCalledTimes(3);
+    });
+
+    it('refuses a launch whose window or group props name another patient than the open group it requires', async () => {
+      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      const requiresOpenGroup = { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid };
+      const workspaceProps = { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' };
+
+      for (const props of [
+        { groupProps: { patientUuid: otherPatientUuid } },
+        { windowProps: { patientUuid: otherPatientUuid } },
+      ]) {
+        expect(
+          await executeTarget({
+            type: 'workspace',
+            workspaceName: 'ai-chat-workspace',
+            workspaceProps,
+            requiresOpenGroup,
+            ...props,
+          }),
+        ).toBe(false);
+      }
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it.each(['workspaceProps', 'windowProps', 'groupProps'])(
+      'refuses, inside a chart, a launch whose %s name another patient, with or without a required group',
+      async (bag) => {
+        const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+        const target = (patientUuid: unknown) => ({
+          type: 'workspace' as const,
+          workspaceName: 'notes',
+          [bag]: { patientUuid },
+        });
+
+        expect(await executeTarget(target(otherPatientUuid), chartPatientUuid)).toBe(false);
+        expect(
+          await executeTarget(
+            {
+              ...target(otherPatientUuid),
+              requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+            },
+            chartPatientUuid,
+          ),
+        ).toBe(false);
+        expect(launchWorkspace2).not.toHaveBeenCalled();
+
+        expect(await executeTarget(target(chartPatientUuid), chartPatientUuid)).toBe(true);
+        expect(await executeTarget(target(chartPatientUuid.toUpperCase()), chartPatientUuid)).toBe(true);
+        // Read the way the router reads a path segment, an encoded copy is still this patient.
+        expect(await executeTarget(target(chartPatientUuid.replace(/-/g, '%2D')), chartPatientUuid)).toBe(true);
+        expect(await executeTarget(target(42), chartPatientUuid)).toBe(true);
+        // Outside a chart there is no patient to hold it to.
+        expect(await executeTarget(target(otherPatientUuid))).toBe(true);
+        expect(launchWorkspace2).toHaveBeenCalledTimes(5);
+      },
+    );
+
+    it('warns in a snackbar when a clicked row opens a workspace for another patient, with no required group', async () => {
+      const user = userEvent.setup();
+      const OtherPatientNotes: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(
+          () =>
+            report({
+              query,
+              title: 'Notes',
+              status: 'ready',
+              results: query
+                ? [
+                    {
+                      id: 'note',
+                      title: 'Write a note',
+                      target: {
+                        type: 'workspace',
+                        workspaceName: 'visit-notes',
+                        groupProps: { patientUuid: '0c1d2e3f-4a5b-4c6d-8e7f-901234567890' },
+                      },
+                    },
+                  ]
+                : [],
+            }),
+          [query, report],
+        );
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'notes',
+          meta: { lane: 'navigate', scopes: ['patient'], order: 100, defaultInChart: true },
+          component: OtherPatientNotes,
+        },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'note');
+      await user.click(screen.getByRole('option', { name: 'Write a note' }));
+
+      await waitFor(() => expect(showSnackbar).toHaveBeenCalledTimes(1));
+      expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' }));
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('warns in a snackbar when a picked row names another patient than the open group it requires', async () => {
+      const user = userEvent.setup();
+      const MismatchedRow: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(
+          () =>
+            report({
+              query,
+              title: 'Suggestions',
+              status: 'ready',
+              results: query
+                ? [
+                    {
+                      id: 'ask',
+                      title: 'Ask about someone else',
+                      target: {
+                        type: 'workspace',
+                        workspaceName: 'ai-chat-workspace',
+                        workspaceProps: { patientUuid: '0c1d2e3f-4a5b-4c6d-8e7f-901234567890' },
+                        requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+                      },
+                    },
+                  ]
+                : [],
+            }),
+          [query, report],
+        );
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'mismatched',
+          meta: { lane: 'navigate', scopes: ['patient'], order: 100, defaultInChart: true },
+          component: MismatchedRow,
+        },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'what happened');
+      // A row that names another patient is never the default in a chart, so the user arrows to it.
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      await waitFor(() => expect(showSnackbar).toHaveBeenCalledTimes(1));
+      expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warning' }));
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('resolves false only when it refuses the launch', async () => {
+      const target = {
+        type: 'workspace' as const,
+        workspaceName: 'ai-chat-workspace',
+        workspaceProps: { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+      };
+      expect(await executeTarget(target)).toBe(true);
+      expect(await executeTarget({ type: 'workspace', workspaceName: 'order-basket' })).toBe(true);
+      expect(await executeTarget({ type: 'navigate', to: '${openmrsSpaBase}/home' })).toBe(true);
+
+      openChartGroup('0c1d2e3f-4a5b-4c6d-8e7f-901234567890');
+      expect(await executeTarget(target)).toBe(false);
+      openChartGroup(null);
+      expect(await executeTarget(target)).toBe(false);
+    });
+
+    describe('when the chart group changes between seeing the row and picking it', () => {
+      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+
+      const removeListeners: Array<() => void> = [];
+      const listen = (eventType: string, listener: (event: Event) => void, options?: AddEventListenerOptions) => {
+        window.addEventListener(eventType, listener, options);
+        removeListeners.push(() => window.removeEventListener(eventType, listener, options));
+      };
+      afterEach(() => removeListeners.splice(0).forEach((remove) => remove()));
+
+      // A capturing listener on window runs before React's own listener on the root, so the store
+      // changes after the row was drawn and before the omnibar handles the pick.
+      const changeGroupOn = (eventType: 'click' | 'keydown', patientUuid: string | null) =>
+        listen(eventType, () => openChartGroup(patientUuid), { capture: true, once: true });
+
+      it.each([
+        ['closes', 'a click', null],
+        ['closes', 'Enter', null],
+        ['opens for another patient', 'a click', otherPatientUuid],
+        ['opens for another patient', 'Enter', otherPatientUuid],
+      ] as const)('warns in a snackbar and opens nothing when the group %s before %s', async (_, how, patientUuid) => {
+        const user = userEvent.setup();
+        const selected = vi.fn();
+        listen(OMNIBAR_SELECTED_EVENT, selected);
+        mountProviders([provider]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+        const row = await screen.findByRole('option', { name: /ask chartsearch/i });
+        await user.keyboard('{ArrowDown}');
+        expect(row).toHaveAttribute('aria-selected', 'true');
+
+        if (how === 'a click') {
+          changeGroupOn('click', patientUuid);
+          await user.click(row);
+        } else {
+          changeGroupOn('keydown', patientUuid);
+          await user.keyboard('{Enter}');
+        }
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+        expect(launchWorkspace2).not.toHaveBeenCalled();
+        await waitFor(() => expect(showSnackbar).toHaveBeenCalledTimes(1));
+        expect(showSnackbar).toHaveBeenCalledWith({
+          kind: 'warning',
+          title: 'Couldn’t open the side panel',
+          subtitle:
+            'The side panel was closed or opened for another patient. Open it again on this chart, then search again.',
+        });
+      });
+
+      it('shows no snackbar when the group is still open', async () => {
+        const user = userEvent.setup();
+        mountProviders([provider]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+        await user.click(await screen.findByRole('option', { name: /ask chartsearch/i }));
+
+        await waitFor(() => expect(launchWorkspace2).toHaveBeenCalledTimes(1));
+        expect(showSnackbar).not.toHaveBeenCalled();
+      });
+    });
+
+    it('hides the row when the question is longer than ChartSearch accepts', async () => {
+      mountProviders([provider]);
+      render(<Omnibar />);
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: `what ${'a'.repeat(996)}` } });
+      await waitFor(
+        () => {
+          expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+        },
+        { timeout: 1000 },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    describe("with ChartSearch's maxQuestionLength", () => {
+      const chartSearchModuleName = '@openmrs/esm-chartsearchai-app';
+      const questionOfLength = (length: number) => `what ${'a'.repeat(length - 5)}`;
+      const askRow = () => screen.queryByRole('option', { name: /ask chartsearch/i });
+
+      const expectOffered = async (length: number, offered: boolean) => {
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: questionOfLength(length) } });
+        if (offered) {
+          expect(await screen.findByRole('option', { name: /ask chartsearch/i })).toBeInTheDocument();
+          return;
+        }
+        // Long enough for the 200 ms debounce and the provider's report.
+        await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+        expect(askRow()).not.toBeInTheDocument();
+      };
+
+      const renderOmnibar = () => {
+        mountProviders([provider]);
+        render(<Omnibar />);
+      };
+
+      it('hides a question longer than a lowered live limit', async () => {
+        vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 500 });
+        renderOmnibar();
+
+        await expectOffered(501, false);
+        await expectOffered(500, true);
+        expect(getConfig).toHaveBeenCalledWith(chartSearchModuleName);
+      });
+
+      it('offers a question up to a raised live limit', async () => {
+        vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 2000 });
+        renderOmnibar();
+
+        await expectOffered(2001, false);
+        await expectOffered(2000, true);
+      });
+
+      it.each([
+        ['a string', { maxQuestionLength: '500' }],
+        ['zero', { maxQuestionLength: 0 }],
+        ['a negative number', { maxQuestionLength: -5 }],
+        ['a fraction', { maxQuestionLength: 12.5 }],
+        ['null', { maxQuestionLength: null }],
+        ['missing', {}],
+        ['no config at all', undefined],
+      ])('keeps the 1000-character default when the live value is %s', async (_label, config) => {
+        vi.mocked(getConfig).mockResolvedValue(config);
+        renderOmnibar();
+
+        await expectOffered(1001, false);
+        await expectOffered(1000, true);
+      });
+
+      it("keeps the 1000-character default while ChartSearch's config has not loaded", async () => {
+        vi.mocked(getConfig).mockReturnValue(new Promise(() => {}));
+        renderOmnibar();
+
+        await expectOffered(1001, false);
+        await expectOffered(1000, true);
+      });
+
+      it("hides the row when ChartSearch's config loads with a lower limit", async () => {
+        let loadConfig: (config: { maxQuestionLength: number }) => void = () => {};
+        vi.mocked(getConfig).mockReturnValue(new Promise((resolve) => (loadConfig = resolve)));
+        renderOmnibar();
+        await expectOffered(800, true);
+
+        await act(async () => loadConfig({ maxQuestionLength: 500 }));
+
+        await waitFor(() => expect(askRow()).not.toBeInTheDocument());
+      });
+
+      it('measures the question without the spaces around it, as ChartSearch does', async () => {
+        const report = vi.fn();
+        // The shell trims before providers see the query, so this renders the provider directly, with the
+        // open group a contract 1 host passes.
+        render(
+          <ChartSearchSuggestionProvider
+            query={`  ${questionOfLength(1000)}  `}
+            context={{
+              scope: 'patient',
+              patientUuid: chartPatientUuid,
+              locale: 'en',
+              workspaceGroup: { groupName: 'patient-chart', patientUuid: chartPatientUuid },
+            }}
+            report={report}
+          />,
+        );
+
+        await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })));
+      });
+
+      it("does not wait on ChartSearch's config when its workspace is not registered", async () => {
+        mockGetRegisteredWorkspace2Names.mockReturnValue([]);
+        renderOmnibar();
+
+        await expectOffered(800, false);
+        expect(getConfig).not.toHaveBeenCalled();
+      });
+    });
+
+    it.each(['100GEJ', '1234567'])(
+      'shows an ID-matched patient for %s without a ChartSearch suggestion',
+      async (identifier) => {
+        const user = userEvent.setup();
+        const matchedPatient = {
+          uuid: '5b3c6f0e-8d2a-4c1e-9f7b-2a6d4e8c1b90',
+          identifiers: [
+            {
+              identifier,
+              identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' },
+            },
+          ],
+          person: { display: 'Jane Doe', gender: 'F', birthdate: null, dead: false },
+        };
+        mockOpenmrsFetch.mockImplementation((url: string) => {
+          if (url.includes('/patient?')) {
+            return Promise.resolve({ data: { results: [matchedPatient] } } as FetchResponse);
+          }
+          if (url.includes('/user/user-uuid')) {
+            return Promise.resolve({ data: { userProperties: {} } } as FetchResponse);
+          }
+          return new Promise(() => {});
+        });
+        const patientRoute = routes.extensions.find(
+          (extension) => extension.name === 'omnibar-patient-search-provider',
+        ) as { meta: OmnibarProviderMeta };
+        mountProviders([
+          {
+            name: 'omnibar-patient-search-provider',
+            meta: patientRoute.meta,
+            component: PatientSearchProvider,
+          },
+          provider,
+        ]);
+        renderWithFreshCache(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), identifier);
+
+        expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+      },
+    );
+
+    it('does not launch a suggestion left over from an earlier query', async () => {
+      const user = userEvent.setup();
+      mountProviders([provider]);
+      render(<Omnibar />);
+      const input = screen.getByRole('combobox');
+      const query = 'what happened at the last visit';
+      await user.type(input, query);
+      const row = await screen.findByRole('option', { name: /ask chartsearch/i });
+
+      vi.mocked(useDebounce).mockReturnValue(query);
+      await user.type(input, '?');
+      expect(row).toHaveAttribute('aria-disabled', 'true');
+      await user.click(row);
+
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('launches ChartSearch for the chart that is open when the row is picked', async () => {
+      const user = userEvent.setup();
+      const nextPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      mountProviders([provider]);
+      render(<Omnibar />);
+
+      const ask = async (patientUuid: string) => {
+        act(() => {
+          openChartGroup(patientUuid);
+          window.history.pushState({}, '', `/openmrs/spa/patient/${patientUuid}/chart/Patient%20Summary`);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        });
+        const input = screen.getByRole('combobox', { name: /search this chart/i });
+        await user.clear(input);
+        await user.type(input, 'what happened at the last visit');
+        expect(await screen.findByRole('group', { name: 'Suggestions' })).toBeInTheDocument();
+        expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{ArrowDown}{Enter}');
+        expect(launchWorkspace2).toHaveBeenLastCalledWith(
+          'ai-chat-workspace',
+          { patientUuid, initialQuestion: 'what happened at the last visit' },
+          null,
+          null,
+        );
+      };
+
+      await ask(chartPatientUuid);
+      await ask(nextPatientUuid);
+      expect(launchWorkspace2).toHaveBeenCalledTimes(2);
+    });
+
+    it('isolates a workspace registration failure inside the provider boundary', async () => {
+      const user = userEvent.setup();
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockGetRegisteredWorkspace2Names.mockImplementation(() => {
+        throw new Error('workspace registry failed');
+      });
+      const ChartResult: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => report(ready(query, 'In this chart', ['chart result'])), [query, report]);
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'chart',
+          meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
+          component: ChartResult,
+        },
+        { ...provider, component: withProviderBoundary(ChartSearchSuggestionProvider, providerName) },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+
+      expect(screen.getByRole('option', { name: 'chart result' })).toBeInTheDocument();
+      expect(screen.getByText('Couldn’t load results')).toBeInTheDocument();
+      expect(showToast).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
   });
 
   it('lists what the destinations provider finds', async () => {
@@ -499,6 +1666,36 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     await user.keyboard('{Enter}');
     expect(landedOn()).toBe('/openmrs/spa/home/service-queues');
+  });
+
+  it('ignores a late report from the mount the bar had before it was closed and opened again', async () => {
+    const user = userEvent.setup();
+    const mounts: Array<OmnibarProviderProps> = [];
+    mountProviders([
+      {
+        name: 'values',
+        meta: recordLane,
+        component: function Recorder(props: OmnibarProviderProps) {
+          if (props.query === 'weight') mounts.push(props);
+          return null;
+        },
+      },
+    ]);
+    render(<Omnibar />);
+    const input = screen.getByRole('combobox');
+
+    await user.type(input, 'weight');
+    const before = mounts.at(-1);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    await user.click(input);
+    await user.type(input, 'weight');
+    const after = mounts.at(-1);
+
+    act(() => before.report(ready('weight', 'Values', ['stale'])));
+    expect(screen.queryByRole('option', { name: 'stale' })).not.toBeInTheDocument();
+    act(() => after.report(ready('weight', 'Values', ['fresh'])));
+    expect(screen.getByRole('option', { name: 'fresh' })).toBeInTheDocument();
   });
 
   it('drops a report for a query the user has typed past', async () => {
@@ -780,7 +1977,7 @@ describe('Omnibar with providers mounted through the slot', () => {
     );
     expect(mogan).toHaveAttribute('aria-selected', 'true');
     // The avatar is drawn locally from the patient's uuid: a generated pattern and up to three initials,
-    // left out of the accessible name. Nothing loads a photo.
+    // left out of the accessible name. With no photo concept configured, nothing loads a photo.
     const avatar = within(mogan).getByTestId('patientAvatar');
     expect(avatar).toHaveTextContent('MZK');
     expect(avatar).toHaveAttribute('aria-hidden', 'true');
@@ -1122,6 +2319,53 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(navigate).not.toHaveBeenCalled();
     });
 
+    it("ignores the previous chart's values when its provider reports them late, after the user moves on", async () => {
+      const user = userEvent.setup();
+      const nextPatient = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Results`);
+      // Each mount keeps its props, as a timer or fetch it never cancels would.
+      const mounts = new Map<string, OmnibarProviderProps>();
+      const ChartValues: React.FC<OmnibarProviderProps> = (props) => {
+        mounts.set(`${props.context.patientUuid}:${props.query}`, props);
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'chart',
+          meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
+          component: ChartValues,
+        },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'weight');
+      const previous = mounts.get(`${chartPatient}:weight`);
+      act(() => {
+        window.history.pushState({}, '', `/openmrs/spa/patient/${nextPatient}/chart/Results`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await waitFor(() => expect(mounts.has(`${nextPatient}:weight`)).toBe(true));
+
+      act(() =>
+        previous.report({
+          query: 'weight',
+          title: 'In this chart',
+          status: 'ready',
+          results: [
+            {
+              id: 'weight',
+              title: 'Weight 70 kg',
+              target: { type: 'navigate', to: `/openmrs/spa/patient/${chartPatient}/chart/` },
+            },
+          ],
+        }),
+      );
+
+      expect(screen.queryByRole('option', { name: 'Weight 70 kg' })).not.toBeInTheDocument();
+      await user.keyboard('{Enter}');
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
     it('opens the chart value, never another patient, when patient search answers "cd4" first', async () => {
       const user = userEvent.setup();
       const conceptsArrive = openChart([{ uuid: 'cd4-uuid', display: 'CD4 count', datatype: { display: 'Numeric' } }]);
@@ -1135,6 +2379,82 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(await screen.findByRole('option', { name: /CD4 count: 350/ })).toHaveAttribute('aria-selected', 'true');
       await user.keyboard('{Enter}');
       expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+    });
+
+    const searchChart = async (query: string) => {
+      const user = userEvent.setup();
+      window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+      serveChartDictionary();
+      mountProviders([
+        shipped('omnibar-patient-search-provider', PatientSearchProvider),
+        shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+      ]);
+      renderWithFreshCache(<Omnibar />);
+      await user.click(screen.getByRole('combobox', { name: /search this chart/i }));
+      await user.paste(query);
+    };
+
+    it.each([
+      ['weight', ['weight'], ['Weight (kg): 70 kg']],
+      ['latest weight', ['weight'], ['Weight (kg): 70 kg']],
+      ['view weight', ['weight'], ['Weight (kg): 70 kg']],
+      ["what's her current weight?", ['weight'], ['Weight (kg): 70 kg']],
+      [
+        'show vitals',
+        ['vitals'],
+        [
+          'Temperature (c): 36.8 °C',
+          'Weight (kg): 70 kg',
+          'Pulse: 72 beats/min',
+          'Blood oxygen saturation: 97 %',
+          'Respiratory rate: 18 breaths/min',
+        ],
+      ],
+      ['last pulse and weight', ['pulse weight', 'pulse', 'weight'], ['Pulse: 72 beats/min', 'Weight (kg): 70 kg']],
+    ])('answers "%s" from the chart, searching %j', async (query, searched, values) => {
+      await searchChart(query);
+
+      const chart = await screen.findByRole('group', { name: 'In this chart' });
+      await waitFor(() =>
+        expect(
+          within(chart)
+            .getAllByRole('option')
+            .map((option) => option.textContent),
+        ).toEqual(values.map((value) => expect.stringContaining(value))),
+      );
+      expect(within(chart).getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');
+      expect(conceptSearches()).toEqual(searched);
+    });
+
+    it('asks for the latest values of every vital sign, for this patient only, in one request', async () => {
+      await searchChart('show vitals');
+
+      await screen.findByRole('option', { name: /Respiratory rate: 18/ });
+      const lastn = mockOpenmrsFetch.mock.calls
+        .map(([path]) => new URL(path, 'http://localhost'))
+        .filter((url) => url.pathname.endsWith('/Observation/$lastn'));
+      expect(lastn).toHaveLength(1);
+      expect(lastn[0].searchParams.get('subject')).toBe(`Patient/${chartPatient}`);
+      expect(lastn[0].searchParams.get('code').split(',')).toEqual(vitalSigns.map(({ uuid }) => uuid));
+    });
+
+    it('searches the concept dictionary for an ID as before, and still lists the patient it matches', async () => {
+      await searchChart('100GEJ');
+
+      const otherPatients = await screen.findByRole('group', { name: 'Other patients' });
+      expect(within(otherPatients).getByRole('option', { name: /jane doe/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
+      );
+      expect(screen.queryByRole('group', { name: 'In this chart' })).not.toBeInTheDocument();
+      expect(conceptSearches()).toEqual(['100GEJ']);
+    });
+
+    it('makes no concept search for a query of only filler words', async () => {
+      await searchChart('show latest');
+
+      expect(await screen.findByText(/nothing matches/i)).toBeInTheDocument();
+      expect(conceptSearches()).toEqual([]);
     });
   });
 
@@ -1241,6 +2561,114 @@ describe('Omnibar with providers mounted through the slot', () => {
     ]);
   });
 
+  describe('recording a visit while something else saves the same user', () => {
+    const firstUuid = 'a1b2c3d4-0000-4000-8000-000000000002';
+    const secondUuid = 'a1b2c3d4-0000-4000-8000-000000000003';
+    const locationUuid = 'a1b2c3d4-0000-4000-8000-000000000004';
+
+    /**
+     * The user resource as the server keeps it: a GET returns the stored properties, and a POST of
+     * `userProperties` replaces the whole map, so any property the POST leaves out is gone.
+     */
+    const serveUserResource = (userProperties: Record<string, string>) => {
+      const server = { userProperties, failingSaves: 0 };
+      vi.mocked(useSession).mockReturnValue({
+        authenticated: true,
+        sessionId: 's',
+        user: { uuid: 'user-uuid' },
+      } as Session);
+      mockOpenmrsFetch.mockImplementation(async (url: string, init?: FetchConfig) => {
+        if (url.includes('/user/user-uuid')) {
+          if (init?.method === 'POST') {
+            if (server.failingSaves > 0) {
+              server.failingSaves -= 1;
+              throw new Error('Server responded with 500');
+            }
+            server.userProperties = { ...(init.body as { userProperties: Record<string, string> }).userProperties };
+          }
+          return { data: { userProperties: { ...server.userProperties } } } as FetchResponse;
+        }
+        if (url.includes(`/patient/${jane.uuid}`)) {
+          return { data: jane } as FetchResponse;
+        }
+        throw new Error('Not found');
+      });
+      return server;
+    };
+    const userRequests = () =>
+      mockOpenmrsFetch.mock.calls
+        .filter(([url]) => url.includes('/user/user-uuid'))
+        .map(([, init]) => init?.method ?? 'GET');
+    const choosePatient = (uuid: string) =>
+      window.dispatchEvent(
+        new CustomEvent(OMNIBAR_SELECTED_EVENT, {
+          detail: { providerId: 'omnibar-patient-search-provider', resultId: `patient:${uuid}` },
+        }),
+      );
+    const openRecents = async (user: ReturnType<typeof userEvent.setup>) => {
+      mountProviders([{ name: 'omnibar-patient-search-provider', meta: recordLane, component: PatientSearchProvider }]);
+      renderWithFreshCache(<Omnibar />);
+      await user.click(screen.getByRole('combobox'));
+      return screen.findByRole('option', { name: /jane doe/i });
+    };
+
+    it('reads the user again just before saving, and keeps every property saved since the recents loaded', async () => {
+      const user = userEvent.setup();
+      const server = serveUserResource({ patientsVisited: `${purgedUuid},${jane.uuid}`, defaultLocale: 'en' });
+      const janeOption = await openRecents(user);
+      // Another app, tab or device saves this user while the recents are on screen.
+      server.userProperties = {
+        patientsVisited: `${firstUuid},${purgedUuid},${jane.uuid}`,
+        defaultLocale: 'fr',
+        defaultLocation: locationUuid,
+      };
+      const requestsBefore = userRequests().length;
+
+      await user.click(janeOption);
+
+      await waitFor(() =>
+        expect(server.userProperties).toEqual({
+          patientsVisited: `${jane.uuid},${firstUuid},${purgedUuid}`,
+          defaultLocale: 'fr',
+          defaultLocation: locationUuid,
+        }),
+      );
+      expect(userRequests().slice(requestsBefore, requestsBefore + 2)).toEqual(['GET', 'POST']);
+    });
+
+    it('saves quick picks one after another, so a later save never drops an earlier visit', async () => {
+      const user = userEvent.setup();
+      const server = serveUserResource({ patientsVisited: jane.uuid, defaultLocale: 'en' });
+      await openRecents(user);
+
+      act(() => {
+        choosePatient(firstUuid);
+        choosePatient(secondUuid);
+      });
+
+      await waitFor(() =>
+        expect(server.userProperties).toEqual({
+          patientsVisited: `${secondUuid},${firstUuid},${jane.uuid}`,
+          defaultLocale: 'en',
+        }),
+      );
+    });
+
+    it('keeps saving visits after one save fails', async () => {
+      const user = userEvent.setup();
+      const server = serveUserResource({ patientsVisited: jane.uuid });
+      await openRecents(user);
+      server.failingSaves = 1;
+
+      act(() => {
+        choosePatient(firstUuid);
+        choosePatient(secondUuid);
+      });
+
+      await waitFor(() => expect(server.userProperties).toEqual({ patientsVisited: `${secondUuid},${jane.uuid}` }));
+    });
+  });
+
   it.each([
     ['patient search', PatientSearchProvider, ['global', 'patient'] as const],
     ['chart lookup', ChartLookupProvider, ['patient'] as const],
@@ -1268,5 +2696,1346 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     expect(await screen.findByText(/nothing matches/i)).toBeInTheDocument();
     expect(screen.queryByRole('option')).not.toBeInTheDocument();
+  });
+
+  describe('contract v1', () => {
+    const recordProps = (into: Array<OmnibarProviderProps>): React.FC<OmnibarProviderProps> =>
+      function Recorder(props) {
+        into.push(props);
+        const { query, report } = props;
+        useEffect(() => report(ready(query, 'Recorded', query ? ['recorded'] : [])), [query, report]);
+        return null;
+      };
+
+    it('declares contract 1 for every built-in provider', () => {
+      const providers = routes.extensions.filter((extension) => extension.slot === 'omnibar-providers-slot');
+      expect(providers.length).toBeGreaterThan(0);
+      for (const provider of providers) {
+        expect({ name: provider.name, contract: (provider.meta as OmnibarProviderMeta).contract }).toEqual({
+          name: provider.name,
+          contract: 1,
+        });
+      }
+    });
+
+    it('tells every provider which contract version the host speaks', async () => {
+      const user = userEvent.setup();
+      const props: Array<OmnibarProviderProps> = [];
+      mountProviders([{ name: 'recorder', meta: recordLane, component: recordProps(props) }]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'ward');
+
+      expect(props.at(-1)).toEqual(expect.objectContaining({ query: 'ward', contractVersion: 1 }));
+    });
+
+    it('never mounts a provider built for a newer contract, and names it once in the console', async () => {
+      const user = userEvent.setup();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const newer: Array<OmnibarProviderProps> = [];
+      const current: Array<OmnibarProviderProps> = [];
+      const unversioned: Array<OmnibarProviderProps> = [];
+      mountProviders([
+        { name: 'from-the-future', meta: { ...recordLane, contract: 2 }, component: recordProps(newer) },
+        { name: 'current', meta: { ...navigateLane, contract: 1 }, component: recordProps(current) },
+        { name: 'unversioned', meta: { ...navigateLane, order: 20 }, component: recordProps(unversioned) },
+      ]);
+      const { unmount } = render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '100GEJ');
+      unmount();
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'jane');
+
+      expect(newer).toEqual([]);
+      expect(current.length).toBeGreaterThan(0);
+      expect(unversioned.length).toBeGreaterThan(0);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0].join(' ')).toContain('from-the-future');
+      expect(warn.mock.calls.flat().join(' ')).not.toMatch(/100GEJ|jane/);
+      warn.mockRestore();
+    });
+
+    it('mounts only a provider whose contract is a whole number this host speaks, and never logs the value', async () => {
+      const user = userEvent.setup();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const unspoken = {
+        negative: -1,
+        zero: 0,
+        fraction: 1.9,
+        text: '1',
+        words: 'Jane Doe 100GEJ',
+        'not-a-number': NaN,
+        endless: Infinity,
+        object: { major: 1 },
+        newer: 2,
+      };
+      const mounted: Array<OmnibarProviderProps> = [];
+      mountProviders(
+        Object.entries(unspoken).map(([name, contract]) => ({
+          name: `contract-${name}`,
+          meta: { ...recordLane, contract } as unknown as OmnibarProviderMeta,
+          component: recordProps(mounted),
+        })),
+      );
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'ward');
+
+      expect(mounted).toEqual([]);
+      const lines = warn.mock.calls.map((call) => call.join(' '));
+      expect(lines).toHaveLength(Object.keys(unspoken).length);
+      for (const name of Object.keys(unspoken)) {
+        expect(lines.some((line) => line.includes(`contract-${name} `))).toBe(true);
+      }
+      const withoutNames = lines.map((line) => line.replace(/contract-[\w-]+/, ''));
+      expect(withoutNames.join('\n')).not.toMatch(/-1|1\.9|Jane Doe|NaN|Infinity|major|object|needs contract/i);
+      warn.mockRestore();
+    });
+
+    it('tells every provider whether the query looks like an identifier', async () => {
+      const user = userEvent.setup();
+      const props: Array<OmnibarProviderProps> = [];
+      mountProviders([{ name: 'recorder', meta: recordLane, component: recordProps(props) }]);
+      render(<Omnibar />);
+      const hintsFor = (query: string) => props.filter((p) => p.query === query).at(-1)?.hints;
+
+      await user.type(screen.getByRole('combobox'), '100GEJ');
+      expect(hintsFor('100GEJ')).toEqual({ looksLikeIdentifier: true });
+
+      await user.clear(screen.getByRole('combobox'));
+      await user.type(screen.getByRole('combobox'), 'ward');
+      expect(hintsFor('ward')).toEqual({ looksLikeIdentifier: false });
+    });
+
+    it('never mounts a provider that skips identifier queries for one, and drops its group', async () => {
+      const user = userEvent.setup();
+      const skipper: Array<OmnibarProviderProps> = [];
+      const patients: Array<OmnibarProviderProps> = [];
+      mountProviders([
+        { name: 'patients', meta: recordLane, component: recordProps(patients) },
+        {
+          name: 'semantic',
+          meta: { ...navigateLane, order: 100, skipIdentifierQueries: true },
+          component: function Semantic(props) {
+            skipper.push(props);
+            const { query, report } = props;
+            useEffect(
+              () => report(ready(query, 'Found in the record', query ? ['semantic hit'] : [])),
+              [query, report],
+            );
+            return null;
+          },
+        },
+      ]);
+      render(<Omnibar />);
+      const input = screen.getByRole('combobox');
+
+      await user.type(input, 'ward');
+      expect(screen.getByRole('group', { name: 'Found in the record' })).toBeInTheDocument();
+
+      await user.type(input, ' 1234567');
+      expect(screen.queryByRole('group', { name: 'Found in the record' })).not.toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Recorded' })).toBeInTheDocument();
+      expect(skipper.map((p) => p.query)).not.toContain('ward 1234567');
+      expect(skipper.every((p) => p.hints?.looksLikeIdentifier === false)).toBe(true);
+      expect(patients.at(-1)).toEqual(
+        expect.objectContaining({ query: 'ward 1234567', hints: { looksLikeIdentifier: true } }),
+      );
+    });
+
+    it('skips identifier queries for the ChartSearch row, and never for patient search', () => {
+      const metaOf = (name: string) =>
+        routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
+      expect(metaOf('omnibar-chartsearch-suggestion-provider').skipIdentifierQueries).toBe(true);
+      expect(metaOf('omnibar-patient-search-provider').skipIdentifierQueries).toBeUndefined();
+    });
+
+    describe('two providers sharing a dedupe key', () => {
+      const chartValues: OmnibarProviderMeta = { ...recordLane, order: 10, dedupeKey: 'chart-values' };
+      const foundInRecord: OmnibarProviderMeta = { ...recordLane, order: 15, dedupeKey: 'chart-values' };
+      const result = (id: string, dedupeId: string) => ({
+        id,
+        title: id,
+        dedupeId,
+        target: { type: 'navigate' as const, to: `/${id}` },
+      });
+
+      afterEach(() => window.history.pushState({}, '', '/'));
+
+      it('moves the highlight to the copy that is kept, and Enter and the arrows still work', async () => {
+        const user = userEvent.setup();
+        const slow = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'rest',
+            meta: chartValues,
+            component: (props) => {
+              slow.set(props.query, props);
+              return null;
+            },
+          },
+          {
+            name: 'projection',
+            meta: foundInRecord,
+            component: function FoundInRecord({ query, report }) {
+              useEffect(
+                () =>
+                  report({
+                    query,
+                    title: 'Found in the record',
+                    status: 'ready',
+                    results: query ? [result('projected weight', 'obs:1'), result('chest pain note', 'obs:2')] : [],
+                  }),
+                [query, report],
+              );
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+        expect(screen.getByRole('option', { name: 'projected weight' })).toHaveAttribute('aria-selected', 'true');
+
+        act(() =>
+          slow.get('weight').report({
+            query: 'weight',
+            title: 'In this chart',
+            status: 'ready',
+            results: [result('weight 70 kg', 'obs:1')],
+          }),
+        );
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+          'weight 70 kg',
+          'chest pain note',
+        ]);
+        expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+        await user.keyboard('{ArrowDown}');
+        expect(screen.getByRole('option', { name: 'chest pain note' })).toHaveAttribute('aria-selected', 'true');
+        await user.keyboard('{ArrowDown}{Enter}');
+        expect(landedOn()).toBe('/weight%2070%20kg');
+      });
+
+      describe('after the user arrowed to a later row', () => {
+        // Both providers report only when the test says, so it can arrow before the higher-ranked one reports.
+        const mountBoth = () => {
+          const mounted = {
+            rest: new Map<string, OmnibarProviderProps>(),
+            projection: new Map<string, OmnibarProviderProps>(),
+          };
+          const recorder = (into: Map<string, OmnibarProviderProps>) =>
+            function Recorder(props: OmnibarProviderProps) {
+              into.set(props.query, props);
+              return null;
+            };
+          mountProviders([
+            { name: 'rest', meta: chartValues, component: recorder(mounted.rest) },
+            { name: 'projection', meta: foundInRecord, component: recorder(mounted.projection) },
+          ]);
+          render(<Omnibar />);
+          return (provider: keyof typeof mounted, title: string, results: Array<ReturnType<typeof result>>) =>
+            act(() => mounted[provider].get('weight').report({ query: 'weight', title, status: 'ready', results }));
+        };
+
+        it('follows the highlighted row to its kept copy when a higher-ranked provider reports several rows', async () => {
+          const user = userEvent.setup();
+          const reportFrom = mountBoth();
+          await user.type(screen.getByRole('combobox'), 'weight');
+          reportFrom('projection', 'Found in the record', [
+            result('chest pain note', 'obs:2'),
+            result('projected weight', 'obs:1'),
+          ]);
+          await user.keyboard('{ArrowDown}');
+          expect(screen.getByRole('option', { name: 'projected weight' })).toHaveAttribute('aria-selected', 'true');
+
+          reportFrom('rest', 'In this chart', [
+            result('height 170 cm', 'obs:3'),
+            result('weight 70 kg', 'obs:1'),
+            result('bmi 24', 'obs:4'),
+          ]);
+
+          expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+            'height 170 cm',
+            'weight 70 kg',
+            'bmi 24',
+            'chest pain note',
+          ]);
+          expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe('/weight%2070%20kg');
+        });
+
+        it('clears the highlight, so Enter does nothing, when no copy of the highlighted row remains', async () => {
+          const user = userEvent.setup();
+          const reportFrom = mountBoth();
+          await user.type(screen.getByRole('combobox'), 'weight');
+          reportFrom('projection', 'Found in the record', [
+            result('chest pain note', 'obs:2'),
+            result('projected weight', 'obs:1'),
+          ]);
+          await user.keyboard('{ArrowDown}');
+          expect(screen.getByRole('option', { name: 'projected weight' })).toHaveAttribute('aria-selected', 'true');
+
+          reportFrom('projection', 'Found in the record', [result('chest pain note', 'obs:2')]);
+
+          expect(screen.getByRole('option', { name: 'chest pain note' })).toHaveAttribute('aria-selected', 'false');
+          expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-activedescendant');
+          await user.keyboard('{Enter}');
+          expect(navigate).not.toHaveBeenCalled();
+        });
+      });
+
+      it('never lets a higher-ranked row that a chart never highlights drop the chart value it repeats', async () => {
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const user = userEvent.setup();
+        const reportsOne = (title: string, row: ReturnType<typeof result>): React.FC<OmnibarProviderProps> =>
+          function ReportsOne({ query, report }) {
+            useEffect(() => report({ query, title, status: 'ready', results: query ? [row] : [] }), [query, report]);
+            return null;
+          };
+        mountProviders([
+          {
+            name: 'early-index',
+            meta: { lane: 'record', scopes: ['patient'], order: 5, dedupeKey: 'chart-values' },
+            component: reportsOne('Early index', {
+              ...result('weight elsewhere', 'obs:1'),
+              target: { type: 'navigate', to: '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/' },
+            }),
+          },
+          {
+            name: 'chart',
+            meta: { lane: 'record', scopes: ['patient'], order: 10, dedupeKey: 'chart-values', defaultInChart: true },
+            component: reportsOne('In this chart', result('weight 70 kg', 'obs:1')),
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
+        expect(screen.queryByText('Early index')).not.toBeInTheDocument();
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/weight%2070%20kg');
+      });
+
+      it('never lets a default highlight follow its copy onto a row that cannot be the default in a chart', async () => {
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const user = userEvent.setup();
+        const mounted = {
+          index: new Map<string, OmnibarProviderProps>(),
+          chart: new Map<string, OmnibarProviderProps>(),
+        };
+        const recorder = (into: Map<string, OmnibarProviderProps>) =>
+          function Recorder(props: OmnibarProviderProps) {
+            into.set(props.query, props);
+            return null;
+          };
+        mountProviders([
+          {
+            name: 'other-patients-index',
+            meta: { lane: 'record', scopes: ['patient'], order: 10, dedupeKey: 'chart-values' },
+            component: recorder(mounted.index),
+          },
+          {
+            name: 'chart',
+            meta: { lane: 'record', scopes: ['patient'], order: 15, dedupeKey: 'chart-values', defaultInChart: true },
+            component: recorder(mounted.chart),
+          },
+        ]);
+        render(<Omnibar />);
+        const reportFrom = (provider: keyof typeof mounted, title: string, results: Array<ReturnType<typeof result>>) =>
+          act(() => mounted[provider].get('weight').report({ query: 'weight', title, status: 'ready', results }));
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportFrom('chart', 'In this chart', [result('weight 70 kg', 'obs:1')]);
+        reportFrom('index', 'Indexed', [result('weight from the index', 'obs:1')]);
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
+        expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+
+        // The chart's row goes away for another reason, which brings back the copy it had pushed out.
+        reportFrom('chart', 'In this chart', []);
+
+        expect(screen.getByRole('option', { name: 'weight from the index' })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it('never lets a highlight the user arrowed to follow its copy onto a row that names another patient', async () => {
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const user = userEvent.setup();
+        const mounted = {
+          chart: new Map<string, OmnibarProviderProps>(),
+          index: new Map<string, OmnibarProviderProps>(),
+        };
+        const recorder = (into: Map<string, OmnibarProviderProps>) =>
+          function Recorder(props: OmnibarProviderProps) {
+            into.set(props.query, props);
+            return null;
+          };
+        mountProviders([
+          {
+            name: 'chart',
+            meta: { lane: 'record', scopes: ['patient'], order: 10, dedupeKey: 'chart-values', defaultInChart: true },
+            component: recorder(mounted.chart),
+          },
+          {
+            name: 'index',
+            meta: { lane: 'record', scopes: ['patient'], order: 15, dedupeKey: 'chart-values', defaultInChart: true },
+            component: recorder(mounted.index),
+          },
+        ]);
+        render(<Omnibar />);
+        const reportFrom = (provider: keyof typeof mounted, title: string, results: Array<OmnibarResult>) =>
+          act(() => mounted[provider].get('weight').report({ query: 'weight', title, status: 'ready', results }));
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportFrom('chart', 'In this chart', [result('weight 70 kg', 'obs:1'), result('height 170 cm', 'obs:2')]);
+        reportFrom('index', 'Indexed', [
+          {
+            ...result('weight elsewhere', 'obs:1'),
+            target: { type: 'navigate', to: '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/' },
+          },
+        ]);
+        await user.keyboard('{ArrowDown}{ArrowUp}');
+        expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+
+        reportFrom('chart', 'In this chart', [result('height 170 cm', 'obs:2')]);
+
+        expect(screen.getByRole('option', { name: 'weight elsewhere' })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it('shows nothing for a group whose every result is a copy', async () => {
+        const user = userEvent.setup();
+        const reportsOne =
+          (title: string, id: string): React.FC<OmnibarProviderProps> =>
+          ({ query, report }) => {
+            useEffect(
+              () => report({ query, title, status: 'ready', results: query ? [result(id, 'obs:1')] : [] }),
+              [query, report],
+            );
+            return null;
+          };
+        mountProviders([
+          { name: 'projection', meta: foundInRecord, component: reportsOne('Found in the record', 'projected weight') },
+          { name: 'rest', meta: chartValues, component: reportsOne('In this chart', 'weight 70 kg') },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.getByRole('group', { name: 'In this chart' })).toBeInTheDocument();
+        expect(screen.queryByText('Found in the record')).not.toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
+      });
+
+      it('drops the copy of a chart value that chart lookup already shows', async () => {
+        const user = userEvent.setup();
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        mockOpenmrsFetch.mockImplementation((path: string) => {
+          const url = new URL(path, 'http://localhost');
+          if (url.pathname.endsWith('/concept')) {
+            return Promise.resolve({
+              data: { results: [{ uuid: 'weight-uuid', display: 'Weight (kg)', datatype: { display: 'Numeric' } }] },
+            } as FetchResponse);
+          }
+          if (url.pathname.endsWith('/Observation/$lastn')) {
+            return Promise.resolve({
+              data: {
+                entry: [
+                  {
+                    resource: {
+                      id: 'weight-obs-uuid',
+                      code: { coding: [{ code: 'weight-uuid' }] },
+                      valueQuantity: { value: 70, unit: 'kg' },
+                    },
+                  },
+                ],
+              },
+            } as FetchResponse);
+          }
+          return new Promise(() => {});
+        });
+        const chartLookupMeta = routes.extensions.find(
+          (extension) => extension.name === 'omnibar-chart-lookup-provider',
+        ).meta as OmnibarProviderMeta;
+        expect(chartLookupMeta.dedupeKey).toBe('chart-values');
+        mountProviders([
+          { name: 'omnibar-chart-lookup-provider', meta: chartLookupMeta, component: ChartLookupProvider },
+          {
+            name: 'querystore-chart-omnibar-provider',
+            meta: { lane: 'record', scopes: ['patient'], order: 15, dedupeKey: 'chart-values' },
+            component: function QuerystoreChart({ query, report }) {
+              useEffect(
+                () =>
+                  report({
+                    query,
+                    title: 'Found in the record',
+                    status: 'ready',
+                    results: query
+                      ? [result('weight from the index', 'obs:weight-obs-uuid'), result('weight loss note', 'obs:note')]
+                      : [],
+                  }),
+                [query, report],
+              );
+              return null;
+            },
+          },
+        ]);
+        renderWithFreshCache(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(await screen.findByRole('option', { name: /Weight \(kg\): 70 kg/ })).toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+          expect.stringContaining('Weight (kg): 70 kg'),
+          'weight loss note',
+        ]);
+      });
+    });
+
+    describe('a result that names another patient inside a chart', () => {
+      const chartPatient = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+      const otherPatient = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      const inChart: OmnibarProviderMeta = { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true };
+      const reportsRows = (title: string, rows: Array<OmnibarResult>): React.FC<OmnibarProviderProps> =>
+        function ReportsRows({ query, report }) {
+          useEffect(() => report({ query, title, status: 'ready', results: query ? rows : [] }), [query, report]);
+          return null;
+        };
+
+      beforeEach(() => window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Results`));
+      afterEach(() => window.history.pushState({}, '', '/'));
+
+      it.each([
+        ['a link to their chart', { type: 'navigate', to: '${openmrsSpaBase}/patient/' + otherPatient + '/chart' }],
+        [
+          'a link with their uuid in capitals',
+          { type: 'navigate', to: `/openmrs/spa/patient/${otherPatient.toUpperCase()}/chart/Results` },
+        ],
+        [
+          'workspace props',
+          { type: 'workspace', workspaceName: 'notes', workspaceProps: { patientUuid: otherPatient } },
+        ],
+        ['window props', { type: 'workspace', workspaceName: 'notes', windowProps: { patientUuid: otherPatient } }],
+        ['group props', { type: 'workspace', workspaceName: 'notes', groupProps: { patientUuid: otherPatient } }],
+      ] as Array<[string, OmnibarTarget]>)(
+        'is never the default when it names them through %s, even from a provider with defaultInChart',
+        async (_, target) => {
+          const user = userEvent.setup();
+          mountProviders([
+            {
+              name: 'chart',
+              meta: inChart,
+              component: reportsRows('In this chart', [
+                { id: 'theirs', title: 'Their weight', target },
+                {
+                  id: 'ours',
+                  title: 'Our weight',
+                  target: { type: 'navigate', to: '${openmrsSpaBase}/patient/' + chartPatient + '/chart/Results' },
+                },
+              ]),
+            },
+          ]);
+          render(<Omnibar />);
+
+          await user.type(screen.getByRole('combobox'), 'weight');
+
+          expect(screen.getByRole('option', { name: 'Their weight' })).toHaveAttribute('aria-selected', 'false');
+          expect(screen.getByRole('option', { name: 'Our weight' })).toHaveAttribute('aria-selected', 'true');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Results`);
+          expect(launchWorkspace2).not.toHaveBeenCalled();
+        },
+      );
+
+      it.each([
+        [
+          'their uuid with its hyphens percent-encoded',
+          `/openmrs/spa/patient/${otherPatient.replace(/-/g, '%2D')}/chart/`,
+        ],
+        ['their uuid as 32 hex digits', `/openmrs/spa/patient/${otherPatient.replace(/-/g, '')}/chart/`],
+        ['a placeholder that was never filled', '${openmrsSpaBase}/patient/${patientUuid}/chart'],
+        [
+          'their chart in the query string',
+          `/openmrs/spa/home?next=%2Fopenmrs%2Fspa%2Fpatient%2F${otherPatient}%2Fchart`,
+        ],
+        ['their chart in the hash', `/openmrs/spa/home#/patient/${otherPatient}/chart`],
+      ])('never makes a link the default, so Enter opens nothing, when it names them by %s', async (_, to) => {
+        const user = userEvent.setup();
+        mountProviders([
+          {
+            name: 'chart',
+            meta: inChart,
+            component: reportsRows('In this chart', [
+              { id: 'theirs', title: 'Their weight', target: { type: 'navigate', to } },
+            ]),
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.getByRole('option', { name: 'Their weight' })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+
+      it("keeps the chart's own copy of a value over a higher-ranked copy that names another patient", async () => {
+        const user = userEvent.setup();
+        mountProviders([
+          {
+            name: 'impostor',
+            meta: { ...inChart, order: 1, dedupeKey: 'chart-values' },
+            component: reportsRows('Early index', [
+              {
+                id: 'weight elsewhere',
+                title: 'weight elsewhere',
+                dedupeId: 'obs:1',
+                target: { type: 'navigate', to: `/openmrs/spa/patient/${otherPatient}/chart/` },
+              },
+            ]),
+          },
+          {
+            name: 'chart',
+            meta: { ...inChart, dedupeKey: 'chart-values' },
+            component: reportsRows('In this chart', [
+              {
+                id: 'weight 70 kg',
+                title: 'weight 70 kg',
+                dedupeId: 'obs:1',
+                target: { type: 'navigate', to: '/weight' },
+              },
+            ]),
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/weight');
+      });
+    });
+
+    describe('a provider with more than 50 rows', () => {
+      const row = (id: string, extra: Partial<OmnibarResult> = {}): OmnibarResult => ({
+        id,
+        title: id,
+        target: { type: 'navigate', to: `/${id.replace(/ /g, '-')}` },
+        ...extra,
+      });
+      const fifty = Array.from({ length: 50 }, (_, index) => row(`row ${index}`));
+
+      afterEach(() => window.history.pushState({}, '', '/'));
+
+      it("keeps the chart's own copy of a value that comes after its first 50 rows over another patient's", async () => {
+        const user = userEvent.setup();
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        const reportsRows = (title: string, rows: Array<OmnibarResult>): React.FC<OmnibarProviderProps> =>
+          function ReportsRows({ query, report }) {
+            useEffect(() => report({ query, title, status: 'ready', results: query ? rows : [] }), [query, report]);
+            return null;
+          };
+        mountProviders([
+          {
+            name: 'chart',
+            meta: { ...recordLane, scopes: ['patient'], defaultInChart: true, dedupeKey: 'chart-values' },
+            component: reportsRows('In this chart', [...fifty, row('weight 70 kg', { dedupeId: 'obs:1' })]),
+          },
+          {
+            name: 'elsewhere',
+            meta: { ...recordLane, scopes: ['patient'], order: 20, defaultInChart: true, dedupeKey: 'chart-values' },
+            component: reportsRows('Elsewhere', [
+              row('weight elsewhere', {
+                dedupeId: 'obs:1',
+                target: { type: 'navigate', to: '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/' },
+              }),
+            ]),
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'weight');
+
+        expect(screen.queryByRole('option', { name: 'weight elsewhere' })).not.toBeInTheDocument();
+        expect(within(screen.getByRole('group', { name: 'In this chart' })).getAllByRole('option')).toHaveLength(50);
+      });
+
+      it('clears a highlight the user arrowed to when its row falls past the first 50, so Enter opens nothing', async () => {
+        const user = userEvent.setup();
+        const mounted = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'rows',
+            meta: recordLane,
+            component: function Recorder(props: OmnibarProviderProps) {
+              mounted.set(props.query, props);
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+        const reportRows = (rows: Array<OmnibarResult>) =>
+          act(() => mounted.get('rows').report({ query: 'rows', title: 'Rows', status: 'ready', results: rows }));
+
+        await user.type(screen.getByRole('combobox'), 'rows');
+        reportRows(fifty);
+        await user.keyboard('{ArrowUp}');
+        expect(screen.getByRole('option', { name: 'row 49' })).toHaveAttribute('aria-selected', 'true');
+
+        reportRows([row('new row'), ...fifty]);
+
+        expect(screen.queryByRole('option', { name: 'row 49' })).not.toBeInTheDocument();
+        expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-activedescendant');
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('the target behind a row', () => {
+      const mountRecorder = () => {
+        const mounted = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'values',
+            meta: recordLane,
+            component: function Recorder(props: OmnibarProviderProps) {
+              mounted.set(props.query, props);
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+        return (results: Array<OmnibarResult>) =>
+          act(() => mounted.get('weight').report({ query: 'weight', title: 'Values', status: 'ready', results }));
+      };
+
+      it('is the same target written with its keys in another order, so one Enter opens it', async () => {
+        const user = userEvent.setup();
+        const reportRows = mountRecorder();
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportRows([{ id: 'weight', title: 'Weight 70 kg', target: { type: 'navigate', to: '/weight' } }]);
+        expect(screen.getByRole('option', { name: 'Weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+
+        reportRows([
+          { id: 'weight', title: 'Weight 70 kg', target: { to: '/weight', type: 'navigate' } as OmnibarTarget },
+        ]);
+        await user.keyboard('{Enter}');
+
+        expect(landedOn()).toBe('/weight');
+      });
+
+      it('is the one reported, even if the provider changes its object afterwards without reporting', async () => {
+        const user = userEvent.setup();
+        const reportRows = mountRecorder();
+        const target = { type: 'navigate' as const, to: '/weight' };
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportRows([{ id: 'weight', title: 'Weight 70 kg', target }]);
+
+        target.to = '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/';
+        await user.keyboard('{Enter}');
+
+        expect(landedOn()).toBe('/weight');
+      });
+
+      it('changes only when reported again, and then the first Enter opens nothing', async () => {
+        const user = userEvent.setup();
+        const reportRows = mountRecorder();
+        const rows = [{ id: 'weight', title: 'Weight 70 kg', target: { type: 'navigate' as const, to: '/weight' } }];
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportRows(rows);
+
+        rows[0].target.to = '/height';
+        reportRows(rows);
+        await user.keyboard('{Enter}');
+        expect(navigate).not.toHaveBeenCalled();
+
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/height');
+      });
+
+      it('settles when a provider reports a target with circular props on every render', async () => {
+        const user = userEvent.setup();
+        const limit = 500;
+        let reports = 0;
+        const Circular: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+          useEffect(() => {
+            if (reports < limit) {
+              reports += 1;
+              const workspaceProps: Record<string, unknown> = { note: 'x' };
+              workspaceProps.self = workspaceProps;
+              report({
+                query,
+                title: 'Circular',
+                status: 'ready',
+                results: query
+                  ? [
+                      {
+                        id: 'note',
+                        title: 'Write a note',
+                        target: { type: 'workspace', workspaceName: 'notes', workspaceProps },
+                      },
+                    ]
+                  : [],
+              });
+            }
+          });
+          return null;
+        };
+        mountProviders([{ name: 'circular', meta: recordLane, component: Circular }]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'note');
+        await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+
+        expect(screen.getByRole('option', { name: 'Write a note' })).toBeInTheDocument();
+        expect(reports).toBeLessThan(50);
+      });
+    });
+
+    describe('a highlighted row whose provider reports it again with another target', () => {
+      const mountRecorder = () => {
+        const mounted = new Map<string, OmnibarProviderProps>();
+        mountProviders([
+          {
+            name: 'values',
+            meta: recordLane,
+            component: function Recorder(props: OmnibarProviderProps) {
+              mounted.set(props.query, props);
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+        return (to: string) =>
+          act(() =>
+            mounted.get('weight').report({
+              query: 'weight',
+              title: 'Values',
+              status: 'ready',
+              results: [
+                { id: 'weight', title: 'Weight 70 kg', target: { type: 'navigate', to } },
+                { id: 'height', title: 'Height 170 cm', target: { type: 'navigate', to: '/height' } },
+              ],
+            }),
+          );
+      };
+
+      it.each([
+        ['the default', ''],
+        ['arrowed to', '{ArrowDown}{ArrowUp}'],
+      ])('opens nothing on Enter, and announces nothing, when it was %s', async (_, keys) => {
+        const user = userEvent.setup();
+        const selected = vi.fn();
+        window.addEventListener(OMNIBAR_SELECTED_EVENT, selected);
+        const reportWeightAt = mountRecorder();
+        await user.type(screen.getByRole('combobox'), 'weight');
+        reportWeightAt('/weight');
+        if (keys) await user.keyboard(keys);
+        expect(screen.getByRole('option', { name: 'Weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+
+        reportWeightAt('/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart/');
+        await user.keyboard('{Enter}');
+
+        expect(navigate).not.toHaveBeenCalled();
+        expect(selected).not.toHaveBeenCalled();
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+        window.removeEventListener(OMNIBAR_SELECTED_EVENT, selected);
+      });
+    });
+
+    it('settles when a provider reports the same thing on every render', async () => {
+      const user = userEvent.setup();
+      // Without a limit, a host that re-renders on every report would never stop.
+      const limit = 500;
+      let reports = 0;
+      const Chatty: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => {
+          if (reports < limit) {
+            reports += 1;
+            report(ready(query, 'Chatty', query ? ['same row'] : []));
+          }
+        });
+        return null;
+      };
+      mountProviders([{ name: 'chatty', meta: recordLane, component: Chatty }]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'ward');
+      await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+
+      expect(screen.getByRole('option', { name: 'same row' })).toBeInTheDocument();
+      expect(reports).toBeLessThan(50);
+    });
+
+    it('strips direction controls from what providers send, and lets each line find its own direction', async () => {
+      const user = userEvent.setup();
+      const controls = '\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\u200E\u200F';
+      const to = { type: 'navigate' as const, to: '/somewhere' };
+      const Spoofing: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => {
+          report({
+            query,
+            title: `In this chart${controls}`,
+            status: 'ready',
+            detail: { state: 'projecting', note: `\u202EIndexing${controls}` },
+            results: query
+              ? [
+                  { id: 'weight', title: 'Weight \u202Egk 07', subtitle: `\u2066Latest${controls}`, target: to },
+                  { id: 'jane', title: `Jane\u202E Doe`, patient: { uuid: 'not-a-uuid' }, target: to },
+                ]
+              : [],
+          });
+        }, [query, report]);
+        return null;
+      };
+      const Answering: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => {
+          report({
+            query,
+            title: `Answer${controls}`,
+            status: 'ready',
+            answer: {
+              text: `\u202Bthe answer${controls}`,
+              streaming: false,
+              sources: [{ label: '\u202Esource', target: to }],
+            },
+          });
+        }, [query, report]);
+        return null;
+      };
+      mountProviders([
+        { name: 'spoofing', meta: recordLane, component: Spoofing },
+        { name: 'answering', meta: { lane: 'answer', scopes: ['global', 'patient'] }, component: Answering },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'weight');
+
+      expect(document.body).not.toHaveTextContent(/[\u202A-\u202E\u2066-\u2069\u200E\u200F]/);
+      for (const line of ['In this chart', 'Indexing', 'Weight gk 07', 'Latest', 'Jane Doe', 'Answer', 'the answer']) {
+        expect(screen.getByText(line)).toHaveAttribute('dir', 'auto');
+      }
+      expect(screen.getByRole('button', { name: 'source' })).toBeInTheDocument();
+    });
+
+    describe('a provider that sends a bad report', () => {
+      const sends = (bad: object): React.FC<OmnibarProviderProps> =>
+        function Bad({ query, report }) {
+          useEffect(() => {
+            if (query) report({ query, ...bad } as OmnibarReport);
+          }, [query, report]);
+          return null;
+        };
+      const mountBeside = (component: React.FC<OmnibarProviderProps>, meta: OmnibarProviderMeta = recordLane) => {
+        mountProviders([
+          { name: 'destinations', meta: navigateLane, component: DestinationsProvider },
+          { name: 'bad', meta: { ...meta, order: 15 }, component },
+        ]);
+        render(<Omnibar />);
+      };
+      const toRow = (id: string) => ({ id, title: id, target: { type: 'navigate', to: `/${id}` } });
+
+      it.each([
+        ['results that are an object', { title: 'Bad', status: 'ready', results: { id: 'x' } }],
+        ['results that are a string', { title: 'Bad', status: 'ready', results: 'x' }],
+        ['a heading that is not text', { title: { text: 'Bad' }, status: 'ready', results: [toRow('row')] }],
+        ['a note that is a number', { title: 'Bad', status: 'error', detail: { state: 'unavailable', note: 42 } }],
+        [
+          'a note that is an object',
+          {
+            title: 'Bad',
+            status: 'ready',
+            detail: { state: 'projecting', note: { text: 'x' } },
+            results: [toRow('row')],
+          },
+        ],
+      ])('keeps the bar and the other providers working when one sends %s', async (_, bad) => {
+        const user = userEvent.setup();
+        mountBeside(sends(bad));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        await user.click(screen.getByRole('option', { name: 'Ward' }));
+        expect(landedOn()).toBe('/openmrs/spa/ward');
+      });
+
+      it('keeps the bar working, and strips direction controls, when a patient row sends odd identifiers', async () => {
+        const user = userEvent.setup();
+        mountBeside(
+          sends({
+            title: 'Patients',
+            status: 'ready',
+            results: [
+              {
+                id: 'jane',
+                title: 'Jane Doe',
+                subtitle: '\u202ESeen today',
+                patient: {
+                  uuid: 'not-a-uuid',
+                  identifiers: [
+                    { identifier: '\u202E100GEJ', typeUuid: openmrsIdType, typeName: { text: 'OpenMRS ID' } },
+                    { identifier: '\u2066200\u2069', typeUuid: 'old-id-type', typeName: '\u202EOld ID' },
+                    { identifier: 42, typeUuid: 'numeric-type', typeName: 'Numeric' },
+                  ],
+                },
+                target: { type: 'navigate', to: '/jane' },
+              },
+            ],
+          }),
+        );
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
+        expect(document.body).not.toHaveTextContent(/[\u202A-\u202E\u2066-\u2069\u200E\u200F]/);
+        for (const text of ['100GEJ', '200', 'Seen today']) {
+          expect(screen.getByText(text)).toHaveAttribute('dir', 'auto');
+        }
+        expect(screen.getByText('Old ID:')).toHaveAttribute('dir', 'auto');
+        expect(screen.queryByText('Numeric:')).not.toBeInTheDocument();
+      });
+
+      it('draws the quiet line of its own for a note that is not text', async () => {
+        const user = userEvent.setup();
+        mountBeside(sends({ title: 'Bad', status: 'error', detail: { state: 'unavailable', note: 42 } }));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Unavailable right now')).toBeInTheDocument();
+      });
+
+      it('drops results with no text id, no text title or no target it knows, and shows the rest', async () => {
+        const user = userEvent.setup();
+        mountBeside(
+          sends({
+            title: 'Mixed',
+            status: 'ready',
+            results: [
+              null,
+              'row',
+              { ...toRow('numeric id'), id: 7 },
+              { ...toRow('object title'), title: { text: 'x' } },
+              { id: 'no target', title: 'no target' },
+              { ...toRow('on select'), target: { type: 'onSelect' } },
+              { ...toRow('link that is not text'), target: { type: 'navigate', to: 5 } },
+              { ...toRow('workspace with no name'), target: { type: 'workspace' } },
+              toRow('good row'),
+            ],
+          }),
+        );
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['good row', 'Ward']);
+      });
+
+      it('shows at most 50 results from one provider', async () => {
+        const user = userEvent.setup();
+        mountBeside(
+          sends({
+            title: 'Many',
+            status: 'ready',
+            results: Array.from({ length: 60 }, (_, index) => toRow(`row ${index}`)),
+          }),
+        );
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        const many = within(screen.getByRole('group', { name: 'Many' })).getAllByRole('option');
+        expect(many).toHaveLength(50);
+        expect(many.at(-1)).toHaveTextContent('row 49');
+      });
+
+      it('hides an answer that sends no sources at all, as one with none', async () => {
+        const user = userEvent.setup();
+        mountBeside(sends({ title: 'Answer', status: 'ready', answer: { text: 'Made up', streaming: false } }), {
+          lane: 'answer',
+          scopes: ['global', 'patient'],
+        });
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('This answer is hidden because it didn’t cite any records.')).toBeInTheDocument();
+        expect(screen.queryByText('Made up')).not.toBeInTheDocument();
+        expect(screen.getByRole('option', { name: 'Ward' })).toBeInTheDocument();
+      });
+    });
+
+    describe('a group that reports its state', () => {
+      const withDetail =
+        (detail: OmnibarReport['detail'], status: OmnibarReport['status'] = 'ready'): React.FC<OmnibarProviderProps> =>
+        ({ query, report }) => {
+          useEffect(
+            () => report({ ...ready(query, 'Found in the record', query ? ['projected hit'] : []), status, detail }),
+            [query, report],
+          );
+          return null;
+        };
+      const mountWith = (component: React.FC<OmnibarProviderProps>) => {
+        mountProviders([
+          { name: 'destinations', meta: navigateLane, component: DestinationsProvider },
+          { name: 'projection', meta: { ...recordLane, order: 15 }, component },
+        ]);
+        render(<Omnibar />);
+      };
+
+      it.each([
+        ['unavailable', undefined, 'Unavailable right now'],
+        ['failed', undefined, 'Couldn’t load results'],
+        ['unavailable', 'Saved lists are offline', 'Saved lists are offline'],
+      ] as const)(
+        'collapses a group that is %s to its heading and one quiet line (note %j)',
+        async (state, note, line) => {
+          const user = userEvent.setup();
+          mountWith(withDetail({ state, note }, 'error'));
+
+          await user.type(screen.getByRole('combobox'), 'ward');
+
+          expect(screen.getByText('Found in the record')).toBeInTheDocument();
+          const quiet = screen.getByText(line);
+          expect(quiet).not.toHaveAttribute('aria-live');
+          expect(quiet).not.toHaveAttribute('role');
+          expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+          expect(
+            screen.getAllByText(new RegExp(`^(Unavailable right now|Couldn’t load results|${line})$`)),
+          ).toHaveLength(1);
+          expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Ward']);
+          await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+          expect(landedOn()).toBe('/openmrs/spa/ward');
+        },
+      );
+
+      it("always says the host's own words for a failed group, whatever note it sends", async () => {
+        const user = userEvent.setup();
+        mountWith(withDetail({ state: 'failed', note: 'Server responded with 500 for Jane Doe, 100GEJ' }, 'error'));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Couldn’t load results')).toBeInTheDocument();
+        expect(screen.queryByText(/Jane Doe|100GEJ|500/)).not.toBeInTheDocument();
+      });
+
+      it.each([
+        ['projecting', 'ready'],
+        ['unavailable', 'error'],
+      ] as const)('cuts the note of a group that is %s to 200 characters', async (state, status) => {
+        const user = userEvent.setup();
+        const long = `${'Indexing the visit notes. '.repeat(11)}tail`;
+        expect(long.length).toBeGreaterThan(200);
+        mountWith(withDetail({ state, note: long }, status));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        const cut = `${long.slice(0, 199)}…`;
+        expect(Array.from(cut)).toHaveLength(200);
+        expect(screen.getByText(cut)).toBeInTheDocument();
+      });
+
+      it('shows a note of exactly 200 characters whole', async () => {
+        const user = userEvent.setup();
+        const exact = 'n'.repeat(200);
+        mountWith(withDetail({ state: 'unavailable', note: exact }, 'error'));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText(exact)).toBeInTheDocument();
+      });
+
+      it('shows the results of a group still indexing, with a quiet line saying they may be incomplete', async () => {
+        const user = userEvent.setup();
+        mountWith(withDetail({ state: 'projecting' }));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Still indexing; results may be incomplete')).toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['projected hit', 'Ward']);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/projected%20hit');
+      });
+
+      it('shows the heading and quiet line of a group still indexing that has found nothing yet', async () => {
+        const user = userEvent.setup();
+        mountWith(function EmptyProjection({ query, report }) {
+          useEffect(
+            () =>
+              report({
+                query,
+                title: 'Found in the record',
+                status: 'ready',
+                results: [],
+                detail: { state: 'projecting' },
+              }),
+            [query, report],
+          );
+          return null;
+        });
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Found in the record')).toBeInTheDocument();
+        expect(screen.getByText('Still indexing; results may be incomplete')).toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Ward']);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/openmrs/spa/ward');
+      });
+
+      it("doesn't say nothing matches while a group is still indexing, even with nothing found yet", async () => {
+        const user = userEvent.setup();
+        mountProviders([
+          {
+            name: 'projection',
+            meta: { ...recordLane, order: 15 },
+            component: function EmptyProjection({ query, report }: OmnibarProviderProps) {
+              useEffect(
+                () =>
+                  report({
+                    query,
+                    title: 'Found in the record',
+                    status: 'ready',
+                    results: [],
+                    detail: { state: 'projecting' },
+                  }),
+                [query, report],
+              );
+              return null;
+            },
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Still indexing; results may be incomplete')).toBeInTheDocument();
+        expect(screen.queryByText(/nothing matches/i)).not.toBeInTheDocument();
+        expect(
+          within(screen.getByRole('group', { name: 'Found in the record' })).queryAllByRole('option'),
+        ).toHaveLength(0);
+      });
+
+      it('shows an indexed group like any other', async () => {
+        const user = userEvent.setup();
+        mountWith(withDetail({ state: 'indexed' }));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['projected hit', 'Ward']);
+        expect(screen.queryByText(/still indexing|unavailable|couldn’t load/i)).not.toBeInTheDocument();
+      });
+    });
+
+    describe('when the server is out of reach', () => {
+      const httpError = (status: number) =>
+        Object.assign(new Error(`Server responded with ${status} for ?q=jane+doe: Jane Doe, 100GEJ`), {
+          response: { status },
+        });
+
+      it.each([
+        ['patient search', PatientSearchProvider, 'Patients', new TypeError('Failed to fetch')],
+        ['patient search', PatientSearchProvider, 'Patients', httpError(0)],
+        ['patient search', PatientSearchProvider, 'Patients', httpError(502)],
+        ['patient search', PatientSearchProvider, 'Patients', httpError(503)],
+        ['patient search', PatientSearchProvider, 'Patients', httpError(504)],
+        ['chart lookup', ChartLookupProvider, 'In this chart', new TypeError('Failed to fetch')],
+        ['chart lookup', ChartLookupProvider, 'In this chart', httpError(503)],
+      ])('says %s is unavailable when the server is out of reach (case %#)', async (_, component, title, error) => {
+        const user = userEvent.setup();
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        mockOpenmrsFetch.mockRejectedValue(error);
+        mountProviders([
+          { name: 'provider', meta: { lane: 'record', scopes: ['global', 'patient'], order: 10 }, component },
+        ]);
+        renderWithFreshCache(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'jane doe');
+
+        expect(await screen.findByText('Unavailable right now')).toBeInTheDocument();
+        expect(screen.getByText(title)).toBeInTheDocument();
+        expect(screen.queryByText('Couldn’t load results')).not.toBeInTheDocument();
+        expect(screen.queryByText(/100GEJ|50\d/)).not.toBeInTheDocument();
+        window.history.pushState({}, '', '/');
+      });
+    });
+
+    describe('the chart side panel', () => {
+      const chartPatientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+      const setOpenedGroup = (openedGroup: { groupName: string; props: object | null } | null) =>
+        getGlobalStore('workspace2').setState({ openedGroup });
+
+      beforeEach(() => {
+        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
+        setOpenedGroup({ groupName: 'patient-chart', props: { patientUuid: chartPatientUuid } });
+      });
+
+      afterEach(() => {
+        setOpenedGroup(null);
+        window.history.pushState({}, '', '/');
+      });
+
+      it('tells providers which group is open, and for which patient', async () => {
+        const user = userEvent.setup();
+        const props: Array<OmnibarProviderProps> = [];
+        mountProviders([{ name: 'recorder', meta: recordLane, component: recordProps(props) }]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'cd4');
+        expect(props.at(-1).context).toEqual(
+          expect.objectContaining({
+            scope: 'patient',
+            patientUuid: chartPatientUuid,
+            workspaceGroup: { groupName: 'patient-chart', patientUuid: chartPatientUuid },
+          }),
+        );
+
+        act(() => setOpenedGroup(null));
+        expect(props.at(-1).context.workspaceGroup).toBeNull();
+      });
+
+      it('keeps the results, the selection and the mounted providers when it opens or closes', async () => {
+        const user = userEvent.setup();
+        const props: Array<OmnibarProviderProps> = [];
+        let mounts = 0;
+        const ChartValues: React.FC<OmnibarProviderProps> = (current) => {
+          props.push(current);
+          const { query, report } = current;
+          useEffect(() => {
+            mounts += 1;
+          }, []);
+          useEffect(() => report(ready(query, 'In this chart', query ? ['first', 'second'] : [])), [query, report]);
+          return null;
+        };
+        mountProviders([
+          {
+            name: 'chart',
+            meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
+            component: ChartValues,
+          },
+        ]);
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'cd4');
+        await user.keyboard('{ArrowDown}');
+        expect(screen.getByRole('option', { name: 'second' })).toHaveAttribute('aria-selected', 'true');
+
+        act(() => setOpenedGroup(null));
+        expect(props.at(-1).context.workspaceGroup).toBeNull();
+        act(() => setOpenedGroup({ groupName: 'patient-chart', props: { patientUuid: chartPatientUuid } }));
+        expect(props.at(-1).context.workspaceGroup).toEqual({
+          groupName: 'patient-chart',
+          patientUuid: chartPatientUuid,
+        });
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['first', 'second']);
+        expect(screen.getByRole('option', { name: 'second' })).toHaveAttribute('aria-selected', 'true');
+        expect(mounts).toBe(1);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/second');
+      });
+    });
   });
 });

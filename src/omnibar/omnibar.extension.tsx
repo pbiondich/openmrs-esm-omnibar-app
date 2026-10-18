@@ -8,6 +8,7 @@ import {
   Extension,
   ExtensionSlot,
   isDesktop,
+  showSnackbar,
   useAssignedExtensions,
   useConfig,
   useDebounce,
@@ -19,18 +20,53 @@ import {
   announceSelection,
   executeTarget,
   getProviderOrder,
+  isCollapsed,
   type ProviderInfo,
   type SelectableResult,
+  speaksContractOf,
+  targetSignature,
   useOmnibarShortcut,
   useResultCollector,
 } from './omnibar.resource';
 import { PatientRow } from './patient-row';
 import { useOmnibarContext } from './use-omnibar-context';
+import { useOpenedWorkspaceGroup } from './workspace-group';
 import { type OmnibarConfig } from '../config-schema';
-import { type OmnibarProviderMeta, type OmnibarProviderProps, type OmnibarTarget } from './types';
+import {
+  OMNIBAR_CONTRACT_VERSION,
+  type OmnibarProviderMeta,
+  type OmnibarProviderProps,
+  type OmnibarQueryHints,
+  type OmnibarReport,
+  type OmnibarTarget,
+} from './types';
+import { looksLikeIdentifier } from '../omnibar-contract';
 import styles from './omnibar.scss';
 
 export const providersSlot = 'omnibar-providers-slot';
+
+const maxNoteLength = 200;
+
+/** A provider's note, cut to 200 characters so a server's message in it can't fill the panel. */
+function capNote(note: unknown): string | undefined {
+  if (!note || typeof note !== 'string') {
+    return undefined;
+  }
+  const characters = Array.from(note);
+  return characters.length > maxNoteLength ? `${characters.slice(0, maxNoteLength - 1).join('')}…` : note;
+}
+
+/**
+ * The highlighted row. `chosen` when the user arrowed or pointed to it, rather than it being the
+ * default. `target` is the target it had when it was highlighted, as `targetSignature` writes it.
+ */
+interface Selection {
+  key: string;
+  chosen: boolean;
+  target?: string;
+  dedupeKey?: string;
+  dedupeId?: string;
+}
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -52,24 +88,47 @@ const Omnibar: React.FC = () => {
     return name ? [...(name.given ?? []), name.family].filter(Boolean).join(' ') : '';
   }, [patient]);
 
-  // Only providers that declare the current scope are mounted at all.
+  // Worked out once for every provider, so "ID-shaped text gets only the patient" holds across apps.
+  const hints = useMemo<OmnibarQueryHints>(
+    () => ({ looksLikeIdentifier: looksLikeIdentifier(debouncedQuery) }),
+    [debouncedQuery],
+  );
+
+  // Only providers that declare the current scope, on a contract this host speaks, are mounted at all.
+  // One that skips identifier queries isn't mounted for one, so it can't send it anywhere.
   const assigned = useAssignedExtensions(providersSlot);
   const providerInfo = useMemo<Record<string, ProviderInfo>>(() => {
     const info: Record<string, ProviderInfo> = {};
     for (const extension of assigned) {
       const meta = extension.meta as OmnibarProviderMeta | undefined;
-      if (meta?.lane && meta.scopes?.includes(context.scope)) {
+      if (
+        meta?.lane &&
+        meta.scopes?.includes(context.scope) &&
+        !(meta.skipIdentifierQueries && hints.looksLikeIdentifier) &&
+        speaksContractOf(extension.name, meta)
+      ) {
         info[extension.name] = {
           lane: meta.lane,
           order: getProviderOrder(meta, context.scope),
           neverDefault: context.scope === 'patient' && !meta.defaultInChart,
+          dedupeKey: meta.dedupeKey,
         };
       }
     }
     return info;
-  }, [assigned, context.scope]);
+  }, [assigned, context.scope, hints]);
 
-  const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(debouncedQuery, providerInfo);
+  // Reports from a mount that belongs to another chart or scope are dropped, so this is worked out
+  // before the providers are given their `report`. The providers are unmounted while the bar is
+  // closed, so closing and opening it start new generations too.
+  const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
+  const scopePatientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
+  const { getReporter, clear, listGroups, answerGroups, selectable } = useResultCollector(
+    debouncedQuery,
+    providerInfo,
+    `${contextKey}:${open ? 'open' : 'closed'}`,
+    scopePatientUuid,
+  );
 
   // Out-of-scope providers are dropped with `select`, never by returning null from the slot's render
   // function: ExtensionSlot renders `children(extension) ?? <Extension state={slotState} />`, so a null
@@ -80,8 +139,19 @@ const Omnibar: React.FC = () => {
   );
 
   // The result the user arrowed or pointed to, else the first one that may be the default. When
-  // none may, nothing is highlighted and Enter does nothing.
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // none may, nothing is highlighted and Enter does nothing. The highlight also remembers the record
+  // its row shows, so a row dropped as another provider's copy hands the highlight to the kept copy.
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const selectionOf = useCallback(
+    (result: SelectableResult, chosen: boolean): Selection => ({
+      key: result.key,
+      chosen,
+      target: targetSignature(result.target),
+      dedupeKey: providerInfo[result.providerId]?.dedupeKey,
+      dedupeId: result.dedupeId,
+    }),
+    [providerInfo],
+  );
 
   // A change of chart or scope invalidates everything on screen, the selection included, and the
   // providers are remounted (keyed below) so that each reports again for the new context. A key kept
@@ -89,28 +159,58 @@ const Omnibar: React.FC = () => {
   // effect because a passive one would run after the remounted providers' first reports and drop them.
   useLayoutEffect(() => {
     clear();
-    setSelectedKey(null);
+    setSelection(null);
   }, [clear, context]);
-  const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
 
-  const selected =
-    selectable.find((r) => r.key === selectedKey) ?? selectable.find((r) => !providerInfo[r.providerId].neverDefault);
+  // The side panel opening or closing isn't a change of chart, so it stays out of `context` above:
+  // providers re-render with the new group, and the results, the selection and the mounts stay.
+  const workspaceGroup = useOpenedWorkspaceGroup();
+  const providerContext = useMemo(() => ({ ...context, workspaceGroup }), [context, workspaceGroup]);
+
+  // A highlighted row that is gone but showed a deduped record moves to the copy still on screen, or
+  // to nothing, never to the default: that would be another record, and Enter would open it. The kept
+  // copy takes over a highlight the user chose, or one it could have taken as the default anyway, but
+  // never when it names another patient: the user chose this patient's row, not that one. A default
+  // highlight whose row is reported again in a way that can't be the default is dropped.
+  const { selected, chosen } = useMemo(() => {
+    const mayBeDefault = (result: SelectableResult) => result.mayBeDefault;
+    const same = selection && selectable.find((result) => result.key === selection.key);
+    if (same) {
+      return { selected: selection.chosen || mayBeDefault(same) ? same : undefined, chosen: selection.chosen };
+    }
+    if (selection?.dedupeKey && selection.dedupeId) {
+      const copy = selectable.find(
+        (result) =>
+          result.dedupeId === selection.dedupeId && providerInfo[result.providerId].dedupeKey === selection.dedupeKey,
+      );
+      return {
+        selected: copy && !copy.namesOtherPatient && (selection.chosen || mayBeDefault(copy)) ? copy : undefined,
+        chosen: selection.chosen,
+      };
+    }
+    // A row the user picked that is gone, with no copy left, is never swapped for the default.
+    if (selection?.chosen) {
+      return { selected: undefined, chosen: true };
+    }
+    return { selected: selectable.find(mayBeDefault), chosen: false };
+  }, [selection, selectable, providerInfo]);
   const selectedIndex = selected ? selectable.indexOf(selected) : -1;
+  const selectableByKey = useMemo(() => new Map(selectable.map((result) => [result.key, result])), [selectable]);
 
   // Pin the default highlight to the result it first lands on, so a slower provider that sorts above
   // it can't move it to another row just before the user presses Enter.
   const resultsAreCurrent = query.trim() === debouncedQuery;
   useEffect(() => {
-    if (resultsAreCurrent && selected && selected.key !== selectedKey) {
-      setSelectedKey(selected.key);
+    if (resultsAreCurrent && selected && selected.key !== selection?.key) {
+      setSelection(selectionOf(selected, chosen));
     }
-  }, [resultsAreCurrent, selected, selectedKey]);
+  }, [resultsAreCurrent, selected, chosen, selection, selectionOf]);
 
   // A new query starts with nothing picked. A key kept from the old results could match a row in the
   // new ones, such as a patient who is also a recent, and Enter would open them.
   const changeQuery = (value: string) => {
     setQuery(value);
-    setSelectedKey(null);
+    setSelection(null);
   };
 
   const openBar = useCallback(() => {
@@ -121,7 +221,7 @@ const Omnibar: React.FC = () => {
   const closeBar = useCallback(() => {
     setOpen(false);
     setQuery('');
-    setSelectedKey(null);
+    setSelection(null);
     clear();
   }, [clear]);
 
@@ -143,34 +243,67 @@ const Omnibar: React.FC = () => {
   useOmnibarShortcut(openBar, inputRef);
   const containerRef = useOnClickOutside<HTMLDivElement>(closeBar, open && desktop);
 
+  // A workspace whose chart group closed, or opened for another patient, after its row was drawn is
+  // refused, as is one whose props name another patient than the chart's, and a link off this site.
+  // A launch can also fail. The bar has closed by then, so a snackbar says nothing opened.
+  const runTarget = useCallback(
+    (target: OmnibarTarget) => {
+      const warn = () =>
+        showSnackbar(
+          target.type === 'navigate'
+            ? {
+                kind: 'warning',
+                title: t('resultNotOpened', 'Couldn’t open that result'),
+                subtitle: t('resultNotOpenedSubtitle', 'It links to a page outside this site.'),
+              }
+            : {
+                kind: 'warning',
+                title: t('sidePanelNotOpened', 'Couldn’t open the side panel'),
+                subtitle: t(
+                  'sidePanelNotOpenedSubtitle',
+                  'The side panel was closed or opened for another patient. Open it again on this chart, then search again.',
+                ),
+              },
+        );
+      executeTarget(target, scopePatientUuid).then((opened) => opened || warn(), warn);
+    },
+    [t, scopePatientUuid],
+  );
+
   // The results on screen may still be for an earlier query, e.g. recents while a scanner types an
-  // ID, so nothing on screen can be chosen, by key or by pointer, until they catch up.
+  // ID, so nothing on screen can be chosen, by key or by pointer, until they catch up. A provider can
+  // also report the highlighted row again, under the same id, with another target. Only the target
+  // that was highlighted is run; a changed one clears the highlight and opens nothing.
   const choose = useCallback(
     (result: SelectableResult) => {
       if (!resultsAreCurrent) return;
+      if (selection?.key === result.key && selection.target !== targetSignature(result.target)) {
+        setSelection(null);
+        return;
+      }
       announceSelection({ providerId: result.providerId, resultId: result.id });
       closeBar();
-      void executeTarget(result.target);
+      runTarget(result.target);
     },
-    [closeBar, resultsAreCurrent],
+    [closeBar, resultsAreCurrent, runTarget, selection],
   );
 
   const openSource = useCallback(
     (target: OmnibarTarget) => {
       if (!resultsAreCurrent) return;
       closeBar();
-      void executeTarget(target);
+      runTarget(target);
     },
-    [closeBar, resultsAreCurrent],
+    [closeBar, resultsAreCurrent, runTarget],
   );
 
   // Chrome sends mousemove when rows shift under a pointer that hasn't moved, so a row is picked only
   // when the browser reports movement for the event. Rows moving under a still pointer report none, and
   // a browser that reports nothing counts as no movement.
-  const pointAt = (event: React.MouseEvent, key: string) => {
+  const pointAt = (event: React.MouseEvent, result: SelectableResult) => {
     const moved = Boolean(event.movementX || event.movementY);
-    if (moved && resultsAreCurrent && selected?.key !== key) {
-      setSelectedKey(key);
+    if (moved && resultsAreCurrent && selected?.key !== result.key) {
+      setSelection(selectionOf(result, true));
     }
   };
 
@@ -187,7 +320,7 @@ const Omnibar: React.FC = () => {
         // With nothing highlighted, Down starts at the top and Up at the bottom.
         const from = selectedIndex >= 0 ? selectedIndex : step > 0 ? -1 : 0;
         const next = selectable[(from + step + count) % count];
-        setSelectedKey(next.key);
+        setSelection(selectionOf(next, true));
         document.getElementById(`${listboxId}-${next.key}`)?.scrollIntoView({ block: 'nearest' });
         return;
       }
@@ -219,18 +352,29 @@ const Omnibar: React.FC = () => {
     }
   };
 
-  // State objects are cached per query and context so providers only re-render when those change.
+  // State objects are cached per query, context and set of providers, so providers only re-render
+  // when those change. A provider that comes back gets a new `report` for its new generation.
   const providerState = useMemo(() => {
     const cache = new Map<string, OmnibarProviderProps>();
     return (providerId: string) => {
       let state = cache.get(providerId);
       if (!state) {
-        state = { query: debouncedQuery, context, report: getReporter(providerId) };
+        state = {
+          query: debouncedQuery,
+          context: providerContext,
+          report: getReporter(providerId),
+          hints,
+          contractVersion: OMNIBAR_CONTRACT_VERSION,
+        };
         cache.set(providerId, state);
       }
       return state;
     };
-  }, [debouncedQuery, context, getReporter]);
+    // providerInfo and open aren't read here, but a provider leaving and coming back changes the
+    // first, the bar closing and opening again changes the second, and either way the earlier
+    // `report` no longer counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery, providerContext, hints, getReporter, providerInfo, open]);
 
   const placeholder =
     context.scope === 'patient'
@@ -241,7 +385,27 @@ const Omnibar: React.FC = () => {
   // Never the provider's own error: a server's message can quote the query or the record.
   const providerError = t('providerError', 'Couldn’t load results');
 
-  const stillLoading = listGroups.some((g) => g.status === 'loading');
+  // The quiet line under a group's heading for the state of its source. A provider's note replaces
+  // the host's words while indexing or unavailable, cut to 200 characters. A failed group always
+  // says the host's words, as for any error. It is plain text, never a live region: a source going
+  // away isn't urgent.
+  const detailLine = (group: OmnibarReport) => {
+    switch (group.detail?.state) {
+      case 'unavailable':
+        return capNote(group.detail.note) ?? t('providerUnavailable', 'Unavailable right now');
+      case 'failed':
+        return providerError;
+      case 'projecting':
+        return capNote(group.detail.note) ?? t('providerProjecting', 'Still indexing; results may be incomplete');
+      default:
+        return null;
+    }
+  };
+
+  // A group still indexing is drawn even with nothing found yet, so the search isn't over either.
+  const stillLoading = listGroups.some(
+    (g) => g.status === 'loading' || (g.status !== 'idle' && g.detail?.state === 'projecting'),
+  );
   const hasListResults = selectable.length > 0;
   const showNoMatches = Boolean(debouncedQuery) && !stillLoading && !hasListResults && !answerGroups.length;
 
@@ -389,21 +553,34 @@ const Omnibar: React.FC = () => {
           <ul id={listboxId} role="listbox" className={styles.listbox} aria-label={placeholder}>
             {listGroups.map((group) => {
               const headingId = `${listboxId}-${group.providerId}-heading`;
-              if (group.status === 'idle' || (group.status === 'ready' && !group.results?.length)) {
+              const collapsed = isCollapsed(group);
+              const line = detailLine(group);
+              // A ready group with nothing in it is left out, unless it says why: still indexing, say.
+              const empty = group.status === 'ready' && !group.results?.length;
+              if (group.status === 'idle' || (empty && !collapsed && group.detail?.state !== 'projecting')) {
                 return null;
               }
               return (
                 <li key={group.providerId} role="presentation">
-                  <div id={headingId} className={styles.groupHeading}>
+                  <div id={headingId} className={styles.groupHeading} dir="auto">
                     {group.title}
                   </div>
-                  {group.status === 'loading' && !group.results?.length && (
+                  {group.status === 'loading' && !group.results?.length && !collapsed && (
                     <InlineLoading className={styles.groupLoading} description={t('searching', 'Searching')} />
                   )}
-                  {group.status === 'error' && <p className={styles.groupError}>{providerError}</p>}
+                  {group.status === 'error' && !collapsed && <p className={styles.groupError}>{providerError}</p>}
+                  {line && (
+                    <p className={styles.groupNote} dir="auto">
+                      {line}
+                    </p>
+                  )}
                   <ul role="group" aria-labelledby={headingId}>
                     {(group.results ?? []).map((result) => {
                       const key = `${group.providerId}:${result.id}`;
+                      const item = selectableByKey.get(key);
+                      if (!item) {
+                        return null;
+                      }
                       const isSelected = selected?.key === key;
                       return (
                         <li
@@ -416,16 +593,22 @@ const Omnibar: React.FC = () => {
                             [styles.optionSelected]: isSelected,
                             [styles.patientOption]: result.patient,
                           })}
-                          onMouseMove={(event) => pointAt(event, key)}
+                          onMouseMove={(event) => pointAt(event, item)}
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => choose({ ...result, providerId: group.providerId, key })}
+                          onClick={() => choose(item)}
                         >
                           {result.patient ? (
                             <PatientRow name={result.title} patient={result.patient} note={result.subtitle} />
                           ) : (
                             <span className={styles.optionText}>
-                              <span className={styles.optionTitle}>{result.title}</span>
-                              {result.subtitle && <span className={styles.optionSubtitle}>{result.subtitle}</span>}
+                              <span className={styles.optionTitle} dir="auto">
+                                {result.title}
+                              </span>
+                              {result.subtitle && (
+                                <span className={styles.optionSubtitle} dir="auto">
+                                  {result.subtitle}
+                                </span>
+                              )}
                             </span>
                           )}
                         </li>
@@ -449,7 +632,7 @@ const Omnibar: React.FC = () => {
                 aria-live="polite"
                 aria-busy={Boolean(answer?.streaming)}
               >
-                <div id={headingId} className={styles.groupHeading}>
+                <div id={headingId} className={styles.groupHeading} dir="auto">
                   {group.title}
                 </div>
                 {group.status === 'loading' && !answer?.text && (
@@ -463,7 +646,7 @@ const Omnibar: React.FC = () => {
                 )}
                 {answer && !unsourced && (
                   <>
-                    <p className={styles.answerText}>
+                    <p className={styles.answerText} dir="auto">
                       {answer.text}
                       {answer.streaming && <span className={styles.caret} aria-hidden />}
                     </p>
@@ -475,6 +658,7 @@ const Omnibar: React.FC = () => {
                             key={index}
                             type="button"
                             className={styles.sourceLink}
+                            dir="auto"
                             aria-disabled={!resultsAreCurrent}
                             onClick={() => openSource(source.target)}
                           >

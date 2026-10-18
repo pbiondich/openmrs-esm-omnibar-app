@@ -28,7 +28,7 @@ This is a prototype of an O3 omnibar. :)
 
 To perhaps make the omnibar concept more concrete for you, I'll lay out a couple of hypothetical examples of how a pervasive prompt could have a number of really helpful functions, all within the same prompt!
 
-Each scenario is marked with where it stands: **Prototype** means the code exists in this repo (still unverified against a live server), **Example** means a provider sketch exists for another team to adapt, and **Planned** means it's designed but not built.
+Each scenario is marked with where it stands: **Prototype** means the code exists in this repo, and **Planned** means it's designed but not built.
 
 ### Outside a patient record
 
@@ -45,8 +45,8 @@ A chip with the patient's name sits in the field, so it's always clear whose rec
 
 | The user types | What they get | Status |
 | --- | --- | --- |
-| `when did she start ART?` | A streamed answer from something like ChartSearch, perhaps with links to the encounters and observations it drew on. An answer that cites nothing is hidden. | Example |
-| `cd4`, `hb`, `weight` | Latest values and dates for each matching concept, in the user's language. Choosing one from the list opens the results viewer; pressing Enter on the query itself brings up a detail display of everything that matched. | Prototype |
+| `when did she start ART?` | A non-default "Ask ChartSearch" row. Choosing it opens AI Chart Search with the question filled in. The clinician presses Send before any model request runs. | Prototype |
+| `cd4`, `hb`, `latest weight`, `show vitals` | Latest values and dates for each matching concept, in the user's language. Choosing one from the list opens the results viewer; pressing Enter on the query itself brings up a detail display of everything that matched. | Prototype |
 | a name or ID | Other patients, listed below anything from this chart. | Prototype |
 
 ### Everywhere
@@ -62,10 +62,10 @@ These rules are what make it safe to let many teams contribute to one search box
 1. **Results describe destinations; they don't act.** A result's target is a URL or a workspace launch. There is no `onSelect` callback, so the normal way to build a provider has no path to write to the record. Anything that changes data opens a form or workspace, where the usual checks apply.
 2. **The shell owns the scope.** Providers receive the patient; they can't choose it. Changing charts clears everything on screen, so a query never runs silently against the wrong patient.
 3. **Lanes, not a merged ranking.** Results group into `record`, `navigate` and `answer` lanes, then by each provider's declared order. Scores from different providers aren't comparable, so the shell doesn't pretend they are. Answers render below the list and outside arrow-key order, so a streaming answer never moves the highlighted result.
-4. **Stale results are dropped.** Every report carries the query it answers, so a slow reply to `cd` can't overwrite results for `cd4`.
+4. **Stale results are dropped.** Every report carries the query it answers, so a slow reply to `cd` can't overwrite results for `cd4`. A report from a mount for a chart or scope the user has left, or from before the bar was closed, is dropped too.
 5. **Answers must cite records.** A finished answer with no sources is hidden, with a note saying why.
 
-Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is still arbitrary code.
+Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is still arbitrary code that could call `navigate()` itself. The host's guards are for a provider's mistakes: inside a chart, a result that names another patient never takes the default highlight and a workspace launch for another patient is refused; Enter runs only the target that was highlighted; and a report the bar can't draw is ignored. See [what the host guards against](docs/design/omnibar-provider-contract.md#what-the-host-guards-against).
 
 ### Architecture
 
@@ -75,19 +75,24 @@ Because providers are extensions, they get lazy loading, privilege gating, featu
 
 ### The provider contract
 
-The full contract is in [`src/omnibar/types.ts`](src/omnibar/types.ts). The core of it:
+This is contract version 1. Everything another app needs is in [`src/omnibar-contract/`](src/omnibar-contract/): the types, `withProviderBoundary`, `looksLikeIdentifier`, `isServerUnreachable` and `OMNIBAR_CONTRACT_VERSION`. Apps copy that folder as it is; it imports only `react`, `react-i18next` and the framework. Every field, the versioning rules, the order registry and how to copy the folder are in [`docs/design/omnibar-provider-contract.md`](docs/design/omnibar-provider-contract.md). The core of it:
 
 ```ts
 type OmnibarScope = 'global' | 'patient';
 type OmnibarLane = 'navigate' | 'record' | 'answer';
 
-interface OmnibarContext { scope: OmnibarScope; patientUuid?: string; locale: string }
+interface OmnibarContext {
+  scope: OmnibarScope;
+  patientUuid?: string;
+  locale: string;
+  workspaceGroup?: { groupName: string; patientUuid?: string } | null; // the open side panel, if any
+}
 
 type OmnibarTarget =
   | { type: 'navigate'; to: string }
   | { type: 'workspace'; workspaceName: string; workspaceProps?: object; windowProps?: object; groupProps?: object };
 
-interface OmnibarResult { id: string; title: string; subtitle?: string; target: OmnibarTarget }
+interface OmnibarResult { id: string; title: string; subtitle?: string; target: OmnibarTarget; dedupeId?: string }
 
 interface OmnibarAnswer { text: string; streaming: boolean; sources: Array<{ label: string; target: OmnibarTarget }> }
 
@@ -97,11 +102,19 @@ interface OmnibarReport {
   title: string; // group heading, translated by the provider
   results?: Array<OmnibarResult>;
   answer?: OmnibarAnswer; // answer lane only
-  errorMessage?: string;
+  detail?: { state: 'projecting' | 'indexed' | 'failed' | 'unavailable'; note?: string };
 }
 
-interface OmnibarProviderProps { query: string; context: OmnibarContext; report: (r: OmnibarReport) => void }
+interface OmnibarProviderProps {
+  query: string;
+  context: OmnibarContext;
+  report: (r: OmnibarReport) => void;
+  hints?: { looksLikeIdentifier: boolean };
+  contractVersion?: number;
+}
 ```
+
+`meta` adds `contract` (the major version the provider was built for), `skipIdentifierQueries` (never mounted for an ID-shaped query) and `dedupeKey` (providers that may find the same record show it once: by lane then order, the first copy that may take the default highlight, and never one that names another patient while a copy for this one exists). A provider that can't reach its server reports `status: 'error'` with `detail.state: 'unavailable'`, and the group shrinks to its heading and "Unavailable right now". The host mounts a provider only when its `contract` is a whole number the host speaks. A group shows at most 50 results.
 
 After a selection the shell fires `openmrs:omnibar-selected` on `window` with the provider and result ids, for bookkeeping such as recently viewed patients.
 
@@ -109,12 +122,37 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 
 | Provider | Lane | Scopes | Data source |
 | --- | --- | --- | --- |
-| Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property |
-| Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale), then FHIR `Observation/$lastn` (latest value per concept) |
+| Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property; photos from REST `/obs`, once per patient |
+| Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale) on the query without filler words such as "latest" or "show", a concept set standing for its members, then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
-| ChartSearch (in `examples/`) | answer | patient | ChartSearch API; the endpoint in the example is a placeholder |
+| ChartSearch suggestion | navigate | patient | Local question heuristic; opens a registered workspace |
 
-Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch example lives in `examples/` because it belongs in the ChartSearch module, not here.
+Patient rows show the patient's photo over the generated pattern tile, found as `PatientPhoto` finds it: the latest obs of the styleguide's `patientPhotoConceptUuid`. Unlike `PatientPhoto`, the row loads the photo only when its link has the shape the server writes for a complex obs value, `<openmrsBase>/ws/rest/v1/obs/<uuid>/value`, on this origin. The image is always loaded from this origin, so a stored link such as `https://emr.example//evil.example/pixel` can't make every search ping another server, and a link to any other path on this server, such as a logout page, isn't fetched either. Protocol-relative, backslashed, off-origin, credentialed and non-http(s) links are dropped. The one host allowed besides this origin is its `http://` twin (same hostname, default ports), because a TLS-terminating proxy such as Cloudflare can make the server write `http://` links for an `https://` page. Each patient's photo is looked up once per page load and shared by every row that shows them, so typing makes no extra photo requests. No photo, a failed lookup, a rejected link or an image that fails to load all leave the tile. The proper fix belongs in esm-styleguide's `PatientPhoto`; once it loads only same-origin photos, rows can go back to using it.
+
+Patient search and chart lookup show "Unavailable right now" under their heading when the server can't be reached, and "Couldn't load results" for any other failure. Chart lookup declares the `chart-values` dedupe key, so another provider with that key never repeats a value it already shows.
+
+Inside a chart, chart lookup comes first and patient search drops to "Other patients". The ChartSearch row appears only for question-like input no longer than ChartSearch's `maxQuestionLength`, only for users with `AI Query Patient Data`, only when `ai-chat-workspace` is registered, and only while that workspace's window group is already open for this patient, which the shell passes to providers as `context.workspaceGroup`. Its provider declares `skipIdentifierQueries`, so the shell doesn't mount it for an ID-shaped query. It never takes the default highlight. If that group closes, or opens for another patient, after the row is drawn and before it is picked, nothing opens and a warning snackbar asks the clinician to open the side panel again on this chart, then search again. The omnibar does not reopen the group, because the chart owns its group props.
+
+The omnibar sends no ChartSearch request while the user types or when the row opens the workspace. [`docs/upstream/esm-chartsearchai-initial-question.patch`](docs/upstream/esm-chartsearchai-initial-question.patch) fills the existing ChartSearch input, clamped to `maxQuestionLength`, and only when the workspace patient matches. The clinician still presses **Send**. [`docs/upstream/esm-chartsearchai-no-warmup.patch`](docs/upstream/esm-chartsearchai-no-warmup.patch) removes the chart-open `/warmup` request. On an unpatched sandbox that request still runs from ChartSearch's Ask AI button when a chart opens. The omnibar does not cause it. ChartSearch owns the request, citations, safety UI, feedback, and errors. At the pinned upstream commit, ChartSearch has no client request timeout.
+
+Without the initial-question patch, the row opens the workspace only when that chart group is already open, and the question is ignored. An already-open chat from Ask AI is reopened with the new workspace props, and the group props stay unchanged. With the initial-question patch the input is prefilled. Unsent text in the old input is lost. The transcript stays in ChartSearch's session store. Window and group props passed by the omnibar stay null.
+
+To hide the row, set `enabled` to false. To open a different registered workspace, set `workspaceName`, and set `workspaceGroupName` to the workspace group it opens in (default `patient-chart`). The row is offered only while that group is open for this patient. `minWords` must be a whole number of at least 2.
+
+The length limit has no omnibar setting. The row reads `maxQuestionLength` from `@openmrs/esm-chartsearchai-app`'s live config, so lowering it there also lowers it here. Until that config loads, or when the value isn't a whole number of at least 1, the limit is ChartSearch's default of 1000. The value is read when the provider mounts, so a change made in the implementer tools applies after the next chart change or page load. It always comes from ChartSearch, even when `workspaceName` names another workspace.
+
+```json
+{
+  "@openmrs/esm-omnibar-app": {
+    "chartSearchSuggestion": {
+      "enabled": true,
+      "minWords": 3,
+      "workspaceName": "ai-chat-workspace",
+      "workspaceGroupName": "patient-chart"
+    }
+  }
+}
+```
 
 The full design, including how O3's current search works and why each decision was made, is in [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
 
@@ -185,7 +223,7 @@ const LabOrdersProvider: React.FC<OmnibarProviderProps> = ({ query, context, rep
 };
 ```
 
-It registers in its own `routes.json`, where `meta` declares the lane, the scopes it runs in and its order:
+It registers in its own `routes.json`, where `meta` declares the lane, the scopes it runs in, its order and the contract it was built for:
 
 ```json
 {
@@ -193,11 +231,13 @@ It registers in its own `routes.json`, where `meta` declares the lane, the scope
   "component": "labOrdersOmnibarProvider",
   "slot": "omnibar-providers-slot",
   "privileges": ["Get Orders"],
-  "meta": { "lane": "record", "scopes": ["patient"], "order": 20 }
+  "meta": { "lane": "record", "scopes": ["patient"], "order": 20, "contract": 1 }
 }
 ```
 
-See [`examples/chartsearch-answer.provider.tsx`](examples/chartsearch-answer.provider.tsx) for a streaming answer provider.
+Copy [`src/omnibar-contract/`](src/omnibar-contract/) into the app for the types and `withProviderBoundary`, and wrap the provider in it in `index.ts`. Copy it again only when the omnibar bumps the contract version. Pick an order from the [registry](docs/design/omnibar-provider-contract.md#order-registry).
+
+ChartSearch uses the same provider contract. Its provider reports a workspace target and never calls the model.
 
 ### Developing
 
@@ -220,9 +260,10 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 1. ~~Run the prototype in a dev distribution and fix what the live system shows.~~ Running at [o3.pgb.md](https://o3.pgb.md/openmrs/spa); first live fixes are in.
 2. Take it to the patient-management squad, with patient search as the first provider and the `appearance` option ready.
 3. Add a dedicated centre slot to the navbar in esm-primary-navigation-app, since `top-nav-actions-slot` is crowded.
-4. Make ChartSearch the first external provider, to prove the contract handles streaming and sources.
+4. Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.
 5. Add cohort questions, which needs the Cohort Builder to accept a query definition by URL.
 6. Move the slot and types into esm-framework through an RFC once the contract settles.
+7. Fix `PatientPhoto` in esm-styleguide to load only same-origin photos, then use it in patient rows again.
 
 Open questions:
 

@@ -12,6 +12,7 @@ import {
   useConfig,
   usePrimaryIdentifierCode,
 } from '@openmrs/esm-framework';
+import { usePatientPhotoUrl } from './patient-photo';
 import { type OmnibarPatient } from './types';
 import styles from './patient-row.scss';
 
@@ -19,8 +20,9 @@ import styles from './patient-row.scss';
  * A patient laid out as the patient search app's compact result does it: PatientPhoto's avatar, then
  * PatientBannerPatientInfo's name, gender, age, birthdate and identifiers. Both are redrawn here.
  * PatientPhoto loads an image from a path the server supplies, which a crafted path can send to
- * another site. PatientBannerPatientInfo mounts two extension slots, which would put other apps'
- * extensions inside every option. The avatar and icons are decoration, since the text names the patient.
+ * another site; the photo here comes only from this origin (see patient-photo.ts). PatientBannerPatientInfo
+ * mounts two extension slots, which would put other apps' extensions inside every option. The avatar and
+ * icons are decoration, since the text names the patient.
  */
 
 const genders: Record<string, { key: 'male' | 'female' | 'other' | 'unknown'; Icon: typeof GenderUnknownIcon }> = {
@@ -47,6 +49,7 @@ export const PatientRow: React.FC<{ name: string; patient: OmnibarPatient; note?
 }) => {
   // Seeded from the uuid, as PatientPhoto does, so each patient keeps their pattern.
   const pattern = useMemo(() => GeoPattern.generate(patient.uuid).toDataUrl(), [patient.uuid]);
+  const { photoUrl, forgetPhoto } = usePatientPhotoUrl(patient.uuid);
   const gender = patient.gender ? genders[patient.gender] : undefined;
   const GenderIcon = gender?.Icon ?? GenderUnknownIcon;
   const identifiers = useShownIdentifiers(patient.identifiers ?? []);
@@ -58,7 +61,7 @@ export const PatientRow: React.FC<{ name: string; patient: OmnibarPatient; note?
     demographics.push(['birthdate', formatPartialDate(patient.birthdate, { time: false })]);
   }
   for (const { identifier, typeName, primary } of identifiers) {
-    const label = typeName && <span>{typeName}: </span>;
+    const label = typeName && <span dir="auto">{typeName}: </span>;
     demographics.push([
       `identifier-${identifier}`,
       // The primary identifier sits in a tag, as PatientBannerPatientIdentifiers shows it.
@@ -66,29 +69,35 @@ export const PatientRow: React.FC<{ name: string; patient: OmnibarPatient; note?
         <span className={styles.primaryIdentifier}>
           <Tag className={styles.tag} type="gray">
             {label}
-            <span className={styles.identifierValue}>{identifier}</span>
+            <span className={styles.identifierValue} dir="auto">
+              {identifier}
+            </span>
           </Tag>
         </span>
       ) : (
         <span className={styles.secondaryIdentifier}>
           {label}
-          <span>{identifier}</span>
+          <span dir="auto">{identifier}</span>
         </span>
       ),
     ]);
   }
   if (note) {
-    demographics.push(['note', note]);
+    demographics.push(['note', <span dir="auto">{note}</span>]);
   }
 
   return (
     <>
       <div className={styles.avatar} style={{ backgroundImage: pattern }} aria-hidden data-testid="patientAvatar">
         <span className={styles.initials}>{initials(name)}</span>
+        {/* Over the tile, which shows until the photo loads and comes back if it fails to. */}
+        {photoUrl && <img className={styles.photo} src={photoUrl} alt="" loading="lazy" onError={forgetPhoto} />}
       </div>{' '}
       <div className={styles.info}>
         <div className={styles.nameRow}>
-          <span className={styles.name}>{name}</span>{' '}
+          <span className={styles.name} dir="auto">
+            {name}
+          </span>{' '}
           {patient.gender && (
             <span className={styles.gender}>
               <span aria-hidden className={styles.genderIcon}>

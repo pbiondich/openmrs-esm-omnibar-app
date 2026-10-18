@@ -44,12 +44,46 @@ export const configSchema = {
     maxConcepts: {
       _type: Type.Number,
       _default: 5,
-      _description: 'Matching concepts to look up values for.',
+      _description: 'Chart values to show. Matching concepts with no value for this patient are skipped.',
+    },
+    maxCandidates: {
+      _type: Type.Number,
+      _default: 20,
+      _description: 'Matching concepts, including the members of a matching set, to ask for values in one request.',
     },
     resultsUrl: {
       _type: Type.String,
       _default: '${openmrsSpaBase}/patient/${patientUuid}/chart/Results',
       _description: 'Where choosing a chart value goes.',
+    },
+  },
+  chartSearchSuggestion: {
+    enabled: {
+      _type: Type.Boolean,
+      _default: true,
+      _description: 'Offer an explicit ChartSearch workspace destination for question-like queries.',
+    },
+    minWords: {
+      _type: Type.Number,
+      _default: 3,
+      _description: 'Words needed for a query to count as a question without a question word or question mark.',
+      _validators: [
+        validator(
+          (value: number) => Number.isInteger(value) && value >= 2,
+          'ChartSearch minWords must be a whole number of at least 2.',
+        ),
+      ],
+    },
+    workspaceName: {
+      _type: Type.String,
+      _default: 'ai-chat-workspace',
+      _description: 'Registered ChartSearch workspace opened by the suggestion row.',
+    },
+    workspaceGroupName: {
+      _type: Type.String,
+      _default: 'patient-chart',
+      _description:
+        'The workspace group that ChartSearch workspace opens in. The row is offered only while the omnibar reports that group open for this patient.',
     },
   },
   destinations: {
@@ -92,7 +126,7 @@ export const configSchema = {
         path: '${openmrsSpaBase}/home/service-queues',
         keywords: ['queue', 'triage', 'waiting'],
       },
-      { label: 'Patient lists', path: '${openmrsSpaBase}/home/patient-lists', keywords: ['cohort', 'list'] },
+      { label: 'Patient lists', path: '${openmrsSpaBase}/home/patient-lists', keywords: ['list'] },
       { label: 'Ward', path: '${openmrsSpaBase}/ward', keywords: ['inpatient', 'admit', 'admission', 'beds'] },
       { label: 'Bed management', path: '${openmrsSpaBase}/bed-management', keywords: ['beds', 'bed'] },
     ],
@@ -113,6 +147,13 @@ export interface Destination {
   privilege: string;
 }
 
+export interface ChartSearchSuggestionConfig {
+  enabled: boolean;
+  minWords: number;
+  workspaceName: string;
+  workspaceGroupName: string;
+}
+
 export interface OmnibarConfig {
   appearance: 'field' | 'icon';
   patientSearch: {
@@ -125,7 +166,9 @@ export interface OmnibarConfig {
   chartLookup: {
     minSearchCharacters: number;
     maxConcepts: number;
+    maxCandidates: number;
     resultsUrl: string;
   };
+  chartSearchSuggestion: ChartSearchSuggestionConfig;
   destinations: Array<Destination>;
 }

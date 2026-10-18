@@ -1,6 +1,6 @@
 import { defineConfigSchema, getAsyncLifecycle } from '@openmrs/esm-framework';
 import { configSchema } from './config-schema';
-import { withProviderBoundary } from './omnibar/provider-boundary';
+import { withProviderBoundary } from './omnibar-contract';
 
 const moduleName = '@openmrs/esm-omnibar-app';
 
@@ -31,11 +31,16 @@ export const chartLookupProvider = getAsyncLifecycle(
   options,
 );
 
+export const chartSearchSuggestionProvider = getAsyncLifecycle(
+  () => import('./providers/chartsearch-suggestion.provider').then(bounded('omnibar-chartsearch-suggestion-provider')),
+  options,
+);
+
 export const destinationsProvider = getAsyncLifecycle(
   () => import('./providers/destinations.provider').then(bounded('omnibar-destinations-provider')),
   options,
 );
 
-export type * from './omnibar/types';
-export { OMNIBAR_SELECTED_EVENT } from './omnibar/types';
+export type * from './omnibar-contract';
+export { OMNIBAR_SELECTED_EVENT } from './omnibar-contract';
 export { withProviderBoundary };

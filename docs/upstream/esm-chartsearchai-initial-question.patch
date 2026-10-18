@@ -1,0 +1,189 @@
+diff --git a/src/components/ai-chat-content.component.tsx b/src/components/ai-chat-content.component.tsx
+index 862c1cf..f667c5f 100644
+--- a/src/components/ai-chat-content.component.tsx
++++ b/src/components/ai-chat-content.component.tsx
+@@ -15,15 +15,21 @@ interface AiChatContentProps {
+   mode: 'floating' | 'workspace';
+   onClose?: () => void;
+   patientUuid?: string;
++  initialQuestion?: string;
+ }
+ 
+-const AiChatContent: React.FC<AiChatContentProps> = ({ mode, onClose, patientUuid: patientUuidProp }) => {
++const AiChatContent: React.FC<AiChatContentProps> = ({
++  mode,
++  onClose,
++  patientUuid: patientUuidProp,
++  initialQuestion,
++}) => {
+   const { t } = useTranslation();
+   const config = useConfig<ChartSearchAiConfig>();
+   const { patient, isLoading: isPatientLoading } = usePatient();
+   const patientUuid = patientUuidProp ?? patient?.id;
+ 
+-  const [question, setQuestion] = useState('');
++  const [question, setQuestion] = useState(() => (initialQuestion?.trim() ?? '').slice(0, config.maxQuestionLength));
+   const inputRef = useRef<HTMLInputElement>(null);
+   const rootRef = useRef<HTMLDivElement>(null);
+   const historyAreaRef = useRef<HTMLDivElement>(null);
+@@ -308,7 +314,7 @@ const AiChatContent: React.FC<AiChatContentProps> = ({ mode, onClose, patientUui
+           placeholder={config.aiSearchPlaceholder}
+           maxLength={config.maxQuestionLength}
+           disabled={isAnyLoading}
+-          autoFocus={mode === 'floating'}
++          autoFocus={mode === 'floating' || Boolean(initialQuestion?.trim())}
+         />
+         {isSpeechSupported && !isAnyLoading && (
+           <button
+diff --git a/src/components/ai-chat-content.test.tsx b/src/components/ai-chat-content.test.tsx
+index 2a05ca9..742fa99 100644
+--- a/src/components/ai-chat-content.test.tsx
++++ b/src/components/ai-chat-content.test.tsx
+@@ -86,6 +86,29 @@ function message(overrides = {}) {
+ }
+ 
+ describe('AiChatContent', () => {
++  it('prefills the existing input without submitting until the user sends', async () => {
++    const user = userEvent.setup();
++    render(<AiChatContent mode="workspace" patientUuid="p1" initialQuestion="  What medications are active?  " />);
++
++    const input = screen.getByRole('textbox');
++    expect(input).toHaveValue('What medications are active?');
++    expect(input).toHaveFocus();
++    expect(mockSubmitQuestion).not.toHaveBeenCalled();
++
++    await user.click(screen.getByRole('button', { name: 'Send' }));
++
++    expect(mockSubmitQuestion).toHaveBeenCalledOnce();
++    expect(mockSubmitQuestion).toHaveBeenCalledWith('p1', 'What medications are active?');
++  });
++
++  it('clamps a prefilled question to the configured maximum length', () => {
++    mockUseConfig.mockReturnValue({ aiSearchPlaceholder: 'Ask AI...', maxQuestionLength: 10, showReasoning: true });
++    render(<AiChatContent mode="workspace" patientUuid="p1" initialQuestion="  What medications are active?  " />);
++
++    expect(screen.getByRole('textbox')).toHaveValue('What medic');
++    expect(mockSubmitQuestion).not.toHaveBeenCalled();
++  });
++
+   it('shows the live reasoning text while the model is thinking (no answer yet)', () => {
+     mockUseChartSearchAi.mockReturnValue({
+       messages: [message({ reasoning: 'The query asks about medications. Scanning drug orders.' })],
+diff --git a/src/components/ai-chat-workspace.component.tsx b/src/components/ai-chat-workspace.component.tsx
+index a05b525..c13363e 100644
+--- a/src/components/ai-chat-workspace.component.tsx
++++ b/src/components/ai-chat-workspace.component.tsx
+@@ -1,15 +1,24 @@
+ import React from 'react';
+ import { useTranslation } from 'react-i18next';
+ import { Workspace2 } from '@openmrs/esm-framework';
+-import { type PatientChartWorkspaceActionButtonProps } from '../types';
++import { type AiChatWorkspaceProps } from '../types';
+ import AiChatContent from './ai-chat-content.component';
+ 
+-const AiChatWorkspace: React.FC<PatientChartWorkspaceActionButtonProps> = ({ groupProps: { patientUuid } }) => {
++const AiChatWorkspace: React.FC<AiChatWorkspaceProps> = ({ groupProps, workspaceProps }) => {
+   const { t } = useTranslation();
++  const workspacePatientUuid = typeof workspaceProps?.patientUuid === 'string' ? workspaceProps.patientUuid : undefined;
++  const patientUuid = groupProps?.patientUuid ?? workspacePatientUuid;
++  const initialQuestion =
++    workspacePatientUuid &&
++    workspacePatientUuid === patientUuid &&
++    typeof workspaceProps?.initialQuestion === 'string' &&
++    workspaceProps.initialQuestion.trim()
++      ? workspaceProps.initialQuestion.trim()
++      : undefined;
+ 
+   return (
+     <Workspace2 title={t('aiChartSearch', 'AI Chart Search')} hasUnsavedChanges={false}>
+-      <AiChatContent mode="workspace" patientUuid={patientUuid} />
++      <AiChatContent mode="workspace" patientUuid={patientUuid} initialQuestion={initialQuestion} />
+     </Workspace2>
+   );
+ };
+diff --git a/src/components/ai-chat-workspace.test.tsx b/src/components/ai-chat-workspace.test.tsx
+index 4097fa8..737a7f1 100644
+--- a/src/components/ai-chat-workspace.test.tsx
++++ b/src/components/ai-chat-workspace.test.tsx
+@@ -6,8 +6,21 @@ import AiChatWorkspace from './ai-chat-workspace.component';
+ 
+ vi.mock('./ai-chat-content.component', () => ({
+   __esModule: true,
+-  default: ({ mode, patientUuid }: { mode: string; patientUuid: string }) => (
+-    <div data-testid="ai-chat-content" data-mode={mode} data-patient-uuid={patientUuid} />
++  default: ({
++    mode,
++    patientUuid,
++    initialQuestion,
++  }: {
++    mode: string;
++    patientUuid: string;
++    initialQuestion?: string;
++  }) => (
++    <div
++      data-testid="ai-chat-content"
++      data-mode={mode}
++      data-patient-uuid={patientUuid}
++      data-initial-question={initialQuestion}
++    />
+   ),
+ }));
+ 
+@@ -46,4 +59,41 @@ describe('AiChatWorkspace', () => {
+     render(<AiChatWorkspace {...baseProps} />);
+     expect(screen.getByTestId('ai-chat-content')).toHaveAttribute('data-patient-uuid', 'test-patient-uuid');
+   });
++
++  it('passes a matching initial question from workspace props', () => {
++    render(
++      <AiChatWorkspace
++        {...baseProps}
++        workspaceProps={{ patientUuid: 'test-patient-uuid', initialQuestion: 'What medications are active?' }}
++      />,
++    );
++    expect(screen.getByTestId('ai-chat-content')).toHaveAttribute(
++      'data-initial-question',
++      'What medications are active?',
++    );
++  });
++
++  it('drops a question captured for another patient', () => {
++    render(
++      <AiChatWorkspace
++        {...baseProps}
++        workspaceProps={{ patientUuid: 'another-patient', initialQuestion: 'What medications are active?' }}
++      />,
++    );
++    expect(screen.getByTestId('ai-chat-content')).not.toHaveAttribute('data-initial-question');
++  });
++
++  it('uses the workspace patient when group props are null', () => {
++    render(
++      <AiChatWorkspace
++        groupProps={null}
++        workspaceProps={{ patientUuid: 'workspace-patient', initialQuestion: 'What medications are active?' }}
++      />,
++    );
++    expect(screen.getByTestId('ai-chat-content')).toHaveAttribute('data-patient-uuid', 'workspace-patient');
++    expect(screen.getByTestId('ai-chat-content')).toHaveAttribute(
++      'data-initial-question',
++      'What medications are active?',
++    );
++  });
+ });
+diff --git a/src/types.ts b/src/types.ts
+index bbbefe8..9f457bb 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -11,3 +11,11 @@ export interface PatientWorkspaceGroupProps {
+ export interface PatientChartWorkspaceActionButtonProps {
+   groupProps: PatientWorkspaceGroupProps;
+ }
++
++export interface AiChatWorkspaceProps {
++  groupProps: PatientWorkspaceGroupProps | null;
++  workspaceProps?: {
++    patientUuid?: string;
++    initialQuestion?: string;
++  } | null;
++}

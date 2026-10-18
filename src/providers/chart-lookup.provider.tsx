@@ -4,21 +4,20 @@ import { useTranslation } from 'react-i18next';
 import { fhirBaseUrl, formatDate, interpolateUrl, openmrsFetch, restBaseUrl, useConfig } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps, type OmnibarResult } from '../omnibar/types';
+import { isServerUnreachable } from '../omnibar-contract';
+import { type ConceptHit, pickValueConcepts, toConceptSearch } from './chart-lookup-search';
 
 /**
  * Inside a chart, matches the query against the concept dictionary (names and synonyms, in the
  * user's locale) and shows the patient's latest value for each matching concept. Typing "cd4",
- * "hb" or "weight" lands on the number without opening the results viewer. No model is involved:
- * this is the deterministic lane that should answer most lookups before anything generative runs.
+ * "hb", "latest weight" or "show vitals" lands on the number without opening the results viewer.
+ * A concept set such as "Vital signs" stands for its members. No model is involved: this is the
+ * deterministic lane that should answer most lookups before anything generative runs.
  */
 
-interface ConceptHit {
-  uuid: string;
-  display: string;
-  datatype: { display: string };
-}
-
 interface FhirObservation {
+  /** The obs uuid. */
+  id?: string;
   code: { coding?: Array<{ code?: string; system?: string }> };
   effectiveDateTime?: string;
   valueQuantity?: { value?: number; unit?: string };
@@ -28,9 +27,16 @@ interface FhirObservation {
   valueDateTime?: string;
 }
 
-const nonValueDatatypes = new Set(['N/A', 'Complex', 'Rule', 'Structured Numeric']);
+type ConceptResults = { results: Array<ConceptHit> };
 
 const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((response) => response.data);
+
+const conceptUrl = (q: string) =>
+  `${restBaseUrl}/concept?${new URLSearchParams({
+    q,
+    v: 'custom:(uuid,display,datatype:(display),setMembers:(uuid,display,datatype:(display)))',
+    limit: '10',
+  })}`;
 
 function formatValue(obs: FhirObservation, yes: string, no: string): string | null {
   if (obs.valueQuantity?.value != null) {
@@ -49,23 +55,27 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
   const { t } = useTranslation();
   const { chartLookup } = useConfig<OmnibarConfig>();
   const patientUuid = context.patientUuid;
-  const active = Boolean(patientUuid) && query.length >= chartLookup.minSearchCharacters;
+  const search = patientUuid ? toConceptSearch(query, chartLookup.minSearchCharacters) : null;
+  const active = Boolean(search);
 
-  const conceptUrl = active
-    ? `${restBaseUrl}/concept?${new URLSearchParams({
-        q: query,
-        v: 'custom:(uuid,display,datatype:(display))',
-        limit: '10',
-      })}`
-    : null;
-  const concepts = useSWR<{ results: Array<ConceptHit> }>(conceptUrl, fetcher);
-
+  const phrase = useSWR<ConceptResults>(search ? conceptUrl(search.phrase) : null, fetcher);
+  const phraseConcepts = useMemo(
+    () => pickValueConcepts([phrase.data?.results ?? []], chartLookup.maxCandidates),
+    [phrase.data, chartLookup.maxCandidates],
+  );
+  const words = useSWR<Array<ConceptResults>>(
+    phrase.data && !phraseConcepts.length && search.words.length ? search.words.map(conceptUrl) : null,
+    (urls: Array<string>) => Promise.all(urls.map((url) => fetcher<ConceptResults>(url))),
+  );
   const candidates = useMemo(
     () =>
-      (concepts.data?.results ?? [])
-        .filter((concept) => !nonValueDatatypes.has(concept.datatype?.display))
-        .slice(0, chartLookup.maxConcepts),
-    [concepts.data, chartLookup.maxConcepts],
+      words.data
+        ? pickValueConcepts(
+            words.data.map((hits) => hits.results),
+            chartLookup.maxCandidates,
+          )
+        : phraseConcepts,
+    [words.data, phraseConcepts, chartLookup.maxCandidates],
   );
 
   const obsUrl =
@@ -84,11 +94,17 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
       report({ query, title, status: 'idle' });
       return;
     }
-    if (concepts.error || observations.error) {
-      report({ query, title, status: 'error' });
+    const error = phrase.error || words.error || observations.error;
+    if (error) {
+      report({
+        query,
+        title,
+        status: 'error',
+        detail: isServerUnreachable(error) ? { state: 'unavailable' } : undefined,
+      });
       return;
     }
-    const loading = concepts.isLoading || (candidates.length > 0 && observations.isLoading);
+    const loading = phrase.isLoading || words.isLoading || (candidates.length > 0 && observations.isLoading);
 
     // $lastn returns every observation at a concept's latest time, so there can be more than one.
     const latest = new Map<string, FhirObservation>();
@@ -103,6 +119,7 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
     const resultsUrl = interpolateUrl(chartLookup.resultsUrl, { patientUuid });
     const results: Array<OmnibarResult> = candidates
       .filter((concept) => latest.has(concept.uuid))
+      .slice(0, chartLookup.maxConcepts)
       .map((concept) => {
         const obs = latest.get(concept.uuid);
         const value = formatValue(obs, t('yes', 'Yes'), t('no', 'No'));
@@ -120,6 +137,7 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
             ? t('recordedOn', 'Latest, recorded {{date}}', { date: when, interpolation: { escapeValue: false } })
             : undefined,
           target: { type: 'navigate', to: resultsUrl },
+          dedupeId: obs.id ? `obs:${obs.id}` : undefined,
         };
       });
 
@@ -129,11 +147,14 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
     active,
     patientUuid,
     candidates,
-    concepts.error,
-    concepts.isLoading,
+    phrase.error,
+    phrase.isLoading,
+    words.error,
+    words.isLoading,
     observations.data,
     observations.error,
     observations.isLoading,
+    chartLookup.maxConcepts,
     chartLookup.resultsUrl,
     report,
     t,
