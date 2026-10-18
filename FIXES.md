@@ -734,3 +734,29 @@ Found while writing the destination test: the brief asked that a word matching b
 - Tests: 516 before, 520 after (`omnibar.test.tsx` +3, provider test +1).
 - Failed first: ec7741d 2 (the exact meta; Ward held the highlight). b93a3f9's two default tests failed without the flag (nothing or Ward highlighted) and pass with it. The dedupe test passed before and after, as a guard. With the query store at order 5 it fails.
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 520 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+
+### Review round 2 (Grok code and security): CHANGES REQUESTED, no blocking
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| S2 | SHOULD-FIX. With the flag set, the first Enter on a word that also matches a destination ("admission", "bed", "list", "admit") still opened the destination. The host pins the first default it lands on, and destinations answer from config before the query store's request returns | The pin stays; only the automatic default waits. The collector reports `awaitingRecordDefault`: a record-lane provider that may take the default with no report for the current query yet, or `loading` with no rows. It reads the reports before dedupe, which drops a group left empty. Inside a chart, while that holds, no navigate-lane row is chosen as the default and Enter does nothing. Its rows then take the pin; an empty, idle or error answer lets the page take it as before. The wait is at most `chartValuesGraceMs` (1.5 s) per query, keyed on chart, open state and query, so a provider stuck loading can't hang Enter. 1.5 s because chart lookup's REST path is two requests in a row (concept search, then `$lastn`). A row the user arrowed or pointed to is never touched. Applies under `rest` with chart lookup too. The config description loses its answered-first caveat. The contract doc gains "The default highlight" (the pin and the wait), and AGENTS.md links it | df5f39f (test), 11d82d3, fb83c01, 74a70f5 |
+| N5 | NIT. A date string that wasn't `YYYY-MM-DD`, such as a full timestamp, made `formatDate` throw, and the boundary replaced every good row. `2026-02-31` rolled into March | `parseDay` accepts only `^(\d{4})-(\d{2})-(\d{2})$` whose year, month and day round-trip through `Date`; anything else is no date, and the row shows without a subtitle. No try/catch around the effect | 96f84fb (test), 16b532b |
+| N6 | NIT. A rejected `getConfig` or `getCurrentUser` left `lastUuid` set, so the chart was never warmed until the user left and came back | On that rejection, `lastUuid` is cleared if it's still this chart, and the next move within it warms once. The warm itself now runs outside that rejection path, so a failing POST doesn't clear it | 262e60f (test), 1385b42 |
+| N7 | NIT. AGENTS.md's built-in list and the README's plan item 7 were stale | AGENTS.md lists the query store chart provider, off unless `chartLookup.source` is `querystore` or `both`. README item 7 says it's built in and off by default, and that trying it live is next | dab779d |
+| N8 | NIT. `src/omnibar-contract/types.ts` still says only one provider with a key should set `defaultInChart` | Not changed: the folder is the copied contract. Follow-up: fix the original and recopy | none |
+
+Tests:
+
+- Five new host tests in `omnibar.test.tsx`, with the providers as routes.json declares them:
+  - "admission" typed once, the query store answering after the destination: Enter does nothing until it answers, then opens `chart/Visits` for the chart's patient.
+  - The query store answering empty: the ward takes the highlight.
+  - The query store never answering: the ward takes it within the grace period.
+  - The user arrowing to the ward first: it keeps the highlight when the record arrives.
+  - Under `rest`, chart lookup's "Admission weight: 70 kg" taking Enter over the ward.
+- b93a3f9's comment no longer says the first pass opens the ward.
+- Totals: 520 before, 534 after (omnibar +5, provider +7, warm +2).
+- Failed first: df5f39f 3 (first keystroke, stuck loading, `rest`; the ward was highlighted at once). The empty-answer and arrowed-row tests passed before and stay as guards. With the grace period set to a minute, the stuck-loading test fails. 96f84fb 9, and the `RangeError` left React mid-render, so 11 more tests in that file failed. 262e60f 2.
+- 1385b42 amends a local commit that was never pushed. Its first version cleared `lastUuid` from one catch covering the warm too. Under the suite's `mockReset`, `openmrsFetch` returns `undefined`, so `warm()` threw and the chart was forgotten, which failed "does not POST again on navigation within the same chart". My `&&` chain committed on grep's success before I saw the failures. The amended version keeps the warm outside the rejection handler.
+- The host tests passed five runs in a row.
+- `src/omnibar-contract/` is unchanged. No new translation keys.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 534 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
