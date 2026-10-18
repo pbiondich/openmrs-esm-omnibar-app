@@ -17,6 +17,7 @@ export interface ProviderGroup extends OmnibarReport {
   providerId: string;
   lane: OmnibarLane;
   order: number;
+  neverDefault?: boolean;
   dedupeKey?: string;
 }
 
@@ -42,20 +43,30 @@ export function isCollapsed(report: OmnibarReport): boolean {
 }
 
 /**
- * Among providers that share a dedupe key, drops each result whose `dedupeId` a group ranked above it
- * already shows, so the copy kept is the one from the provider that ranks first. A group left with
- * nothing is dropped too. Groups must already be in rank order.
+ * Among providers that share a dedupe key, shows each record (`dedupeId`) once. The copy kept is the
+ * first, in rank order, from a provider whose results may take the default highlight. Only when no
+ * copy may is it simply the first. So a provider a chart never highlights, which could point
+ * anywhere, can't push out the chart's own row by ranking above it. A group left with nothing is
+ * dropped too. Groups must already be in rank order.
  */
 function dropCopies(groups: Array<ProviderGroup>): Array<ProviderGroup> {
-  const shown = new Map<string, Set<string>>();
+  const keeper = new Map<string, ProviderGroup>();
+  for (const group of groups) {
+    for (const { dedupeId } of (group.dedupeKey && group.results) || []) {
+      const record = dedupeId && `${group.dedupeKey}\n${dedupeId}`;
+      const kept = record && keeper.get(record);
+      if (record && (!kept || (kept.neverDefault && !group.neverDefault))) {
+        keeper.set(record, group);
+      }
+    }
+  }
   return groups.flatMap((group) => {
     if (!group.dedupeKey || !group.results?.length) {
       return [group];
     }
-    const shownForKey = shown.get(group.dedupeKey) ?? new Set<string>();
-    shown.set(group.dedupeKey, shownForKey);
-    const results = group.results.filter((result) => !result.dedupeId || !shownForKey.has(result.dedupeId));
-    results.forEach((result) => result.dedupeId && shownForKey.add(result.dedupeId));
+    const results = group.results.filter(
+      ({ dedupeId }) => !dedupeId || keeper.get(`${group.dedupeKey}\n${dedupeId}`) === group,
+    );
     if (!results.length) {
       return [];
     }

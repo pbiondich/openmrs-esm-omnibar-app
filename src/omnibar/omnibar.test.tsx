@@ -2556,46 +2556,39 @@ describe('Omnibar with providers mounted through the slot', () => {
       it('never lets a default highlight follow its copy onto a row that cannot be the default in a chart', async () => {
         window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
         const user = userEvent.setup();
-        const mounted = new Map<string, OmnibarProviderProps>();
+        const mounted = {
+          index: new Map<string, OmnibarProviderProps>(),
+          chart: new Map<string, OmnibarProviderProps>(),
+        };
+        const recorder = (into: Map<string, OmnibarProviderProps>) =>
+          function Recorder(props: OmnibarProviderProps) {
+            into.set(props.query, props);
+            return null;
+          };
         mountProviders([
           {
             name: 'other-patients-index',
             meta: { lane: 'record', scopes: ['patient'], order: 10, dedupeKey: 'chart-values' },
-            component: function OtherPatientsIndex(props) {
-              mounted.set(props.query, props);
-              return null;
-            },
+            component: recorder(mounted.index),
           },
           {
             name: 'chart',
             meta: { lane: 'record', scopes: ['patient'], order: 15, dedupeKey: 'chart-values', defaultInChart: true },
-            component: function Chart({ query, report }) {
-              useEffect(
-                () =>
-                  report({
-                    query,
-                    title: 'In this chart',
-                    status: 'ready',
-                    results: query ? [result('weight 70 kg', 'obs:1')] : [],
-                  }),
-                [query, report],
-              );
-              return null;
-            },
+            component: recorder(mounted.chart),
           },
         ]);
         render(<Omnibar />);
+        const reportFrom = (provider: keyof typeof mounted, title: string, results: Array<ReturnType<typeof result>>) =>
+          act(() => mounted[provider].get('weight').report({ query: 'weight', title, status: 'ready', results }));
 
         await user.type(screen.getByRole('combobox'), 'weight');
+        reportFrom('chart', 'In this chart', [result('weight 70 kg', 'obs:1')]);
+        reportFrom('index', 'Indexed', [result('weight from the index', 'obs:1')]);
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['weight 70 kg']);
         expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
-        act(() =>
-          mounted.get('weight').report({
-            query: 'weight',
-            title: 'Indexed',
-            status: 'ready',
-            results: [result('weight from the index', 'obs:1')],
-          }),
-        );
+
+        // The chart's row goes away for another reason, which brings back the copy it had pushed out.
+        reportFrom('chart', 'In this chart', []);
 
         expect(screen.getByRole('option', { name: 'weight from the index' })).toHaveAttribute('aria-selected', 'false');
         await user.keyboard('{Enter}');
