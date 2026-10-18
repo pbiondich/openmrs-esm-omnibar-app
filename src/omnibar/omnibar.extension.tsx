@@ -194,6 +194,10 @@ const Omnibar: React.FC = () => {
         chosen: selection.chosen,
       };
     }
+    // A row the user picked that is gone, with no copy left, is never swapped for the default.
+    if (selection?.chosen) {
+      return { selected: undefined, chosen: true };
+    }
     return { selected: selectable.find(mayBeDefault), chosen: false };
   }, [selection, selectable, providerInfo]);
   const selectedIndex = selected ? selectable.indexOf(selected) : -1;

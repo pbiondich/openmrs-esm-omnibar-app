@@ -46,8 +46,10 @@ export interface ProviderInfo {
 
 const laneRank: Record<OmnibarLane, number> = { record: 0, navigate: 1, answer: 2 };
 
-/** The most results one group shows. Any more are dropped. */
+/** The most results one group shows, after dedupe. Any more are dropped. */
 export const maxResultsPerGroup = 50;
+/** The most results read from one report, so one report can't make the bar walk an endless list. */
+const maxResultsRead = 200;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 // Bidirectional embedding, override and isolate controls, and the direction marks. In a title they can
@@ -105,8 +107,9 @@ function cleanResult(result: unknown): OmnibarResult | null {
  * A provider's report in the shape the bar draws, or null to ignore it. A provider is trusted code,
  * but a mistake in one must not break the bar outside its error boundary: a report without a text
  * query and heading, or whose results aren't a list, is ignored; a result without a text id and
- * title, or with a target the bar doesn't know, is dropped; a group keeps its first 50 results; an
- * answer with no list of sources has none; and direction controls are taken out of every text.
+ * title, or with a target the bar doesn't know, is dropped; only the first 200 results are read (the
+ * cut to 50 shown comes after dedupe); an answer with no list of sources has none; and direction
+ * controls are taken out of every text.
  */
 export function cleanReport(report: unknown): OmnibarReport | null {
   if (!isObject(report) || typeof report.query !== 'string' || typeof report.title !== 'string') {
@@ -122,9 +125,9 @@ export function cleanReport(report: unknown): OmnibarReport | null {
     title: plainText(report.title),
     results: Array.isArray(results)
       ? results
+          .slice(0, maxResultsRead)
           .map(cleanResult)
           .filter((result): result is OmnibarResult => result !== null)
-          .slice(0, maxResultsPerGroup)
       : undefined,
     answer: isObject(answer)
       ? {
@@ -290,11 +293,17 @@ export function useResultCollector(
     (result: OmnibarResult) => Boolean(chartPatientUuid) && targetNamesOtherPatient(result.target, chartPatientUuid),
     [chartPatientUuid],
   );
+  // Dedupe picks its keepers from every row read, so a chart's own copy past the first 50 still keeps
+  // its record from another provider. Only then is each group cut to the 50 it shows.
   const listGroups = useMemo(
     () =>
       dropCopies(
         groups.filter((group) => group.lane !== 'answer'),
         namesOtherPatient,
+      ).map((group) =>
+        (group.results?.length ?? 0) > maxResultsPerGroup
+          ? { ...group, results: group.results.slice(0, maxResultsPerGroup) }
+          : group,
       ),
     [groups, namesOtherPatient],
   );
