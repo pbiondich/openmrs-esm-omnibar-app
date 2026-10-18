@@ -15,8 +15,10 @@ when a chart opens. That request comes from `AiSearchButton`, not from the
 omnibar.
 
 Without the initial-question patch, the omnibar row opens `ai-chat-workspace`
-only when that workspace's chart group is already open, and the workspace
-ignores the question. If the chat was already opened from Ask AI, choosing the
-row restores that window and the question is dropped. ChartSearch has no client
-request timeout at `c2b6bf4`. Its existing **Stop** control and error panel
-handle requests after submission.
+only when that workspace's chart group is already open, and the question is
+ignored. An already-open chat from Ask AI is reopened with the new workspace
+props, and the group props stay unchanged. With the patch the input is
+prefilled. Unsent text in the old input is lost. The transcript stays in
+ChartSearch's session store. ChartSearch has no client request timeout at
+`c2b6bf4`. Its existing **Stop** control and error panel handle requests after
+submission.

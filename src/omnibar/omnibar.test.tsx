@@ -591,6 +591,30 @@ describe('Omnibar with providers mounted through the slot', () => {
       window.removeEventListener(OMNIBAR_SELECTED_EVENT, selected);
     });
 
+    it('reopens an already-open Ask AI chat with the new workspace props', async () => {
+      const user = userEvent.setup();
+      getGlobalStore('workspace2').setState({
+        openedWindows: [
+          {
+            windowName: 'ai-chat',
+            openedWorkspaces: [{ workspaceName: 'ai-chat-workspace', props: {} }],
+          },
+        ],
+      });
+      mountProviders([provider]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      await user.keyboard('{ArrowDown}{Enter}');
+
+      expect(launchWorkspace2).toHaveBeenCalledWith(
+        'ai-chat-workspace',
+        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        null,
+        null,
+      );
+    });
+
     it('keeps a real chart result as the default above the suggestion', async () => {
       const user = userEvent.setup();
       const ChartResult: React.FC<OmnibarProviderProps> = ({ query, report }) => {

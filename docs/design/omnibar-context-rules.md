@@ -14,14 +14,13 @@ Inside a patient chart (patient scope)
 - The row title is `Ask ChartSearch: "<query>"`. It appears under Suggestions when the row is enabled, the user has `AI Query Patient Data`, a patient is open, the configured workspace is registered, and that workspace's window group is already open for this patient. The default workspace is `ai-chat-workspace`. A query longer than 1000 characters is not offered.
 - The question check runs in this order.
   1. Reject trimmed input shorter than four characters.
-  2. Reject a UUID or a compact ID, including one with a trailing question mark, and reject a query that contains one. An all-digit token counts only when it is the whole query, with an optional trailing question mark.
+  2. Reject a UUID or a compact ID, including one with a trailing question mark, and reject a query that contains one. An all-digit token counts when it is the whole query, with an optional trailing question mark, or when it is six or more digits anywhere in the query.
   3. Accept a trailing question mark.
   4. Accept a listed question word in any token. The words are what, when, which, who, how, why, is, are, does, did, has, was, were, any, list, show, latest, and last.
   5. Accept at least `minWords` words. `minWords` is a whole number of at least 2. The default is 3.
   6. Reject a single concept and everything else.
 - Choosing the row opens that workspace with `patientUuid` and `initialQuestion`. Window props and group props stay null, so the open chart group keeps its props. The same group check runs again at launch. The omnibar does not call ChartSearch. ChartSearch owns errors and has no client timeout. The clinician presses Send before the model runs.
-- If the chat was already opened from Ask AI, choosing the row restores that window and the question is dropped.
-- Without the upstream patch, the workspace opens only when that chart group is already open, and the question is not filled in.
+- An already-open chat from Ask AI is reopened with the new workspace props, and the group props stay unchanged. With the initial-question patch the input is prefilled. Unsent text in the old input is lost. The transcript stays in ChartSearch's session store. Without the patch the question is ignored.
 
 Always
 - Queries that look like a medical record number / patient ID show matching patient candidates, as today, in any scope.

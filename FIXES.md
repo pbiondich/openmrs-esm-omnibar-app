@@ -316,3 +316,14 @@ The row is offered only while the workspace's window group is already the open g
 - `corepack yarn verify`: `Tasks: 3 successful, 3 total`. Tests: 122 passed.
 - `corepack yarn build`: `Rspack compiled with 1 warning in 14.28 s` (asset size limit on `132.js` at 605.971 KiB and `769.js` at 755.256 KiB).
 
+### Fix round 2
+
+An already-open chat from Ask AI is reopened with the new workspace props. Group props stay unchanged. With the initial-question patch the input is prefilled. Unsent text in the old input is lost. The transcript stays in ChartSearch's session store. Without the patch the question is ignored. An all-digit token of six or more digits anywhere in the query is an identifier, so `find patient 1234567` and `mrn 1234567 allergies` do not offer the row. `hemoglobin 7` and `2024` still do. A refused `requiresOpenGroup` launch is silent: the selection event has already fired and the bar has already closed.
+
+Not fixed: the omnibar's 1000-character limit is ChartSearch's default `maxQuestionLength`, not that app's live config. If a distribution lowers the limit, the prefill patch truncates to the live value and the clinician sees the shorter text before Send.
+
+- Tests before this round: 122. After: 127 (91 in `src/omnibar/omnibar.test.tsx`, 36 in `src/providers/chartsearch-question.test.ts`).
+- Failed first: `find patient 123456`, `find patient 1234567`, and `mrn 1234567 allergies` were offered. `show chart 12345` stayed a question.
+- `corepack yarn verify`: `Tasks: 3 successful, 3 total`. Tests: 127 passed.
+- `corepack yarn build`: `Rspack compiled with 1 warning in 14.11 s` (asset size limit on `132.js` at 605.971 KiB and `769.js` at 755.256 KiB).
+
