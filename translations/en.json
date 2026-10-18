@@ -1,6 +1,8 @@
 {
   "allPatientResults": "All patient results for “{{query}}”",
+  "askChartSearch": "Ask ChartSearch: \"{{query}}\"",
   "backToChart": "Search only {{name}}’s chart",
+  "chartSearchSuggestionSubtitle": "AI answer about {{name}}, opens AI Chart Search",
   "clearSearch": "Clear search",
   "close": "Close",
   "closeSearch": "Close search",
@@ -24,6 +26,7 @@
   "searching": "Searching",
   "searchThisChart": "Search this chart, patients or pages",
   "sources": "Sources",
+  "suggestions": "Suggestions",
   "thinking": "Working on an answer",
   "thisChart": "This chart",
   "thisPatient": "this patient",

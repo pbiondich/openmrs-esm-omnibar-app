@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type FetchResponse,
   type Session,
+  getRegisteredWorkspace2Names,
   getDefaultsFromConfigSchema,
   interpolateUrl,
   launchWorkspace2,
@@ -17,13 +18,16 @@ import {
   useConfig,
   useDebounce,
   useLayoutType,
+  usePatient,
   usePrimaryIdentifierCode,
   useSession,
+  userHasAccess,
 } from '@openmrs/esm-framework';
 import { formatPartialDate } from '@openmrs/esm-utils';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
 import ChartLookupProvider from '../providers/chart-lookup.provider';
+import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.provider';
 import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider from '../providers/patient-search.provider';
 import Omnibar from './omnibar.extension';
@@ -57,6 +61,7 @@ vi.mock('@openmrs/esm-framework', async (importOriginal) => {
     ...framework,
     // Missing from the framework mock; the real one, as the app shell provides it.
     formatPartialDate: (await import('@openmrs/esm-utils')).formatPartialDate,
+    getRegisteredWorkspace2Names: vi.fn(),
     ExtensionSlot: ({ name, select = (extensions) => extensions, children, state }) =>
       select(framework.useAssignedExtensions(name)).map((extension) =>
         createElement(
@@ -92,6 +97,7 @@ const mockUseConfig = vi.mocked(useConfig<OmnibarConfig>);
 const mockUseLayoutType = vi.mocked(useLayoutType);
 const mockUseAssignedExtensions = vi.mocked(useAssignedExtensions);
 const mockOpenmrsFetch = vi.mocked(openmrsFetch);
+const mockGetRegisteredWorkspace2Names = vi.mocked(getRegisteredWorkspace2Names);
 
 const providers = {
   patients: { lane: 'record' as const, order: 10 },
@@ -480,6 +486,267 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     expect(container).toBeEmptyDOMElement();
     expect(provider).not.toHaveBeenCalled();
+  });
+
+  describe('ChartSearch suggestion provider', () => {
+    const chartPatientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+    const providerName = 'omnibar-chartsearch-suggestion-provider';
+    const providerRoute = routes.extensions.find((extension) => extension.name === providerName) as {
+      privileges: Array<string>;
+      meta: OmnibarProviderMeta;
+    };
+    const provider = {
+      name: providerName,
+      meta: providerRoute?.meta,
+      component: ChartSearchSuggestionProvider,
+    };
+
+    beforeEach(() => {
+      window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
+      mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
+      vi.mocked(useSession).mockReturnValue({
+        authenticated: true,
+        sessionId: 'session',
+        user: { uuid: 'user-uuid', privileges: [], roles: [] },
+      } as Session);
+      vi.mocked(userHasAccess).mockReturnValue(true);
+      vi.mocked(usePatient).mockReturnValue({
+        patient: { id: chartPatientUuid, name: [{ given: ['Jane'], family: 'Doe' }] },
+        patientUuid: chartPatientUuid,
+        isLoading: false,
+        error: null,
+      });
+    });
+
+    afterEach(() => window.history.pushState({}, '', '/'));
+
+    it('declares patient scope and the backend privilege without opting into the chart default', () => {
+      expect(providerRoute.privileges).toEqual(['AI Query Patient Data']);
+      expect(providerRoute.meta).toEqual(
+        expect.objectContaining({ lane: 'navigate', scopes: ['patient'], order: 100 }),
+      );
+      expect(providerRoute.meta.defaultInChart).toBeUndefined();
+    });
+
+    it.each([
+      [
+        'ArrowDown and Enter',
+        async (user: ReturnType<typeof userEvent.setup>, row: HTMLElement) => {
+          await user.keyboard('{ArrowDown}{Enter}');
+        },
+      ],
+      [
+        'a click',
+        async (user: ReturnType<typeof userEvent.setup>, row: HTMLElement) => {
+          await user.click(row);
+        },
+      ],
+    ])('makes no ChartSearch request while typing and launches only after %s', async (_, pick) => {
+      const user = userEvent.setup();
+      const fetch = vi.spyOn(window, 'fetch').mockResolvedValue(new Response('{}'));
+      mountProviders([provider]);
+      render(<Omnibar />);
+
+      const input = screen.getByRole('combobox', { name: /search this chart/i });
+      await user.type(input, 'what happened at the last visit');
+      const row = await screen.findByRole('option', { name: /ask chartsearch.*jane doe/i });
+
+      expect(row).toHaveAttribute('aria-selected', 'false');
+      expect(input).not.toHaveAttribute('aria-activedescendant');
+      await user.keyboard('{Enter}');
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+      expect(mockOpenmrsFetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+      expect(fetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+
+      await pick(user, row);
+
+      expect(launchWorkspace2).toHaveBeenCalledWith(
+        'ai-chat-workspace',
+        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        null,
+        null,
+      );
+      expect(mockOpenmrsFetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+      expect(fetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
+    });
+
+    it('keeps a real chart result as the default above the suggestion', async () => {
+      const user = userEvent.setup();
+      const ChartResult: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => report(ready(query, 'In this chart', ['chart result'])), [query, report]);
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'chart',
+          meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
+          component: ChartResult,
+        },
+        provider,
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'show the latest viral load');
+
+      expect(screen.getByRole('option', { name: 'chart result' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'false');
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe('/chart%20result');
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('hides the row outside patient scope and when any runtime gate fails', async () => {
+      const user = userEvent.setup();
+      mountProviders([provider]);
+      window.history.pushState({}, '', '/openmrs/spa/home');
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+
+      act(() => {
+        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      vi.mocked(userHasAccess).mockReturnValue(false);
+      await user.clear(screen.getByRole('combobox'));
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    it('hides the row when disabled or when the workspace is not registered', async () => {
+      const user = userEvent.setup();
+      const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
+      mockUseConfig.mockReturnValue({
+        ...defaults,
+        chartSearchSuggestion: { ...defaults.chartSearchSuggestion, enabled: false },
+      });
+      mountProviders([provider]);
+      const { unmount } = render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+
+      unmount();
+      mockUseConfig.mockReturnValue(defaults);
+      mockGetRegisteredWorkspace2Names.mockReturnValue([]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    it('shows an ID-matched patient without a ChartSearch suggestion', async () => {
+      const user = userEvent.setup();
+      const matchedPatient = {
+        uuid: '5b3c6f0e-8d2a-4c1e-9f7b-2a6d4e8c1b90',
+        identifiers: [
+          {
+            identifier: '100GEJ',
+            identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' },
+          },
+        ],
+        person: { display: 'Jane Doe', gender: 'F', birthdate: null, dead: false },
+      };
+      mockOpenmrsFetch.mockImplementation((url: string) => {
+        if (url.includes('/patient?')) {
+          return Promise.resolve({ data: { results: [matchedPatient] } } as FetchResponse);
+        }
+        if (url.includes('/user/user-uuid')) {
+          return Promise.resolve({ data: { userProperties: {} } } as FetchResponse);
+        }
+        return new Promise(() => {});
+      });
+      const patientRoute = routes.extensions.find(
+        (extension) => extension.name === 'omnibar-patient-search-provider',
+      ) as { meta: OmnibarProviderMeta };
+      mountProviders([
+        {
+          name: 'omnibar-patient-search-provider',
+          meta: patientRoute.meta,
+          component: PatientSearchProvider,
+        },
+        provider,
+      ]);
+      renderWithFreshCache(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '100GEJ');
+
+      expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
+    });
+
+    it('does not launch a suggestion left over from an earlier query', async () => {
+      const user = userEvent.setup();
+      mountProviders([provider]);
+      render(<Omnibar />);
+      const input = screen.getByRole('combobox');
+      const query = 'what happened at the last visit';
+      await user.type(input, query);
+      const row = await screen.findByRole('option', { name: /ask chartsearch/i });
+
+      vi.mocked(useDebounce).mockReturnValue(query);
+      await user.type(input, '?');
+      expect(row).toHaveAttribute('aria-disabled', 'true');
+      await user.click(row);
+
+      expect(launchWorkspace2).not.toHaveBeenCalled();
+    });
+
+    it('launches ChartSearch for the chart that is open when the row is picked', async () => {
+      const user = userEvent.setup();
+      const nextPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      mountProviders([provider]);
+      render(<Omnibar />);
+
+      const ask = async (patientUuid: string) => {
+        act(() => {
+          window.history.pushState({}, '', `/openmrs/spa/patient/${patientUuid}/chart/Patient%20Summary`);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        });
+        const input = screen.getByRole('combobox', { name: /search this chart/i });
+        await user.clear(input);
+        await user.type(input, 'what happened at the last visit');
+        expect(await screen.findByRole('group', { name: 'Suggestions' })).toBeInTheDocument();
+        expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'false');
+        await user.keyboard('{ArrowDown}{Enter}');
+        expect(launchWorkspace2).toHaveBeenLastCalledWith(
+          'ai-chat-workspace',
+          { patientUuid, initialQuestion: 'what happened at the last visit' },
+          null,
+          null,
+        );
+      };
+
+      await ask(chartPatientUuid);
+      await ask(nextPatientUuid);
+      expect(launchWorkspace2).toHaveBeenCalledTimes(2);
+    });
+
+    it('isolates a workspace registration failure inside the provider boundary', async () => {
+      const user = userEvent.setup();
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockGetRegisteredWorkspace2Names.mockImplementation(() => {
+        throw new Error('workspace registry failed');
+      });
+      const ChartResult: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+        useEffect(() => report(ready(query, 'In this chart', ['chart result'])), [query, report]);
+        return null;
+      };
+      mountProviders([
+        {
+          name: 'chart',
+          meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
+          component: ChartResult,
+        },
+        { ...provider, component: withProviderBoundary(ChartSearchSuggestionProvider, providerName) },
+      ]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
+
+      expect(screen.getByRole('option', { name: 'chart result' })).toBeInTheDocument();
+      expect(screen.getByText('Couldn’t load results')).toBeInTheDocument();
+      expect(showToast).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
   });
 
   it('lists what the destinations provider finds', async () => {

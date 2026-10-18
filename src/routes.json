@@ -26,6 +26,13 @@
       "meta": { "lane": "record", "scopes": ["patient"], "order": 10, "defaultInChart": true }
     },
     {
+      "name": "omnibar-chartsearch-suggestion-provider",
+      "component": "chartSearchSuggestionProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["AI Query Patient Data"],
+      "meta": { "lane": "navigate", "scopes": ["patient"], "order": 100 }
+    },
+    {
       "name": "omnibar-destinations-provider",
       "component": "destinationsProvider",
       "slot": "omnibar-providers-slot",

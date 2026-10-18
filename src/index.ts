@@ -31,6 +31,11 @@ export const chartLookupProvider = getAsyncLifecycle(
   options,
 );
 
+export const chartSearchSuggestionProvider = getAsyncLifecycle(
+  () => import('./providers/chartsearch-suggestion.provider').then(bounded('omnibar-chartsearch-suggestion-provider')),
+  options,
+);
+
 export const destinationsProvider = getAsyncLifecycle(
   () => import('./providers/destinations.provider').then(bounded('omnibar-destinations-provider')),
   options,
