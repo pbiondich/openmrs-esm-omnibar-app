@@ -432,3 +432,21 @@ Still open:
 - Mutation checks on 5d880b5: without the queue, 2 tests fail. Without keeping the read properties, 3 fail. With a queue that stalls after a failure, 3 fail.
 - `corepack yarn test`: 180 passed. `corepack yarn typescript` and `corepack yarn lint` are clean.
 - Not tried on a server. That a POST replaces the whole `userProperties` map is inferred from core's `User.setUserProperties` and the REST resource. The cross-tab race is not tested.
+
+### Recents write race review (one pass): APPROVE WITH NITS
+
+Fixed:
+
+| Nit | Fix | Commit |
+| --- | --- | --- |
+| 2. The UUID check ignores case but the dedupe didn't, so one patient in upper and lower case took two of the 10 slots. This predates the race fix | `parseVisited` and `addVisit` lower-case UUIDs, so the saved list and the recents fetches are lower case. Two failing tests first (32f15be): an upper-case copy came back from `parseVisited` as written, and `addVisit` kept all four spellings of two patients | b5ee4f6 |
+| 3. Two `UserProperties` interfaces, only one with `userProperties` optional | One exported from `patients-visited.ts`, used by the provider too | f1e9995 |
+
+Trade-off: a patient whose stored UUID really is upper case is now fetched in lower case. OpenMRS generates lower-case UUIDs, and MySQL's default collation compares them without case, so this should only matter for imported data on a case-sensitive database. Not tried on a server.
+
+Logged, not fixed:
+- 1. `patient-search.provider.tsx`: the selection listener still waits for the recents GET (`!data`). `recordVisit` no longer uses that copy, so a patient picked before the recents load, or after that GET fails, could be recorded by gating on `url` alone. Left as it was.
+- 4. `patients-visited.ts`: a queued save keeps the user UUID it was queued with. If the session changes before it runs, it reads and saves the old user's properties in full, so nothing is lost, and at worst the server refuses it.
+
+- Tests before: 180. After: 182 (13 in `src/providers/patients-visited.test.ts`). Failed first on 32f15be: `Tests 2 failed | 11 passed (13)` in that file.
+- `corepack yarn test`: 182 passed. `corepack yarn typescript` and `corepack yarn lint` are clean.
