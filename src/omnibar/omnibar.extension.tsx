@@ -22,13 +22,19 @@ import {
   getProviderOrder,
   type ProviderInfo,
   type SelectableResult,
+  speaksContractOf,
   useOmnibarShortcut,
   useResultCollector,
 } from './omnibar.resource';
 import { PatientRow } from './patient-row';
 import { useOmnibarContext } from './use-omnibar-context';
 import { type OmnibarConfig } from '../config-schema';
-import { type OmnibarProviderMeta, type OmnibarProviderProps, type OmnibarTarget } from './types';
+import {
+  OMNIBAR_CONTRACT_VERSION,
+  type OmnibarProviderMeta,
+  type OmnibarProviderProps,
+  type OmnibarTarget,
+} from './types';
 import styles from './omnibar.scss';
 
 export const providersSlot = 'omnibar-providers-slot';
@@ -53,13 +59,13 @@ const Omnibar: React.FC = () => {
     return name ? [...(name.given ?? []), name.family].filter(Boolean).join(' ') : '';
   }, [patient]);
 
-  // Only providers that declare the current scope are mounted at all.
+  // Only providers that declare the current scope, on a contract this host speaks, are mounted at all.
   const assigned = useAssignedExtensions(providersSlot);
   const providerInfo = useMemo<Record<string, ProviderInfo>>(() => {
     const info: Record<string, ProviderInfo> = {};
     for (const extension of assigned) {
       const meta = extension.meta as OmnibarProviderMeta | undefined;
-      if (meta?.lane && meta.scopes?.includes(context.scope)) {
+      if (meta?.lane && meta.scopes?.includes(context.scope) && speaksContractOf(extension.name, meta)) {
         info[extension.name] = {
           lane: meta.lane,
           order: getProviderOrder(meta, context.scope),
@@ -244,7 +250,12 @@ const Omnibar: React.FC = () => {
     return (providerId: string) => {
       let state = cache.get(providerId);
       if (!state) {
-        state = { query: debouncedQuery, context, report: getReporter(providerId) };
+        state = {
+          query: debouncedQuery,
+          context,
+          report: getReporter(providerId),
+          contractVersion: OMNIBAR_CONTRACT_VERSION,
+        };
         cache.set(providerId, state);
       }
       return state;

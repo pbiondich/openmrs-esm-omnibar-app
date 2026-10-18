@@ -2,8 +2,10 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import { interpolateUrl, launchWorkspace2, navigate } from '@openmrs/esm-framework';
 import { getWorkspace2Store, workspaceGroupIsOpen } from './workspace-group';
 import {
+  OMNIBAR_CONTRACT_VERSION,
   OMNIBAR_SELECTED_EVENT,
   type OmnibarLane,
+  type OmnibarProviderMeta,
   type OmnibarReport,
   type OmnibarResult,
   type OmnibarScope,
@@ -94,6 +96,27 @@ export function getProviderOrder(
 ): number {
   const base = meta?.order ?? 100;
   return scope === 'patient' ? (meta?.patientScopeOrder ?? base) : base;
+}
+
+const providersOnNewerContracts = new Set<string>();
+
+/**
+ * True when this host speaks the contract the provider was built against. A provider built for a
+ * newer major version is never mounted, and the console names it once per page load. Only the
+ * extension name and versions are logged, never anything typed.
+ */
+export function speaksContractOf(extensionName: string, meta: Pick<OmnibarProviderMeta, 'contract'>): boolean {
+  const contract = meta.contract ?? 1;
+  if (typeof contract === 'number' && Math.floor(contract) <= OMNIBAR_CONTRACT_VERSION) {
+    return true;
+  }
+  if (!providersOnNewerContracts.has(extensionName)) {
+    providersOnNewerContracts.add(extensionName);
+    console.warn(
+      `Omnibar provider ${extensionName} needs contract ${String(contract)}; this omnibar speaks ${OMNIBAR_CONTRACT_VERSION}`,
+    );
+  }
+  return false;
 }
 
 const isOnThisSite = (url: URL) => url.origin === window.location.origin && !url.username && !url.password;

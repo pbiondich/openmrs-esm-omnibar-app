@@ -12,6 +12,13 @@
  * can write to the record directly: anything that changes data opens a form or workspace first.
  */
 
+/**
+ * The contract version this folder describes. A provider declares the major version it was built
+ * against as `meta.contract`, and the host passes the one it speaks as `contractVersion`. Optional
+ * fields added later keep the number, so providers must work without them.
+ */
+export const OMNIBAR_CONTRACT_VERSION = 1;
+
 /** Where the omnibar is being used. Set by the shell, never by providers. */
 export type OmnibarScope = 'global' | 'patient';
 
@@ -47,6 +54,8 @@ export interface OmnibarProviderMeta {
    * it lists other patients.
    */
   defaultInChart?: boolean;
+  /** The contract major version the provider was built against. Missing means 1. A host that speaks an older one doesn't mount it. */
+  contract?: number;
 }
 
 export type OmnibarTarget =
@@ -125,6 +134,8 @@ export interface OmnibarProviderProps {
   query: string;
   context: OmnibarContext;
   report: (report: OmnibarReport) => void;
+  /** The contract version the host speaks. Hosts from before contract 1 was published don't pass it. */
+  contractVersion?: number;
 }
 
 /** Fired on window after the user picks a result, for bookkeeping such as recently viewed patients. */
