@@ -2417,6 +2417,75 @@ describe('Omnibar with providers mounted through the slot', () => {
         expect(landedOn()).toBe('/weight%2070%20kg');
       });
 
+      describe('after the user arrowed to a later row', () => {
+        // Both providers report only when the test says, so it can arrow before the higher-ranked one reports.
+        const mountBoth = () => {
+          const mounted = {
+            rest: new Map<string, OmnibarProviderProps>(),
+            projection: new Map<string, OmnibarProviderProps>(),
+          };
+          const recorder = (into: Map<string, OmnibarProviderProps>) =>
+            function Recorder(props: OmnibarProviderProps) {
+              into.set(props.query, props);
+              return null;
+            };
+          mountProviders([
+            { name: 'rest', meta: chartValues, component: recorder(mounted.rest) },
+            { name: 'projection', meta: foundInRecord, component: recorder(mounted.projection) },
+          ]);
+          render(<Omnibar />);
+          return (provider: keyof typeof mounted, title: string, results: Array<ReturnType<typeof result>>) =>
+            act(() => mounted[provider].get('weight').report({ query: 'weight', title, status: 'ready', results }));
+        };
+
+        it('follows the highlighted row to its kept copy when a higher-ranked provider reports several rows', async () => {
+          const user = userEvent.setup();
+          const reportFrom = mountBoth();
+          await user.type(screen.getByRole('combobox'), 'weight');
+          reportFrom('projection', 'Found in the record', [
+            result('chest pain note', 'obs:2'),
+            result('projected weight', 'obs:1'),
+          ]);
+          await user.keyboard('{ArrowDown}');
+          expect(screen.getByRole('option', { name: 'projected weight' })).toHaveAttribute('aria-selected', 'true');
+
+          reportFrom('rest', 'In this chart', [
+            result('height 170 cm', 'obs:3'),
+            result('weight 70 kg', 'obs:1'),
+            result('bmi 24', 'obs:4'),
+          ]);
+
+          expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+            'height 170 cm',
+            'weight 70 kg',
+            'bmi 24',
+            'chest pain note',
+          ]);
+          expect(screen.getByRole('option', { name: 'weight 70 kg' })).toHaveAttribute('aria-selected', 'true');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe('/weight%2070%20kg');
+        });
+
+        it('clears the highlight, so Enter does nothing, when no copy of the highlighted row remains', async () => {
+          const user = userEvent.setup();
+          const reportFrom = mountBoth();
+          await user.type(screen.getByRole('combobox'), 'weight');
+          reportFrom('projection', 'Found in the record', [
+            result('chest pain note', 'obs:2'),
+            result('projected weight', 'obs:1'),
+          ]);
+          await user.keyboard('{ArrowDown}');
+          expect(screen.getByRole('option', { name: 'projected weight' })).toHaveAttribute('aria-selected', 'true');
+
+          reportFrom('projection', 'Found in the record', [result('chest pain note', 'obs:2')]);
+
+          expect(screen.getByRole('option', { name: 'chest pain note' })).toHaveAttribute('aria-selected', 'false');
+          expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-activedescendant');
+          await user.keyboard('{Enter}');
+          expect(navigate).not.toHaveBeenCalled();
+        });
+      });
+
       it('shows nothing for a group whose every result is a copy', async () => {
         const user = userEvent.setup();
         const reportsOne =
