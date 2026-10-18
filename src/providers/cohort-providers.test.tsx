@@ -10,7 +10,7 @@ import {
 } from '@openmrs/esm-framework';
 import { configSchema, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
-import { savedSearchDelayMs } from '../cohort/saved-search.resource';
+import { savedSearchCacheMs, savedSearchDelayMs } from '../cohort/saved-search.resource';
 import { type OmnibarContext, type OmnibarProviderProps, type OmnibarReport } from '../omnibar/types';
 import CohortBuilderProvider from './cohort-builder.provider';
 import CohortCriteriaProvider from './cohort-criteria.provider';
@@ -163,7 +163,8 @@ describe('CohortCriteriaProvider', () => {
 
 describe('saved cohorts and saved queries', () => {
   let queryCounter = 0;
-  /** The name search is cached for the session, so each test searches for words of its own. */
+  let hoursPassed = 0;
+  /** Cohort searches are cached by URL, so each test searches for words of its own. */
   const fresh = (word: string) => `${word}${++queryCounter}`;
 
   const respond = (data: unknown) => mockOpenmrsFetch.mockResolvedValue({ data } as FetchResponse);
@@ -177,6 +178,8 @@ describe('saved cohorts and saved queries', () => {
   beforeEach(() => {
     useTestConfig();
     vi.useFakeTimers();
+    // An hour on per test, so no test sees a list another one cached.
+    vi.setSystemTime(Date.UTC(2026, 9, 17) + ++hoursPassed * 3_600_000);
   });
 
   afterEach(() => {
@@ -211,20 +214,23 @@ describe('saved cohorts and saved queries', () => {
     ]);
   });
 
-  it('lists only cohort builder queries, without their storage prefix', async () => {
+  it('asks for the saved query prefix and matches the typed text against the name without it', async () => {
     respond({
       results: [
         { uuid: queryUuid, name: '[AdHocDataExport] Women on ARVs' },
-        { uuid: '2e9f6d2b-0c41-4b7e-9d0b-9f7c3b0d1a11', name: 'Monthly HIV report data set' },
+        { uuid: '2e9f6d2b-0c41-4b7e-9d0b-9f7c3b0d1a11', name: '[AdHocDataExport] Men over 50' },
+        { uuid: '3f0a7e3c-1d52-4c8f-8e1c-0a8d4c1e2b22', name: 'Women report data set' },
       ],
     });
-    const query = fresh('women');
-    const { last } = renderProvider(SavedQueriesProvider, query);
+    const { last } = renderProvider(SavedQueriesProvider, 'WOMEN');
 
     await settle();
 
+    const raw = mockOpenmrsFetch.mock.calls[0][0] as string;
+    expect(raw).toContain('q=%5BAdHocDataExport%5D');
     expect(requestedUrl().pathname).toBe(`/ws/rest/v1/reportingrest/dataSetDefinition`);
-    expect(requestedUrl().searchParams.get('q')).toBe(query);
+    expect(requestedUrl().searchParams.get('q')).toBe('[AdHocDataExport]');
+    expect(requestedUrl().searchParams.get('limit')).toBe('100');
     expect(last().results).toEqual([
       {
         id: `query:${queryUuid}`,
@@ -233,6 +239,34 @@ describe('saved cohorts and saved queries', () => {
         target: { type: 'navigate', to: `\${openmrsSpaBase}/cohort-builder?query=${queryUuid}` },
       },
     ]);
+  });
+
+  it('serves every keystroke from one saved query list, and fetches it again after a minute', async () => {
+    respond({ results: [{ uuid: queryUuid, name: '[AdHocDataExport] Women on ARVs' }] });
+    const { rerender, last } = renderProvider(SavedQueriesProvider, 'wo');
+    await settle();
+    for (const query of ['wom', 'women', 'men']) {
+      rerender(query);
+      await settle();
+      expect(last()).toMatchObject({
+        query,
+        status: 'ready',
+        results: [expect.objectContaining({ id: `query:${queryUuid}` })],
+      });
+    }
+    rerender('arv x');
+    await settle();
+    expect(last()).toMatchObject({ query: 'arv x', status: 'ready', results: [] });
+    expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+
+    // The next time the panel opens, the providers mount again.
+    renderProvider(SavedQueriesProvider, 'women');
+    await settle();
+    expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(Date.now() + savedSearchCacheMs);
+    renderProvider(SavedQueriesProvider, 'women');
+    await settle();
+    expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2);
   });
 
   it('encodes the query in the request', async () => {

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { restBaseUrl, useConfig } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
@@ -7,10 +7,11 @@ import { type SavedSearchHit, useSavedSearch } from '../cohort/saved-search.reso
 import { type OmnibarProviderProps } from '../omnibar/types';
 
 /**
- * Saved cohort builder queries by name, from `GET reportingrest/dataSetDefinition?q=`. That lists
- * every data set definition, report ones too, so only those the cohort builder saved (stored with
- * the "[AdHocDataExport]" name prefix) are kept, and the prefix is not shown. The prefix can't go in
- * `q` as well: there is one `q`, a "contains" match, and it has to carry what the user typed.
+ * Saved cohort builder queries by name. The cohort builder stores them as data set definitions named
+ * "[AdHocDataExport] <name>", among every report's data set definitions. `dataSetDefinition?q=` is a
+ * literal, case-insensitive "contains", so asking for the prefix lists only the saved queries; the
+ * typed text is then matched here against the name without its prefix. One list serves every
+ * keystroke until the search cache expires.
  */
 
 interface DataSetDefinitionResponse {
@@ -19,6 +20,7 @@ interface DataSetDefinitionResponse {
 
 const adHocPrefix = '[AdHocDataExport]';
 const maxResults = 5;
+const maxSavedQueries = 100;
 
 function toQueryHits(data: unknown): Array<SavedSearchHit> {
   return ((data as DataSetDefinitionResponse)?.results ?? [])
@@ -27,8 +29,7 @@ function toQueryHits(data: unknown): Array<SavedSearchHit> {
       uuid: definition.uuid,
       name: definition.name.slice(adHocPrefix.length).trim(),
       description: definition.description,
-    }))
-    .slice(0, maxResults);
+    }));
 }
 
 const SavedQueriesProvider: React.FC<OmnibarProviderProps> = ({ query, context, report }) => {
@@ -37,12 +38,16 @@ const SavedQueriesProvider: React.FC<OmnibarProviderProps> = ({ query, context, 
   const active = context.scope === 'global' && query.length >= cohortBuilder.savedSearchMinCharacters;
   const url = active
     ? `${restBaseUrl}/reportingrest/dataSetDefinition?${new URLSearchParams({
-        q: query,
+        q: adHocPrefix,
         v: 'custom:(uuid,name,description)',
-        limit: '10',
+        limit: String(maxSavedQueries),
       })}`
     : null;
-  const { hits, loading, error } = useSavedSearch(url, toQueryHits);
+  const { hits: savedQueries, loading, error } = useSavedSearch(url, toQueryHits);
+  const hits = useMemo(() => {
+    const typed = query.toLowerCase();
+    return savedQueries.filter((hit) => hit.name.toLowerCase().includes(typed)).slice(0, maxResults);
+  }, [savedQueries, query]);
 
   useEffect(() => {
     const title = t('savedQueries', 'Saved queries');
