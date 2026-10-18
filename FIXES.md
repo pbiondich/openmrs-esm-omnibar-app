@@ -685,3 +685,33 @@ Translations: `yarn turbo extract-translations` turned `querystoreRecordedOnWith
 - No new dependencies, URLs, fonts or CDNs. The provider and the warm call only the OpenMRS server's own `/ws/rest/v1/querystore/...`.
 - The order registry (15) and the `chart-values` row in the contract doc already match; unchanged.
 - Not tested live. Grok's adversarial code and security review comes next.
+
+### Review round 1 (Grok code and security): CHANGES REQUESTED
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| B1 | BLOCKING. The provider was mounted for `Get Patients`, a wider gate than chart lookup's `Get Observations`, for rows that are chart values. The chart-open warm wasn't gated at all, so a user who couldn't see the provider could still ask the server to index a chart | The extension requires `Get Observations`, and a test ties it to chart lookup's. The warm, after the source check, takes the session from `getCurrentUser()` and posts only when `userHasAccess('Get Observations', user)`; no user means no warm. The per-type checks (orders, allergies, visits) stay with the server | 883dbb9 (test), 0e82e25; e525f2f (test), 9b6eacd |
+| S1 | SHOULD-FIX. The first warm went out after the user had left the chart (home, or another chart, before `getConfig` resolved). A 503 arriving after teardown still armed a retry. Nothing aborted an in-flight warm. A second `setupWarmOnChartOpen` stacked another listener | A `stopped` flag set by teardown. Before the first POST and before arming or running a retry, the warm requires `!stopped`, the chart still being `lastUuid` and the address bar still on it; if the user has left, `lastUuid` is cleared so coming back warms once. Every warm carries the setup's `AbortSignal`, aborted on teardown. A second setup tears down the first, and tearing down a replaced setup leaves the current one alone | 776888a (test), 4060eaf |
+| S2 | SHOULD-FIX (design). Under `source: 'querystore'` chart lookup is idle and the query store rows have no `defaultInChart`, so Enter opens a default-eligible destination (`ward`, `bed`, `list`…) or does nothing | Paul's call, per the brief: the flag stays unset, as AGENTS.md and the contract doc say. The `chartLookup.source` description now says plainly that under `querystore` the rows never take the default highlight inside a chart, so Enter opens a row that may (such as a destination) or does nothing until the user arrows to a row. Open question below | 5f04460 |
+| N1 | NIT. The stale-query test's `every()` was true for every report | Each query gets its own rows; the second answer is held until after the rerender. No report after the rerender is for the old query, none carries the old row, and the last is the new query's own row. It passes, and fails with `keepPreviousData: true` on the search hook | 2d6cb19 |
+| N2 | NIT. The other-patient test never looked at the request URL | It asserts every request is `/querystore/patient/<context patient>/search?` or `/recent?` and never names the other patient. Passes; taking the patient from the address bar fails it on both paths | f5ae032 |
+| N3 | NIT. After the poll gave up, SWR still revalidated on focus and reconnect, and retried errors without end, while the bar was open; the comment said otherwise | Both hooks pass `revalidateOnFocus: false`, `revalidateOnReconnect: false`, `errorRetryCount: 2`, and the comment says so. Tests: a minute after giving up, focus, visibility and `online` events fetch nothing; an unreachable server is asked 3 times in 10 minutes | a539760 (test), fa70ddf |
+| N4 | NIT. A `Retry-After` such as `0.001` retried after 1 ms | Under one second counts as missing: 5 s. Cases `0.5` and `0.001` added | f176606 (test), f9c583c |
+| N5 | NIT. A `null` group, a missing `latest` or a non-array list threw in the effect, so the boundary replaced the good rows with "Couldn't load results" | Groups need an object `latest`; records need to be objects with a text `resourceType` and `resourceUuid`; anything else is skipped. A list that isn't an array is empty. A date that isn't text is dropped instead of crashing `parseDay` | a9500ce (test), 6ab1236 |
+
+Open question for Paul (S2): keep `defaultInChart` unset on the query store provider, or set it? The reviewer's argument for setting it: the rule exists so a second `chart-values` provider can't replace chart lookup's target, and dedupe already guarantees that. Chart lookup is order 10 with `defaultInChart`, the query store order 15, and an equal preference never replaces the kept copy, so with both flags set chart lookup still wins whenever both returned the obs. The query store would only take the default when chart lookup has no row, which under `querystore` is always. In `both` mode its rows carry no `dedupeId`, so nothing is hidden either way. Setting it would mean changing the rule in AGENTS.md and the contract doc (one `chart-values` provider with `defaultInChart`), and the meta test.
+
+Tests rewritten:
+
+- Three warm tests matched the POST's init exactly as `{ method: 'POST' }`; they now use `expect.objectContaining({ method: 'POST' })`, since every warm carries a `signal` (S1).
+- The stale-query test (N1), replaced as above.
+
+- Tests: 492 before, 516 after (provider 47 → 60, warm 19 → 30).
+- Failed first: 883dbb9 1, e525f2f 3, 776888a 6, f176606 2, a539760 4, a9500ce 8. On a9500ce the `null.latest` TypeError also left React mid-render, so the rest of that file failed with "Should not already be working" (10 more); 6ab1236 clears all of them.
+- The N3 focus test first passed against the old code, because the focus came straight after the last re-check while SWR's dedupe entry was still live. A probe showed focus does refetch a minute later, so the test now waits a minute first; that version failed (7 requests, not 6) before fa70ddf.
+- Passed first, as guards: 2d6cb19 and f5ae032, each shown to fail under the mutation named above.
+- Five runs in a row of the query store tests passed.
+- `src/omnibar-contract/` is unchanged. No new translation keys; the extractor's `savedLists` from the conformance stand-in is still left out.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 516 tests.
+- `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit on `132.js` and `769.js`.
+- Backend follow-ups from the review are in the build summary.
