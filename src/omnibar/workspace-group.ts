@@ -1,4 +1,6 @@
-import { getGlobalStore } from '@openmrs/esm-framework';
+import { useMemo } from 'react';
+import { getGlobalStore, useStore } from '@openmrs/esm-framework';
+import { type OmnibarWorkspaceGroup } from './types';
 
 /**
  * `workspace2` is the name esm-extensions passes to createGlobalStore. The framework barrel
@@ -30,4 +32,33 @@ export function workspaceGroupIsOpen(state: Workspace2Snapshot, workspaceName: s
   const groupName = groupNameForWorkspace(state, workspaceName);
   const opened = state.openedGroup;
   return Boolean(groupName && opened && opened.groupName === groupName && opened.props?.patientUuid === patientUuid);
+}
+
+/** The open group as the contract describes it, with its patient only when that is a string. */
+export function openedWorkspaceGroup(state: Workspace2Snapshot): OmnibarWorkspaceGroup | null {
+  const opened = state.openedGroup;
+  if (!opened) {
+    return null;
+  }
+  const patientUuid = opened.props?.patientUuid;
+  return typeof patientUuid === 'string'
+    ? { groupName: opened.groupName, patientUuid }
+    : { groupName: opened.groupName };
+}
+
+const selectGroupName = (state: Workspace2Snapshot) => openedWorkspaceGroup(state)?.groupName ?? null;
+const selectPatientUuid = (state: Workspace2Snapshot) => openedWorkspaceGroup(state)?.patientUuid ?? null;
+
+/**
+ * The open group, read once by the host for every provider. `useStore` compares what it selects by
+ * identity, so it selects the two strings and the object is built here.
+ */
+export function useOpenedWorkspaceGroup(): OmnibarWorkspaceGroup | null {
+  const store = getWorkspace2Store();
+  const groupName = useStore(store, selectGroupName);
+  const patientUuid = useStore(store, selectPatientUuid);
+  return useMemo(
+    () => (groupName === null ? null : patientUuid === null ? { groupName } : { groupName, patientUuid }),
+    [groupName, patientUuid],
+  );
 }

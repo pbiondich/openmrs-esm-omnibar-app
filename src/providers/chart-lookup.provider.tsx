@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { fhirBaseUrl, formatDate, interpolateUrl, openmrsFetch, restBaseUrl, useConfig } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps, type OmnibarResult } from '../omnibar/types';
+import { isServerUnreachable } from '../omnibar-contract';
 import { type ConceptHit, pickValueConcepts, toConceptSearch } from './chart-lookup-search';
 
 /**
@@ -15,6 +16,8 @@ import { type ConceptHit, pickValueConcepts, toConceptSearch } from './chart-loo
  */
 
 interface FhirObservation {
+  /** The obs uuid. */
+  id?: string;
   code: { coding?: Array<{ code?: string; system?: string }> };
   effectiveDateTime?: string;
   valueQuantity?: { value?: number; unit?: string };
@@ -52,7 +55,9 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
   const { t } = useTranslation();
   const { chartLookup } = useConfig<OmnibarConfig>();
   const patientUuid = context.patientUuid;
-  const search = patientUuid ? toConceptSearch(query, chartLookup.minSearchCharacters) : null;
+  // Go idle when querystore is the sole source so the two providers don't duplicate results.
+  const search =
+    patientUuid && chartLookup.source !== 'querystore' ? toConceptSearch(query, chartLookup.minSearchCharacters) : null;
   const active = Boolean(search);
 
   const phrase = useSWR<ConceptResults>(search ? conceptUrl(search.phrase) : null, fetcher);
@@ -91,8 +96,14 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
       report({ query, title, status: 'idle' });
       return;
     }
-    if (phrase.error || words.error || observations.error) {
-      report({ query, title, status: 'error' });
+    const error = phrase.error || words.error || observations.error;
+    if (error) {
+      report({
+        query,
+        title,
+        status: 'error',
+        detail: isServerUnreachable(error) ? { state: 'unavailable' } : undefined,
+      });
       return;
     }
     const loading = phrase.isLoading || words.isLoading || (candidates.length > 0 && observations.isLoading);
@@ -128,6 +139,7 @@ const ChartLookupProvider: React.FC<OmnibarProviderProps> = ({ query, context, r
             ? t('recordedOn', 'Latest, recorded {{date}}', { date: when, interpolation: { escapeValue: false } })
             : undefined,
           target: { type: 'navigate', to: resultsUrl },
+          dedupeId: obs.id ? `obs:${obs.id}` : undefined,
         };
       });
 

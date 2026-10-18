@@ -16,6 +16,7 @@ import {
   type OmnibarResult,
   type OmnibarSelectedDetail,
 } from '../omnibar/types';
+import { isServerUnreachable } from '../omnibar-contract';
 import { isUuid, parseVisited, recordVisit, type UserProperties } from './patients-visited';
 
 /**
@@ -130,7 +131,12 @@ const PatientSearchProvider: React.FC<OmnibarProviderProps> = ({ query, context,
     }
 
     if (search.error) {
-      report({ query, title: t('patients', 'Patients'), status: 'error' });
+      report({
+        query,
+        title: t('patients', 'Patients'),
+        status: 'error',
+        detail: isServerUnreachable(search.error) ? { state: 'unavailable' } : undefined,
+      });
       return;
     }
 

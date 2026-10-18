@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   getConfig,
@@ -6,17 +6,14 @@ import {
   useConfig,
   usePatient,
   useSession,
-  useStore,
   userHasAccess,
 } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
-import { getWorkspace2Store, workspaceGroupIsOpen, type Workspace2Snapshot } from '../omnibar/workspace-group';
 import { defaultMaxQuestionLength, looksLikeChartSearchQuestion, maxQuestionLengthFrom } from './chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
 const chartSearchModuleName = '@openmrs/esm-chartsearchai-app';
-const workspace2Store = getWorkspace2Store();
 
 interface ChartSearchWorkspaceProps {
   patientUuid: string;
@@ -65,13 +62,13 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
   const workspaceName = chartSearchSuggestion.workspaceName.trim();
   const workspaceRegistered = Boolean(workspaceName && getRegisteredWorkspace2Names().includes(workspaceName));
   const maxQuestionLength = useChartSearchMaxQuestionLength(workspaceRegistered);
-  const chartGroupIsOpen = useStore(
-    workspace2Store,
-    useCallback(
-      (state: Workspace2Snapshot) =>
-        Boolean(patientUuid) && workspaceGroupIsOpen(state, workspaceName, patientUuid ?? ''),
-      [patientUuid, workspaceName],
-    ),
+  // The config says which group the workspace opens in; the host says which group is open. A host
+  // from before contract 1 was published doesn't say, so there the row isn't offered. The host checks
+  // the workspace registry again at launch, so a group name set wrong here fails closed.
+  const chartGroupName = chartSearchSuggestion.workspaceGroupName.trim();
+  const openGroup = context.workspaceGroup;
+  const chartGroupIsOpen = Boolean(
+    patientUuid && chartGroupName && openGroup?.groupName === chartGroupName && openGroup.patientUuid === patientUuid,
   );
   const offered =
     chartSearchSuggestion.enabled &&

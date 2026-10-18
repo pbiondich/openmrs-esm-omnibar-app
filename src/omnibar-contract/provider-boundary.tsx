@@ -16,11 +16,10 @@ class ProviderErrorBoundary extends React.Component<BoundaryProps, { failed: boo
     return { failed: true };
   }
 
-  componentDidCatch(error: unknown) {
-    // Only the kind of error: its message or a server response in it can quote the query or a record.
-    console.error(
-      `Omnibar provider ${this.props.name} failed with ${error instanceof Error ? error.name : typeof error}`,
-    );
+  componentDidCatch() {
+    // Only that it failed: an error's message, a server response in it, and even its name are the
+    // provider's to choose, and can quote the query or a record.
+    console.error(`Omnibar provider ${this.props.name} failed with Error`);
     this.props.onError();
   }
 

@@ -66,7 +66,15 @@ describe('pickValueConcepts', () => {
     ],
     [
       'caps a large set',
-      [[concept('big set', 'N/A', 'abcdefgh'.split('').map((uuid) => concept(uuid)))]],
+      [
+        [
+          concept(
+            'big set',
+            'N/A',
+            'abcdefgh'.split('').map((uuid) => concept(uuid)),
+          ),
+        ],
+      ],
       ['a', 'b', 'c', 'd', 'e'],
     ],
     [

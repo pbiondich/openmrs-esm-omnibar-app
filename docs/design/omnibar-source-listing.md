@@ -1,5 +1,7 @@
 # Source files
 
+> **Historical.** This page is a snapshot of the prototype as of 17 Oct 2026, kept for the record. It is not the contract and not the current code: for example, Patient lists now has the keywords `['list']` only. The contract is [`omnibar-provider-contract.md`](omnibar-provider-contract.md); the code is in `src/`.
+
 The esm-omnibar-app prototype as of 17 Oct 2026: wiring, shell, providers, the ChartSearch example and tests. Build tooling (package.json, rspack, vitest, eslint configs) comes unchanged from openmrs-esm-template-app.
 
 ## Module wiring

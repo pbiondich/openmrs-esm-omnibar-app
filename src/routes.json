@@ -4,6 +4,9 @@
     "webservices.rest": ">=2.2.0",
     "fhir2": ">=1.2"
   },
+  "optionalBackendDependencies": {
+    "querystore": ">=1.0.0"
+  },
   "extensions": [
     {
       "name": "omnibar",
@@ -16,27 +19,34 @@
       "component": "patientSearchProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Patients"],
-      "meta": { "lane": "record", "scopes": ["global", "patient"], "order": 10, "patientScopeOrder": 30 }
+      "meta": { "lane": "record", "scopes": ["global", "patient"], "order": 10, "patientScopeOrder": 30, "contract": 1 }
     },
     {
       "name": "omnibar-chart-lookup-provider",
       "component": "chartLookupProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Observations"],
-      "meta": { "lane": "record", "scopes": ["patient"], "order": 10, "defaultInChart": true }
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 10, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values" }
     },
     {
       "name": "omnibar-chartsearch-suggestion-provider",
       "component": "chartSearchSuggestionProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["AI Query Patient Data"],
-      "meta": { "lane": "navigate", "scopes": ["patient"], "order": 100 }
+      "meta": { "lane": "navigate", "scopes": ["patient"], "order": 100, "contract": 1, "skipIdentifierQueries": true }
     },
     {
       "name": "omnibar-destinations-provider",
       "component": "destinationsProvider",
       "slot": "omnibar-providers-slot",
-      "meta": { "lane": "navigate", "scopes": ["global", "patient"], "order": 10, "defaultInChart": true }
+      "meta": { "lane": "navigate", "scopes": ["global", "patient"], "order": 10, "defaultInChart": true, "contract": 1 }
+    },
+    {
+      "name": "omnibar-querystore-chart-provider",
+      "component": "querystoreChartProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["Get Observations"],
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true }
     }
   ]
 }

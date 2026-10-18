@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getLocale } from '@openmrs/esm-framework';
+import { chartPatientIdOf } from './patient-path';
 import { type OmnibarContext } from './types';
 
-const patientChartPattern = /\/patient\/([0-9a-fA-F-]{36})\/chart/;
-
 export function getPatientUuidFromPath(pathname: string): string | undefined {
-  return patientChartPattern.exec(pathname)?.[1];
+  return chartPatientIdOf(pathname);
 }
 
 /** Tracks the chart the user is in, following single-spa route changes. */
