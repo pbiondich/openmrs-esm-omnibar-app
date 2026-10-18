@@ -291,6 +291,18 @@ describe('DestinationsProvider', () => {
     render(<DestinationsProvider query="triage" context={{ scope: 'global', locale: 'en' }} report={report} />);
     expect(report.mock.calls.at(-1)[0].results.map((r) => r.title)).toEqual(['Service queues']);
   });
+
+  // "cohort" belongs to the Cohort Builder's own provider once it ships, so it gives one row, not two.
+  it('finds Patient lists by "list", but not by "cohort"', () => {
+    const report = vi.fn();
+    const titlesFor = (query: string) => {
+      render(<DestinationsProvider query={query} context={{ scope: 'global', locale: 'en' }} report={report} />);
+      return report.mock.calls.at(-1)[0].results.map((r) => r.title);
+    };
+
+    expect(titlesFor('cohort')).not.toContain('Patient lists');
+    expect(titlesFor('list')).toContain('Patient lists');
+  });
 });
 
 describe('Omnibar', () => {
