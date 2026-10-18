@@ -620,3 +620,22 @@ Tests rewritten because the contract changed:
 - Tests: 357 before, 398 after.
 - Failed first: ee9387b 3, bc99eb3 8, 041798a 5, 6919b5c 11 (a numeric note already rendered), 98a7645 1, 79d400c 4, 4b739e9 1, 2d407bb 14 (plus unhandled rejections), 1f2286f 1, d4cc183 2.
 - `yarn verify`: `Tasks: 3 successful, 3 total`.
+
+### Review round 3 (Grok code and security): REQUEST CHANGES, no blocking
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| A | Code SF1, sec NIT2 and NIT4. A `%2D`-encoded or 32-hex patient id, an id in the query or hash, and an unfilled `${patientUuid}` slipped past the other-patient matcher; the matcher shared a `/g` regex | `src/omnibar/patient-path.ts`: one non-global id shape (UUID any case, or 32 hex) used by the matcher and `getPatientUuidFromPath`. Path segments are decoded as the router does (kept encoded when decoding would make a `/`), the query and hash are scanned after `patient/`, a `${` left after interpolation is unreadable (never the default), and a workspace `patientUuid` is decoded before the compare | ace8f70 (test), 5778fe6 |
+| B | Code SF2, sec NIT1. The 50-row cut ran before dedupe, and an arrowed row cut off fell back to the default | `cleanReport` reads at most 200 results; dedupe picks keepers from all of them; each group is cut to 50 after. A highlight the user chose whose row is gone, with no copy, clears | e5a4bd1 (test), 43eade4 |
+| C | Sec SF1. An arrowed highlight followed a dedupe copy onto another patient's row, and Enter opened it | `SelectableResult.namesOtherPatient`, apart from `mayBeDefault`. The follow never lands on such a copy; the highlight clears | 2bd9526 (test), 93d86b1 |
+| D | Code SF3, sec NIT3. Key order counted as a new target; a provider mutating its target object changed what Enter ran without a report; a circular target re-rendered forever | `cleanResult` copies the target (props one level deep) and each identifier. Targets and reports are compared by a canonical form with sorted keys. When targets can't be compared, the rest of the report decides, and if nothing can be, the stored report stays | cf131cc (test), e92dee9 |
+| E | Code SF4. An empty `projecting` group also said "Nothing matches" | A visible `projecting` group counts as still searching | 07408bf (test), c4140d3 |
+| F | Sec SF2, code NIT1. An object `typeName` crashed the bar; identifiers kept direction controls | `cleanPatient` keeps only text `identifier`, `typeUuid` and `typeName`, strips direction controls; `dir="auto"` on identifiers, type names and the patient-row note | 8a5cbf2 (test), ebbee16 |
+| G | Code NIT2. The doc said a report from an unmounted provider is dropped, but closing the bar didn't move the generation | The collector key includes whether the bar is open, so closing and opening start new generations, and `providerState` gives new mounts a new `report` | 6fd1986 (test), c272934 |
+| H | Code DESIGN 1, sec DESIGN. ChartSearch still read the workspace2 store through a helper | ChartSearch takes its group name from config (`chartSearchSuggestion.workspaceGroupName`, default `patient-chart`) and compares it with `context.workspaceGroup`; the helper is gone. The host still checks the registry at launch. The conformance grep also rejects `getState` and `workspaceGroupNameOf` in providers | 6083dbf (test), 580c0c0 |
+| I | Docs | The contract doc's threat model lists exactly what the matcher recognizes, that a highlight never moves onto another patient's row by itself, the 200-read and 50-shown caps, and the bar-closing generation. README, context rules and types agree. `omnibar-source-listing.md` is marked historical | this commit |
+
+- Tests: 398 before, 416 after.
+- Failed first: ace8f70 9, e5a4bd1 3, 2bd9526 1, cf131cc 3 (the re-report case passed before and stays as a guard), 07408bf 1, 8a5cbf2 1, 6fd1986 1, 6083dbf 2.
+- No test was rewritten. The workspace patient test gained the encoded own-uuid case, and the conformance grep gained `getState` and `workspaceGroupNameOf`, as the brief asks.
+- `yarn verify`: `Tasks: 3 successful, 3 total`.

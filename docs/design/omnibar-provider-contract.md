@@ -18,9 +18,16 @@ Any O3 app can add rows to the omnibar by registering one extension, a **provide
 
 Providers are installed frontend modules: trusted code. Any of them could call `navigate()` or `launchWorkspace2` itself, and nothing in the host can stop that. The host's guards are there for a provider's **mistakes**, so that one doesn't send a clinician to the wrong patient, show stale data, or break the bar:
 
-- **Wrong patient.** Inside a chart, a result whose target names another patient is never the default highlight, even from a provider with `defaultInChart`, and never the copy dedupe keeps while a copy for this patient exists. A target names a patient by a `/patient/<uuid>/` path in a link, or by a string `patientUuid` in any of a workspace's `workspaceProps`, `windowProps` or `groupProps`. A workspace launch whose props name another patient is refused.
-- **Stale data.** A report for another query is dropped, and so is one from a mount for a chart or scope the user has left, or from before the provider was unmounted. Enter runs only the target that was highlighted: a row reported again with another target loses the highlight instead.
-- **Bad shapes.** A report the host can't draw is ignored, a result it can't open is dropped, and each group shows at most 50 results. A `note` is cut to 200 characters. Direction controls are taken out of provider text. A report equal to the last one is not stored again, so a provider that reports on every render settles.
+- **Wrong patient.** Inside a chart, a result whose target names another patient is never the default highlight, even from a provider with `defaultInChart`, and never the copy dedupe keeps while a copy for this patient exists. A highlight never moves onto such a row by itself, even one the user arrowed to; only the user picking that row selects it. A workspace launch whose props name another patient is refused. What the host recognizes as naming a patient:
+  - in a link, an id in the path segment after `patient`, as in `/patient/<id>/chart`, with each segment percent-decoded as the router decodes it (a segment whose decoding would make a `/` is read as written);
+  - in a link, an id after `patient/` in the query string or hash, once decoded, as in `?next=%2Fpatient%2F<id>%2Fchart`;
+  - an id is a UUID (8-4-4-4-12 hex digits, any case) or the same 32 hex digits without hyphens. Ids compare without regard to case, so the 32-digit form of the chart's own UUID counts as another patient;
+  - a link that can't be parsed, or that still holds a `${` placeholder after interpolation, names no one the host can vouch for, so it is treated as another patient;
+  - in a workspace, a string `patientUuid` in any of `workspaceProps`, `windowProps` or `groupProps`, decoded the same way.
+
+  Anything else, such as a patient id in another place in the path, is not recognized.
+- **Stale data.** A report for another query is dropped, and so is one from a mount for a chart or scope the user has left, from before the bar was closed and opened again, or from before the provider was unmounted. Enter runs only the target that was highlighted: a row reported again with another target loses the highlight instead, and a row the user arrowed to that goes away is never swapped for another.
+- **Bad shapes.** A report the host can't draw is ignored, a result it can't open is dropped, the first 200 results of a report are read, and after dedupe each group shows at most 50. A `note` is cut to 200 characters. Direction controls are taken out of provider text, patient identifiers included. The host keeps its own copy of each target, and compares targets and reports by value, whatever the order of their keys. A report equal to the last one is not stored again, and one whose targets can't be compared (circular props) changes the stored report only when something else in it changes, so a provider that reports on every render settles.
 
 ## Registering
 
@@ -72,7 +79,7 @@ Privileges are the framework's job: the host never checks them. Implementers tur
 | --- | --- | --- |
 | `query` | `string` | The debounced query, trimmed. Echo it in every report |
 | `context` | `OmnibarContext` | Where the bar is being used. See below |
-| `report` | `(report: OmnibarReport) => void` | Call it with what you found. Stable for the life of the mount. Once the host has moved past the mount (another chart or scope, or the provider was unmounted), calls to it are dropped, even for the same query |
+| `report` | `(report: OmnibarReport) => void` | Call it with what you found. Stable for the life of the mount. Once the host has moved past the mount (another chart or scope, the bar closing, or the provider being unmounted), calls to it are dropped, even for the same query |
 | `hints` | `OmnibarQueryHints` | *New in v1.* Facts about the query, worked out once by the host. Missing on older hosts |
 | `contractVersion` | `number` | *New in v1.* The contract version the host speaks. Missing on older hosts |
 
@@ -89,7 +96,7 @@ Every *new in v1* prop and field is optional. A provider must work without them,
 
 A change of `scope` or `patientUuid` clears everything on screen and remounts every provider, so a query never runs against the wrong patient. A change of `workspaceGroup` doesn't: providers re-render with the new value, and the results, the highlight and the mounts stay.
 
-A provider that needs the side panel (ChartSearch) checks `context.workspaceGroup`. When it is `undefined`, the host is older: don't offer what needs the side panel. A provider never reads the framework's `workspace2` store: it isn't a framework export.
+A provider that needs the side panel (ChartSearch) checks `context.workspaceGroup`. When it is `undefined`, the host is older: don't offer what needs the side panel. A provider never reads the framework's `workspace2` store, not even once: it isn't a framework export. The provider knows the name of its own workspace's group itself; the built-in ChartSearch row takes it from its config (`chartSearchSuggestion.workspaceGroupName`, default `patient-chart`).
 
 ### `hints` (`OmnibarQueryHints`)
 
@@ -106,7 +113,7 @@ The function is in the contract folder too, for providers on older hosts and for
 | `query` | `string` | The query this answers. A report for any other query is dropped as stale |
 | `status` | `'idle' \| 'loading' \| 'ready' \| 'error'` | `idle` hides the group. `loading` with no results shows "Searching". `ready` with no results hides the group, unless `detail.state` is `projecting`. `error` shows "Couldn't load results", never the server's message |
 | `title` | `string` | The group heading, translated in the provider's own namespace. A report without a text `title` is ignored |
-| `results` | `Array<OmnibarResult>` | Record and navigate lanes. The host shows the first 50; the rest are dropped. A report whose `results` isn't a list is ignored |
+| `results` | `Array<OmnibarResult>` | Record and navigate lanes. The host reads the first 200, dedupes them, then shows the first 50 of each group. A report whose `results` isn't a list is ignored |
 | `answer` | `OmnibarAnswer` | Answer lane only: `{ text, streaming, sources }`. A finished answer with no sources is hidden, and missing `sources` count as none |
 | `detail` | `{ state, note? }` | *New in v1.* The state of the source behind the results. See below |
 
@@ -145,7 +152,7 @@ A result without a text `id` and `title`, or with a target the host doesn't know
 | `navigate` | `to` | `navigate()` to a page on this site. `${openmrsSpaBase}` and the other placeholders work. Any other origin, credentials in the URL, a `javascript:` or `data:` URL, or a link that can't be read is refused, and a warning snackbar says so |
 | `workspace` | `workspaceName`, `workspaceProps?`, `windowProps?`, `groupProps?`, `requiresOpenGroup?` | `launchWorkspace2`. With `requiresOpenGroup: { workspaceName, patientUuid }`, the launch is refused unless that workspace's group is still open for that patient. It is also refused when any of `workspaceProps`, `windowProps` or `groupProps` has a string `patientUuid` other than that patient or, inside a chart, the chart's patient, with or without `requiresOpenGroup`. A refused or failed launch shows a warning snackbar |
 
-The host remembers the target of the highlighted row. If the provider reports that row again, under the same id, with another target, Enter and a click on it clear the highlight and open nothing.
+The host keeps its own copy of the target of each result, and remembers the target of the highlighted row. If the provider reports that row again, under the same id, with another target, Enter and a click on it clear the highlight and open nothing. The same target written with its keys in another order is not another target. Changing a reported object without reporting again changes nothing.
 
 After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT`) on `window` with `{ providerId, resultId }`.
 
@@ -157,7 +164,7 @@ When two mounted providers share a `dedupeKey` and both report a result with the
 - the kept copy's target is what Enter and a click run. So `chart-values` with `defaultInChart` should be one provider, chart lookup, and other providers with that key should leave `defaultInChart` unset
 - the other copy is dropped, and a group left with nothing isn't drawn
 - results without a `dedupeId`, and providers with another key or none, are never touched
-- the highlight follows the record: if the highlighted row is dropped, the highlight moves to the copy that is kept. If no copy is left on screen, nothing is highlighted and Enter does nothing until the user picks a row. A default highlight (one the user didn't arrow or point to) moves only onto a copy that may itself be the default
+- the highlight follows the record: if the highlighted row is dropped, the highlight moves to the copy that is kept. If no copy is left on screen, or the only one names another patient, nothing is highlighted and Enter does nothing until the user picks a row. A default highlight (one the user didn't arrow or point to) moves only onto a copy that may itself be the default
 - the arrows and Enter skip the dropped row
 
 ## Errors

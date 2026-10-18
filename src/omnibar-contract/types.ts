@@ -64,7 +64,9 @@ export interface OmnibarProviderMeta {
    * highlight. Without it, a provider's results inside a chart are selected only by an arrow key or
    * the pointer, so Enter alone can't open another patient's chart from a provider that forgot to say
    * it lists other patients. The host holds the claim to account: a result whose target names another
-   * patient is never the default inside a chart, with or without it.
+   * patient is never the default inside a chart, with or without it. A link names a patient by an id
+   * in the segment after `patient` (decoded as the router decodes it) or after `patient/` in its query
+   * or hash; a workspace by a `patientUuid` in any of its props. See the contract doc for the details.
    */
   defaultInChart?: boolean;
   /**
@@ -174,7 +176,10 @@ export interface OmnibarReport {
   status: 'idle' | 'loading' | 'ready' | 'error';
   /** Group heading, already translated by the provider. */
   title: string;
-  /** At most 50 are shown. A report whose `results` isn't a list is ignored. */
+  /**
+   * The first 200 are read and deduped, then at most 50 are shown. A report whose `results` isn't a
+   * list is ignored. The host keeps its own copy of each target.
+   */
   results?: Array<OmnibarResult>;
   answer?: OmnibarAnswer;
   /**
@@ -206,7 +211,10 @@ export interface OmnibarReportDetail {
 export interface OmnibarProviderProps {
   query: string;
   context: OmnibarContext;
-  /** Dropped once the host has moved past this mount: another chart or scope, or the provider left. */
+  /**
+   * Dropped once the host has moved past this mount: another chart or scope, the bar closing, or the
+   * provider leaving.
+   */
   report: (report: OmnibarReport) => void;
   /** Hosts from before contract 1 was published don't pass it. */
   hints?: OmnibarQueryHints;

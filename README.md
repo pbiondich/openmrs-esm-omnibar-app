@@ -62,7 +62,7 @@ These rules are what make it safe to let many teams contribute to one search box
 1. **Results describe destinations; they don't act.** A result's target is a URL or a workspace launch. There is no `onSelect` callback, so the normal way to build a provider has no path to write to the record. Anything that changes data opens a form or workspace, where the usual checks apply.
 2. **The shell owns the scope.** Providers receive the patient; they can't choose it. Changing charts clears everything on screen, so a query never runs silently against the wrong patient.
 3. **Lanes, not a merged ranking.** Results group into `record`, `navigate` and `answer` lanes, then by each provider's declared order. Scores from different providers aren't comparable, so the shell doesn't pretend they are. Answers render below the list and outside arrow-key order, so a streaming answer never moves the highlighted result.
-4. **Stale results are dropped.** Every report carries the query it answers, so a slow reply to `cd` can't overwrite results for `cd4`. A report from a mount for a chart or scope the user has left is dropped too.
+4. **Stale results are dropped.** Every report carries the query it answers, so a slow reply to `cd` can't overwrite results for `cd4`. A report from a mount for a chart or scope the user has left, or from before the bar was closed, is dropped too.
 5. **Answers must cite records.** A finished answer with no sources is hidden, with a note saying why.
 
 Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is still arbitrary code that could call `navigate()` itself. The host's guards are for a provider's mistakes: inside a chart, a result that names another patient never takes the default highlight and a workspace launch for another patient is refused; Enter runs only the target that was highlighted; and a report the bar can't draw is ignored. See [what the host guards against](docs/design/omnibar-provider-contract.md#what-the-host-guards-against).
@@ -137,7 +137,7 @@ The omnibar sends no ChartSearch request while the user types or when the row op
 
 Without the initial-question patch, the row opens the workspace only when that chart group is already open, and the question is ignored. An already-open chat from Ask AI is reopened with the new workspace props, and the group props stay unchanged. With the initial-question patch the input is prefilled. Unsent text in the old input is lost. The transcript stays in ChartSearch's session store. Window and group props passed by the omnibar stay null.
 
-To hide the row, set `enabled` to false. To open a different registered workspace, set `workspaceName`. `minWords` must be a whole number of at least 2.
+To hide the row, set `enabled` to false. To open a different registered workspace, set `workspaceName`, and set `workspaceGroupName` to the workspace group it opens in (default `patient-chart`). The row is offered only while that group is open for this patient. `minWords` must be a whole number of at least 2.
 
 The length limit has no omnibar setting. The row reads `maxQuestionLength` from `@openmrs/esm-chartsearchai-app`'s live config, so lowering it there also lowers it here. Until that config loads, or when the value isn't a whole number of at least 1, the limit is ChartSearch's default of 1000. The value is read when the provider mounts, so a change made in the implementer tools applies after the next chart change or page load. It always comes from ChartSearch, even when `workspaceName` names another workspace.
 
@@ -147,7 +147,8 @@ The length limit has no omnibar setting. The row reads `maxQuestionLength` from 
     "chartSearchSuggestion": {
       "enabled": true,
       "minWords": 3,
-      "workspaceName": "ai-chat-workspace"
+      "workspaceName": "ai-chat-workspace",
+      "workspaceGroupName": "patient-chart"
     }
   }
 }
