@@ -13,10 +13,15 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 export const isUuid = (value: string) => uuidPattern.test(value);
 
-export const parseVisited = (patientsVisited = '') => patientsVisited.split(',').filter(isUuid);
+// Lower case, so one patient spelled two ways takes one slot.
+export const parseVisited = (patientsVisited = '') =>
+  patientsVisited
+    .split(',')
+    .filter(isUuid)
+    .map((uuid) => uuid.toLowerCase());
 
 export const addVisit = (patientUuid: string, patientsVisited: string | undefined) =>
-  Array.from(new Set([patientUuid, ...parseVisited(patientsVisited)]))
+  Array.from(new Set([patientUuid.toLowerCase(), ...parseVisited(patientsVisited)]))
     .slice(0, maxVisited)
     .join(',');
 
