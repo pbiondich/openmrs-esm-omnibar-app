@@ -396,6 +396,20 @@ Patient rows show the real photo again, without `PatientPhoto`'s off-origin load
 - `usePatientPhotoUrl` asks `/obs?patient=&concept=&v=full&limit=1` with the styleguide's `patientPhotoConceptUuid`, through `useSWRImmutable` keyed by that URL. Each patient costs one request per page load, shared by every row and opening. A failed lookup counts as no photo. With no concept configured, nothing is requested.
 - The row draws the photo as an `<img alt="" loading="lazy">` over the existing geopattern tile. The tile shows until the photo loads. If the image fails to load, the cached URL becomes null, so every row for that patient goes back to the tile and never retries.
 - Not changed: esm-framework. An upstream `PatientPhoto` fix is the better home for this, and the rows could then reuse it.
-- Not tested live: a real photo obs on the sandbox, the exact shape of `value.links` there (taken from `usePatientPhoto`'s types), and servers that write links with an internal host such as `http://localhost:8080/...`. Those links are off-origin, so their rows keep the tile.
+- Not tested live: a real photo obs on the sandbox, the exact shape of `value.links` there (taken from `usePatientPhoto`'s types), and servers that write links with an internal host such as `http://localhost:8080/...`. Those links are off-origin, so their rows keep the tile. A TLS proxy's `http://` links were handled in the review fix round below.
 - Tests: 127 before, 162 after. 24 are `sameOriginPhotoUrl` cases in `src/omnibar/patient-photo.test.ts` and 11 are row tests in `src/omnibar/patient-row.test.tsx`.
 - Failed first: the guard suite could not import `./patient-photo`, and 10 of the 11 row tests failed because no photo was requested or shown. The no-concept test passed, as it should.
+
+### Review fix round
+
+The reviewer approved with one should and some nits. All are fixed:
+
+- **Path shape is the trust signal.** `sameOriginPhotoUrl` accepts only `<openmrsBase>/ws/rest/v1/obs/<uuid>/value` (trailing slashes on `openmrsBase` ignored, uuid case-insensitive), so a crafted link can no longer fire a credentialed GET at other paths on this server. Query and fragment are dropped, and the URL is rebuilt on `window.location.origin`. The leading-slash collapse is gone: a doubled slash no longer matches the path, and an absolute URL on this origin never needed it. `isOnThisSite` is private to `omnibar.resource.ts` again.
+- **TLS proxy flip.** An `http://` link is accepted for an `https://` page when the hostname matches and both use default ports, as behind Cloudflare at o3.pgb.md. Anything else off-origin is still rejected, and http pages never accept https links.
+- **Namespaced SWR key.** The cache key is `['omnibar/patient-photo', url]`, so the cached URL string never sits under the bare REST URL where other code would expect a `FetchResponse`.
+- **Bypass cases pinned:** `%2F%2Fevil.example…`, a newline between slashes, an IPv6 host, `user@` without a password, dot and encoded-dot segments, other REST paths, a non-uuid obs id, another webapp, and the scheme flip in both directions.
+- **No timer waits.** The row tests wait for the lookup and flush its promise inside `act`, and the no-concept test asserts straight after render (SWR starts a lookup as the row mounts). Breaking the guard or ignoring the concept still fails those tests.
+- Not tested live: the proxy flip on o3.pgb.md, and that its server writes `value.links.uri` in exactly the value-path shape.
+- Tests: 162 before, 185 after (45 `sameOriginPhotoUrl` cases, 13 row tests).
+- Failed first: 14 tests, including the proxy flip, a dropped query string, every non-photo path, the namespaced cache key, and a same-origin `/openmrs/logout` link in a row.
+- `corepack yarn build`: `Rspack compiled with 1 warning`, the asset size limit on the same two shared chunks (`150.js` at 755.256 KiB, `132.js` at 605.971 KiB).
