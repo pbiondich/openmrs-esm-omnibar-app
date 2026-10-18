@@ -62,10 +62,10 @@ These rules are what make it safe to let many teams contribute to one search box
 1. **Results describe destinations; they don't act.** A result's target is a URL or a workspace launch. There is no `onSelect` callback, so the normal way to build a provider has no path to write to the record. Anything that changes data opens a form or workspace, where the usual checks apply.
 2. **The shell owns the scope.** Providers receive the patient; they can't choose it. Changing charts clears everything on screen, so a query never runs silently against the wrong patient.
 3. **Lanes, not a merged ranking.** Results group into `record`, `navigate` and `answer` lanes, then by each provider's declared order. Scores from different providers aren't comparable, so the shell doesn't pretend they are. Answers render below the list and outside arrow-key order, so a streaming answer never moves the highlighted result.
-4. **Stale results are dropped.** Every report carries the query it answers, so a slow reply to `cd` can't overwrite results for `cd4`.
+4. **Stale results are dropped.** Every report carries the query it answers, so a slow reply to `cd` can't overwrite results for `cd4`. A report from a mount for a chart or scope the user has left is dropped too.
 5. **Answers must cite records.** A finished answer with no sources is hidden, with a note saying why.
 
-Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is still arbitrary code.
+Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is still arbitrary code that could call `navigate()` itself. The host's guards are for a provider's mistakes: inside a chart, a result that names another patient never takes the default highlight and a workspace launch for another patient is refused; Enter runs only the target that was highlighted; and a report the bar can't draw is ignored. See [what the host guards against](docs/design/omnibar-provider-contract.md#what-the-host-guards-against).
 
 ### Architecture
 
@@ -114,7 +114,7 @@ interface OmnibarProviderProps {
 }
 ```
 
-`meta` adds `contract` (the major version the provider was built for), `skipIdentifierQueries` (never mounted for an ID-shaped query) and `dedupeKey` (providers that may find the same record show it once, from the first that may take the default highlight). A provider that can't reach its server reports `status: 'error'` with `detail.state: 'unavailable'`, and the group shrinks to its heading and "Unavailable right now". The host doesn't mount a provider built for a newer contract than it speaks.
+`meta` adds `contract` (the major version the provider was built for), `skipIdentifierQueries` (never mounted for an ID-shaped query) and `dedupeKey` (providers that may find the same record show it once: by lane then order, the first copy that may take the default highlight, and never one that names another patient while a copy for this one exists). A provider that can't reach its server reports `status: 'error'` with `detail.state: 'unavailable'`, and the group shrinks to its heading and "Unavailable right now". The host mounts a provider only when its `contract` is a whole number the host speaks. A group shows at most 50 results.
 
 After a selection the shell fires `openmrs:omnibar-selected` on `window` with the provider and result ids, for bookkeeping such as recently viewed patients.
 

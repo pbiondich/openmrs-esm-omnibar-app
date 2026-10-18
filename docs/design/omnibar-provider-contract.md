@@ -14,6 +14,14 @@ Any O3 app can add rows to the omnibar by registering one extension, a **provide
 - Results describe destinations. There is no `onSelect`, so nothing in the bar writes to the record. Anything that changes data opens a page or a workspace first.
 - A provider must not read the URL to find the patient. Use `context.patientUuid`.
 
+## What the host guards against
+
+Providers are installed frontend modules: trusted code. Any of them could call `navigate()` or `launchWorkspace2` itself, and nothing in the host can stop that. The host's guards are there for a provider's **mistakes**, so that one doesn't send a clinician to the wrong patient, show stale data, or break the bar:
+
+- **Wrong patient.** Inside a chart, a result whose target names another patient is never the default highlight, even from a provider with `defaultInChart`, and never the copy dedupe keeps while a copy for this patient exists. A target names a patient by a `/patient/<uuid>/` path in a link, or by a string `patientUuid` in any of a workspace's `workspaceProps`, `windowProps` or `groupProps`. A workspace launch whose props name another patient is refused.
+- **Stale data.** A report for another query is dropped, and so is one from a mount for a chart or scope the user has left, or from before the provider was unmounted. Enter runs only the target that was highlighted: a row reported again with another target loses the highlight instead.
+- **Bad shapes.** A report the host can't draw is ignored, a result it can't open is dropped, and each group shows at most 50 results. A `note` is cut to 200 characters. Direction controls are taken out of provider text. A report equal to the last one is not stored again, so a provider that reports on every render settles.
+
 ## Registering
 
 In the provider app's own `routes.json`:
@@ -53,7 +61,7 @@ Privileges are the framework's job: the host never checks them. Implementers tur
 | `scopes` | `Array<'global' \| 'patient'>` | yes | Mounted only in these scopes. `['global']` keeps a provider out of charts |
 | `order` | `number` | no | Lower first, within the lane. Default 100. See the [order registry](#order-registry) |
 | `patientScopeOrder` | `number` | no | A different order inside a chart |
-| `defaultInChart` | `boolean` | no | Inside a chart, only these results can take the default highlight. Leave it unset for anything that lists *other* patients |
+| `defaultInChart` | `boolean` | no | Inside a chart, only these results can take the default highlight. Leave it unset for anything that lists *other* patients. It is a claim the host enforces: a result that names another patient never takes the default highlight in a chart, whatever the provider declares |
 | `contract` | `number` | no, *new in v1* | The contract major version the provider was built against. Missing means 1. Declare it anyway |
 | `skipIdentifierQueries` | `boolean` | no, *new in v1* | Not mounted while the query [looks like an identifier](#hints), so a scanned MRN never reaches its server. Its group disappears for that query. Patient search must not set it |
 | `dedupeKey` | `string` | no, *new in v1* | Providers that may find the same record share a key. See [dedupe](#dedupe) and the [key registry](#dedupe-keys) |
@@ -64,7 +72,7 @@ Privileges are the framework's job: the host never checks them. Implementers tur
 | --- | --- | --- |
 | `query` | `string` | The debounced query, trimmed. Echo it in every report |
 | `context` | `OmnibarContext` | Where the bar is being used. See below |
-| `report` | `(report: OmnibarReport) => void` | Call it with what you found. Stable for the life of the mount |
+| `report` | `(report: OmnibarReport) => void` | Call it with what you found. Stable for the life of the mount. Once the host has moved past the mount (another chart or scope, or the provider was unmounted), calls to it are dropped, even for the same query |
 | `hints` | `OmnibarQueryHints` | *New in v1.* Facts about the query, worked out once by the host. Missing on older hosts |
 | `contractVersion` | `number` | *New in v1.* The contract version the host speaks. Missing on older hosts |
 
@@ -81,7 +89,7 @@ Every *new in v1* prop and field is optional. A provider must work without them,
 
 A change of `scope` or `patientUuid` clears everything on screen and remounts every provider, so a query never runs against the wrong patient. A change of `workspaceGroup` doesn't: providers re-render with the new value, and the results, the highlight and the mounts stay.
 
-A provider that needs the side panel (ChartSearch) checks `context.workspaceGroup` when it is there. When it is `undefined`, the host is older, and the provider can read the framework's `workspace2` store itself, as `src/omnibar/workspace-group.ts` does.
+A provider that needs the side panel (ChartSearch) checks `context.workspaceGroup`. When it is `undefined`, the host is older: don't offer what needs the side panel. A provider never reads the framework's `workspace2` store: it isn't a framework export.
 
 ### `hints` (`OmnibarQueryHints`)
 
@@ -96,10 +104,10 @@ The function is in the contract folder too, for providers on older hosts and for
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `query` | `string` | The query this answers. A report for any other query is dropped as stale |
-| `status` | `'idle' \| 'loading' \| 'ready' \| 'error'` | `idle` hides the group. `loading` with no results shows "Searching". `ready` with no results hides the group. `error` shows "Couldn't load results", never the server's message |
-| `title` | `string` | The group heading, translated in the provider's own namespace |
-| `results` | `Array<OmnibarResult>` | Record and navigate lanes |
-| `answer` | `OmnibarAnswer` | Answer lane only: `{ text, streaming, sources }`. A finished answer with no sources is hidden |
+| `status` | `'idle' \| 'loading' \| 'ready' \| 'error'` | `idle` hides the group. `loading` with no results shows "Searching". `ready` with no results hides the group, unless `detail.state` is `projecting`. `error` shows "Couldn't load results", never the server's message |
+| `title` | `string` | The group heading, translated in the provider's own namespace. A report without a text `title` is ignored |
+| `results` | `Array<OmnibarResult>` | Record and navigate lanes. The host shows the first 50; the rest are dropped. A report whose `results` isn't a list is ignored |
+| `answer` | `OmnibarAnswer` | Answer lane only: `{ text, streaming, sources }`. A finished answer with no sources is hidden, and missing `sources` count as none |
 | `detail` | `{ state, note? }` | *New in v1.* The state of the source behind the results. See below |
 
 ### `detail` (`OmnibarReportDetail`)
@@ -108,12 +116,12 @@ Drawn as one quiet line under the heading: plain text, not a live region, and it
 
 | `state` | Drawn as | Results |
 | --- | --- | --- |
-| `projecting` | "Still indexing; results may be incomplete" | Shown and selectable |
+| `projecting` | "Still indexing; results may be incomplete" | Shown and selectable. With none yet, the heading and the line are still drawn |
 | `indexed` | Nothing extra | Shown, as with no `detail` |
 | `failed` | The heading and "Couldn't load results" | Dropped |
 | `unavailable` | The heading and "Unavailable right now" | Dropped |
 
-`note`, when set, replaces the host's line for `projecting` and `unavailable`. It is shown as plain text, cut to 200 characters, so it must already be translated, and it must never carry a server's message: that can quote the query or the record. A `failed` group ignores `note` and always says "Couldn't load results", as for any error.
+`note`, when set, replaces the host's line for `projecting` and `unavailable`. It is shown as plain text, cut to 200 characters (199 and an ellipsis), and a long word wraps, so it must already be translated, and it must never carry a server's message: that can quote the query or the record. A `failed` group ignores `note` and always says "Couldn't load results", as for any error. A `note` that isn't text is ignored.
 
 **When the server is out of reach**, report `status: 'error'` with `detail: { state: 'unavailable' }`. There is no separate status for it. `isServerUnreachable(error)` in the contract folder decides: a `TypeError` from fetch (as when offline), or a response with status 0, 502, 503 or 504. Any other failure is a plain `status: 'error'`. The built-in patient search and chart lookup follow this rule.
 
@@ -124,16 +132,20 @@ Drawn as one quiet line under the heading: plain text, not a live region, and it
 | `id` | `string` | Unique within the provider. The host keys selection on provider and id |
 | `title` | `string` | |
 | `subtitle` | `string` | |
-| `patient` | `OmnibarPatient` | Asks the host to draw the standard patient row: avatar or photo, gender, age, birthdate, identifiers. The host owns how that row looks |
+| `patient` | `OmnibarPatient` | Asks the host to draw the standard patient row: avatar or photo, gender, age, birthdate, identifiers. The host owns how that row looks, and looks up a photo only for a `uuid` that is a real UUID |
 | `target` | `OmnibarTarget` | Where choosing it goes. See below |
 | `dedupeId` | `string` | *New in v1.* The record this result shows, such as `obs:<obs uuid>` |
+
+A result without a text `id` and `title`, or with a target the host doesn't know, is dropped. Titles, subtitles, headings, notes, answer text and source labels are plain text: the host takes out the direction controls U+202A to U+202E, U+2066 to U+2069, U+200E and U+200F, which could reorder what a clinician reads, and lets each line find its own direction.
 
 ### Targets (`OmnibarTarget`)
 
 | `type` | Fields | What the host does |
 | --- | --- | --- |
-| `navigate` | `to` | `navigate()` to a page on this site. `${openmrsSpaBase}` and the other placeholders work. Any other origin, credentials in the URL, or a `javascript:` or `data:` URL is refused |
-| `workspace` | `workspaceName`, `workspaceProps?`, `windowProps?`, `groupProps?`, `requiresOpenGroup?` | `launchWorkspace2`. With `requiresOpenGroup: { workspaceName, patientUuid }`, the launch is refused unless that workspace's group is still open for that patient. It is also refused when `workspaceProps.patientUuid` is a string naming a different patient. Either way a warning snackbar says so |
+| `navigate` | `to` | `navigate()` to a page on this site. `${openmrsSpaBase}` and the other placeholders work. Any other origin, credentials in the URL, a `javascript:` or `data:` URL, or a link that can't be read is refused, and a warning snackbar says so |
+| `workspace` | `workspaceName`, `workspaceProps?`, `windowProps?`, `groupProps?`, `requiresOpenGroup?` | `launchWorkspace2`. With `requiresOpenGroup: { workspaceName, patientUuid }`, the launch is refused unless that workspace's group is still open for that patient. It is also refused when any of `workspaceProps`, `windowProps` or `groupProps` has a string `patientUuid` other than that patient or, inside a chart, the chart's patient, with or without `requiresOpenGroup`. A refused or failed launch shows a warning snackbar |
+
+The host remembers the target of the highlighted row. If the provider reports that row again, under the same id, with another target, Enter and a click on it clear the highlight and open nothing.
 
 After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT`) on `window` with `{ providerId, resultId }`.
 
@@ -141,7 +153,8 @@ After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT
 
 When two mounted providers share a `dedupeKey` and both report a result with the same `dedupeId`:
 
-- the host keeps the first copy, by lane then order, from a provider whose results may take the default highlight, whichever reported first. Only when no copy may (inside a chart, no provider with `defaultInChart` has it) does it keep the first copy of all. So a provider that a chart never highlights can't push out the chart's own row by ranking above it
+- the host ranks the copies by lane, then order, and keeps the first one that may take the default highlight. Failing that, it keeps the first that names no other patient than the chart's, and failing that, the first of all. When the copies arrive doesn't matter, except between two providers with the same lane and order. So inside a chart a provider without `defaultInChart` can't push out the chart's own row by ranking above it, and a row that names another patient never pushes out one that stays on this patient
+- the kept copy's target is what Enter and a click run. So `chart-values` with `defaultInChart` should be one provider, chart lookup, and other providers with that key should leave `defaultInChart` unset
 - the other copy is dropped, and a group left with nothing isn't drawn
 - results without a `dedupeId`, and providers with another key or none, are never touched
 - the highlight follows the record: if the highlighted row is dropped, the highlight moves to the copy that is kept. If no copy is left on screen, nothing is highlighted and Enter does nothing until the user picks a row. A default highlight (one the user didn't arrow or point to) moves only onto a copy that may itself be the default
@@ -149,13 +162,13 @@ When two mounted providers share a `dedupeKey` and both report a result with the
 
 ## Errors
 
-Extensions mount as separate parcels, so a boundary in the host can't catch a provider's errors. Wrap the provider in `withProviderBoundary(Provider, extensionName)`. A provider that throws while rendering or in an effect then shows "Couldn't load results" instead of raising the framework's error toast, and it gets another try on the next query. Mounted without the omnibar's props, as a misused slot would, it renders nothing. The console names the extension and the kind of error, never its message.
+Extensions mount as separate parcels, so a boundary in the host can't catch a provider's errors. Wrap the provider in `withProviderBoundary(Provider, extensionName)`. A provider that throws while rendering or in an effect then shows "Couldn't load results" instead of raising the framework's error toast, and it gets another try on the next query. Mounted without the omnibar's props, as a misused slot would, it renders nothing. The console names the extension and the fixed word `Error`, never the error's message or name, which the provider chooses.
 
 ## Versioning
 
 - The version is a whole number, the contract's major version. It changes only when the host changes it.
 - **Additive changes keep the number.** New fields are optional, and providers must work without them. Everything marked *new in v1* above is optional in that sense.
-- **Breaking changes bump the major.** A host doesn't mount a provider whose `meta.contract` is higher than the version it speaks, and logs the extension name once per page load. It never logs the query.
+- **Breaking changes bump the major.** A host mounts a provider only when `meta.contract` is a whole number from 1 to the version it speaks; missing means 1. Any other provider is not mounted, and the console names it once per page load with the version the host speaks. It never logs the provider's value or the query.
 - A host may speak an old and a new major side by side for a while.
 
 ## Order registry
@@ -173,7 +186,7 @@ The host ranks by lane, then by `order`. Now that several apps pick numbers, thi
 
 | Key | `dedupeId` | Providers |
 | --- | --- | --- |
-| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10), querystore chart search (order 15) |
+| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, the one with `defaultInChart`), querystore chart search (order 15) |
 
 ## Copying the contract folder
 

@@ -63,12 +63,13 @@ export interface OmnibarProviderMeta {
    * The results are about the open chart, or are pages, so inside a chart they may take the default
    * highlight. Without it, a provider's results inside a chart are selected only by an arrow key or
    * the pointer, so Enter alone can't open another patient's chart from a provider that forgot to say
-   * it lists other patients.
+   * it lists other patients. The host holds the claim to account: a result whose target names another
+   * patient is never the default inside a chart, with or without it.
    */
   defaultInChart?: boolean;
   /**
-   * The contract major version the provider was built against. Missing means 1. A host that speaks
-   * an older one doesn't mount it.
+   * The contract major version the provider was built against: a whole number. Missing means 1. A
+   * host mounts the provider only when it speaks that version.
    */
   contract?: number;
   /**
@@ -80,9 +81,11 @@ export interface OmnibarProviderMeta {
   /**
    * Providers that may find the same record share a key, such as `chart-values`. When mounted
    * providers with the same key report results with the same `dedupeId`, only one copy is shown: the
-   * first (lane, then order) from a provider whose results may take the default highlight, or the
-   * first of all when none may. So inside a chart a provider without `defaultInChart` never pushes
-   * out a `defaultInChart` provider's copy. A group left with nothing isn't shown at all.
+   * first (lane, then order) that may take the default highlight, else the first that names no other
+   * patient than the chart's, else the first of all. So inside a chart a provider without
+   * `defaultInChart` never pushes out a `defaultInChart` provider's copy. The kept copy's target is
+   * the one that runs, so only one provider with a key should set `defaultInChart`. A group left with
+   * nothing isn't shown at all.
    */
   dedupeKey?: string;
 }
@@ -107,10 +110,11 @@ export type OmnibarTarget =
       groupProps?: object;
       /**
        * When set, the launch is refused unless this workspace's window group is already open
-       * for this patient, and refused when `workspaceProps.patientUuid` names a different patient.
-       * Null group props stay null so an existing group is left alone.
-       * The selection event has already fired and the bar has already closed, so the omnibar shows
-       * a warning snackbar when it refuses.
+       * for this patient. Null group props stay null so an existing group is left alone.
+       * With or without it, a launch is refused when `workspaceProps`, `windowProps` or `groupProps`
+       * has a string `patientUuid` naming another patient than this one or, inside a chart, the
+       * chart's. The selection event has already fired and the bar has already closed, so the
+       * omnibar shows a warning snackbar when it refuses.
        */
       requiresOpenGroup?: {
         workspaceName: string;
@@ -118,6 +122,10 @@ export type OmnibarTarget =
       };
     };
 
+/**
+ * A result without a text `id` and `title`, or with a target the host doesn't know, is dropped.
+ * Direction controls are taken out of its text.
+ */
 export interface OmnibarResult {
   /** Unique within the provider. */
   id: string;
@@ -166,6 +174,7 @@ export interface OmnibarReport {
   status: 'idle' | 'loading' | 'ready' | 'error';
   /** Group heading, already translated by the provider. */
   title: string;
+  /** At most 50 are shown. A report whose `results` isn't a list is ignored. */
   results?: Array<OmnibarResult>;
   answer?: OmnibarAnswer;
   /**
@@ -187,7 +196,7 @@ export interface OmnibarReportDetail {
   state: 'projecting' | 'indexed' | 'failed' | 'unavailable';
   /**
    * Shown instead of the host's line for `projecting` and `unavailable`, already translated, and cut
-   * to 200 characters. A `failed` group always shows the host's "Couldn't load results". Never put a
+   * to 200 characters. A `projecting` group with no results yet still shows it under its heading. A `failed` group always shows the host's "Couldn't load results". Never put a
    * server's message here: it can quote the query or the record.
    */
   note?: string;
@@ -197,6 +206,7 @@ export interface OmnibarReportDetail {
 export interface OmnibarProviderProps {
   query: string;
   context: OmnibarContext;
+  /** Dropped once the host has moved past this mount: another chart or scope, or the provider left. */
   report: (report: OmnibarReport) => void;
   /** Hosts from before contract 1 was published don't pass it. */
   hints?: OmnibarQueryHints;

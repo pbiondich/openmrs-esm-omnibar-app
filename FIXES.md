@@ -593,3 +593,30 @@ Types, the contract doc and the README say the same.
 - Tests: 349 before, 357 after.
 - Failed first: b0f9859, 2 failed (the collector kept the index copies and dropped chart lookup's; the chart row was missing). b95dc7c, 2 failed (the mismatched launch went ahead). 5f2bacd, 3 failed (the failed group showed its note; both long notes were shown whole). The exact-200 case passed before and after.
 - `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning` (the same asset size warning).
+
+### Review round 2 (Grok code and security): REQUEST CHANGES
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| A | BLOCKING (both). A late report from the previous chart's mount, for the same query, came back on the next chart, and with `defaultInChart` took Enter | The collector keeps a generation per provider. A new `contextKey` moves every provider on during render, before `providerState`, and a provider leaving moves itself on. Each mount's `report` closes over its generation and is ignored once stale | ee9387b (test), ef6a08f |
+| B | BLOCKING (security). Enter in a chart could open another patient from a provider that set `defaultInChart`, by a re-report under the same id or by winning dedupe | `targetNamesOtherPatient`: a `/patient/<uuid>/` link path (interpolated and parsed as `executeTarget` does) or a string `patientUuid` in any props bag. In patient scope such a row is never the default and never the kept copy while a same-patient copy exists. The selection pins its target; if the live target changed, `choose` clears the highlight before announcing anything | bc99eb3 (test), b8770cd |
+| C | SHOULD-FIX (both). Only `workspaceProps` was checked, and only with `requiresOpenGroup` | In patient scope, and against `requiresOpenGroup`, `executeTarget` refuses when `workspaceProps`, `windowProps` or `groupProps` has a string `patientUuid` for another patient. Clicks and Enter both get the snackbar | 041798a (test), cbc556b |
+| D | SHOULD-FIX (both). A bad report threw outside the boundary; huge lists; any `patient.uuid` went into a photo request | `cleanReport` ignores a report without a text query and title or with non-list `results`, drops results without a text id and title or a known target, keeps 50 per group, gives an answer without `sources` none. `capNote` ignores non-strings. The photo lookup needs a canonical UUID | 6919b5c (test), 5d63c70 |
+| E | SHOULD-FIX (code). Equal reports re-rendered forever | A report equal to the stored one (the whole cleaned report, answer included) is not stored | 98a7645 (test), 2d1d485 |
+| F | Security NIT. The boundary logged `error.name` | It logs the fixed word `Error` | 79d400c (test), 77b4499 |
+| G | NIT (both). `-1` and `1.9` mounted; the raw value was logged | Mount only `Number.isInteger(contract) && 1 <= contract <= OMNIBAR_CONTRACT_VERSION`; log the name and the host's version | 79d400c (test), 8433b8a |
+| H | NIT (both). Bidi controls kept; long notes widened the panel | U+202A-U+202E, U+2066-U+2069, U+200E, U+200F stripped from headings, titles, subtitles, notes, answer text and source labels; `dir="auto"` on those lines and the patient name; `.groupNote` wraps anywhere | 4b739e9 (test), d3260e3 |
+| I | Security NIT. Bad URLs threw and launch rejections were dropped | `executeTarget` resolves false for a bad or off-site link; `runTarget` catches a launch rejection onto the side panel snackbar. A refused link gets its own words, "Couldn’t open that result" | 2d407bb (test), c6a27bc |
+| J | DESIGN (code). An empty `projecting` group was invisible | Drawn as its heading and the quiet line, nothing selectable | 1f2286f (test), 7efd008 |
+| K | DESIGN (both). Providers read the private `workspace2` store | ChartSearch uses `context.workspaceGroup` only and offers nothing when it is `undefined`. It reads the workspace registry once through the host helper `workspaceGroupNameOf`, without subscribing. A conformance test keeps providers off the store | d4cc183 (test), e5da547 |
+| L | Docs | Contract doc: a section on what the host guards against (providers are trusted code; the guards are for their mistakes), dedupe by lane then order then the default-eligible and same-patient rules, `defaultInChart` as an enforced claim, the 50-row and 200-character caps, one `chart-values` provider with `defaultInChart`, and no store fallback. README and types say the same | this commit |
+
+Tests rewritten because the contract changed:
+
+- "warns in a snackbar when a picked row names another patient than the open group it requires" arrows to the row before Enter: after B, that row is never the default in a chart.
+- `executeTarget` "refuses to follow %s" expects `false` instead of a throw (I), and gains an unreadable link.
+- "measures the question without the spaces around it" passes the open group in `context.workspaceGroup`: after K there is no store fallback.
+
+- Tests: 357 before, 398 after.
+- Failed first: ee9387b 3, bc99eb3 8, 041798a 5, 6919b5c 11 (a numeric note already rendered), 98a7645 1, 79d400c 4, 4b739e9 1, 2d407bb 14 (plus unhandled rejections), 1f2286f 1, d4cc183 2.
+- `yarn verify`: `Tasks: 3 successful, 3 total`.
