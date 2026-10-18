@@ -44,6 +44,14 @@ import styles from './omnibar.scss';
 
 export const providersSlot = 'omnibar-providers-slot';
 
+/** The highlighted row. `chosen` when the user arrowed or pointed to it, rather than it being the default. */
+interface Selection {
+  key: string;
+  chosen: boolean;
+  dedupeKey?: string;
+  dedupeId?: string;
+}
+
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
 const Omnibar: React.FC = () => {
@@ -105,8 +113,18 @@ const Omnibar: React.FC = () => {
   );
 
   // The result the user arrowed or pointed to, else the first one that may be the default. When
-  // none may, nothing is highlighted and Enter does nothing.
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // none may, nothing is highlighted and Enter does nothing. The highlight also remembers the record
+  // its row shows, so a row dropped as another provider's copy hands the highlight to the kept copy.
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const selectionOf = useCallback(
+    (result: SelectableResult, chosen: boolean): Selection => ({
+      key: result.key,
+      chosen,
+      dedupeKey: providerInfo[result.providerId]?.dedupeKey,
+      dedupeId: result.dedupeId,
+    }),
+    [providerInfo],
+  );
 
   // A change of chart or scope invalidates everything on screen, the selection included, and the
   // providers are remounted (keyed below) so that each reports again for the new context. A key kept
@@ -114,7 +132,7 @@ const Omnibar: React.FC = () => {
   // effect because a passive one would run after the remounted providers' first reports and drop them.
   useLayoutEffect(() => {
     clear();
-    setSelectedKey(null);
+    setSelection(null);
   }, [clear, context]);
   const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
 
@@ -123,24 +141,43 @@ const Omnibar: React.FC = () => {
   const workspaceGroup = useOpenedWorkspaceGroup();
   const providerContext = useMemo(() => ({ ...context, workspaceGroup }), [context, workspaceGroup]);
 
-  const selected =
-    selectable.find((r) => r.key === selectedKey) ?? selectable.find((r) => !providerInfo[r.providerId].neverDefault);
+  // A highlighted row that is gone but showed a deduped record moves to the copy still on screen, or
+  // to nothing, never to the default: that would be another record, and Enter would open it. The kept
+  // copy takes over a highlight the user chose, or one it could have taken as the default anyway.
+  const { selected, chosen } = useMemo(() => {
+    const mayBeDefault = (result: SelectableResult) => !providerInfo[result.providerId].neverDefault;
+    const same = selection && selectable.find((result) => result.key === selection.key);
+    if (same) {
+      return { selected: same, chosen: selection.chosen };
+    }
+    if (selection?.dedupeKey && selection.dedupeId) {
+      const copy = selectable.find(
+        (result) =>
+          result.dedupeId === selection.dedupeId && providerInfo[result.providerId].dedupeKey === selection.dedupeKey,
+      );
+      return {
+        selected: copy && (selection.chosen || mayBeDefault(copy)) ? copy : undefined,
+        chosen: selection.chosen,
+      };
+    }
+    return { selected: selectable.find(mayBeDefault), chosen: false };
+  }, [selection, selectable, providerInfo]);
   const selectedIndex = selected ? selectable.indexOf(selected) : -1;
 
   // Pin the default highlight to the result it first lands on, so a slower provider that sorts above
   // it can't move it to another row just before the user presses Enter.
   const resultsAreCurrent = query.trim() === debouncedQuery;
   useEffect(() => {
-    if (resultsAreCurrent && selected && selected.key !== selectedKey) {
-      setSelectedKey(selected.key);
+    if (resultsAreCurrent && selected && selected.key !== selection?.key) {
+      setSelection(selectionOf(selected, chosen));
     }
-  }, [resultsAreCurrent, selected, selectedKey]);
+  }, [resultsAreCurrent, selected, chosen, selection, selectionOf]);
 
   // A new query starts with nothing picked. A key kept from the old results could match a row in the
   // new ones, such as a patient who is also a recent, and Enter would open them.
   const changeQuery = (value: string) => {
     setQuery(value);
-    setSelectedKey(null);
+    setSelection(null);
   };
 
   const openBar = useCallback(() => {
@@ -151,7 +188,7 @@ const Omnibar: React.FC = () => {
   const closeBar = useCallback(() => {
     setOpen(false);
     setQuery('');
-    setSelectedKey(null);
+    setSelection(null);
     clear();
   }, [clear]);
 
@@ -215,10 +252,10 @@ const Omnibar: React.FC = () => {
   // Chrome sends mousemove when rows shift under a pointer that hasn't moved, so a row is picked only
   // when the browser reports movement for the event. Rows moving under a still pointer report none, and
   // a browser that reports nothing counts as no movement.
-  const pointAt = (event: React.MouseEvent, key: string) => {
+  const pointAt = (event: React.MouseEvent, result: SelectableResult) => {
     const moved = Boolean(event.movementX || event.movementY);
-    if (moved && resultsAreCurrent && selected?.key !== key) {
-      setSelectedKey(key);
+    if (moved && resultsAreCurrent && selected?.key !== result.key) {
+      setSelection(selectionOf(result, true));
     }
   };
 
@@ -235,7 +272,7 @@ const Omnibar: React.FC = () => {
         // With nothing highlighted, Down starts at the top and Up at the bottom.
         const from = selectedIndex >= 0 ? selectedIndex : step > 0 ? -1 : 0;
         const next = selectable[(from + step + count) % count];
-        setSelectedKey(next.key);
+        setSelection(selectionOf(next, true));
         document.getElementById(`${listboxId}-${next.key}`)?.scrollIntoView({ block: 'nearest' });
         return;
       }
@@ -488,7 +525,7 @@ const Omnibar: React.FC = () => {
                             [styles.optionSelected]: isSelected,
                             [styles.patientOption]: result.patient,
                           })}
-                          onMouseMove={(event) => pointAt(event, key)}
+                          onMouseMove={(event) => pointAt(event, { ...result, providerId: group.providerId, key })}
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => choose({ ...result, providerId: group.providerId, key })}
                         >
