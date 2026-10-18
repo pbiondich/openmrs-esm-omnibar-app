@@ -210,12 +210,54 @@ describe('QuerystoreChartProvider', () => {
     });
   });
 
-  it('reports an error, not empty results, when the chart failed to index', async () => {
-    mockOpenmrsFetch.mockResolvedValue({ data: { status: 'failed', groups: [] } } as FetchResponse);
-    const report = vi.fn();
-    renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+  describe.each([
+    ['search', 'cd4', 'In this chart'],
+    ['recent', '', 'Recent in this chart'],
+  ])('errors on the %s path', (_, query, title) => {
+    it('reports a chart whose indexing failed as a failed source, not as empty results', async () => {
+      mockOpenmrsFetch.mockResolvedValue({
+        data: { status: 'failed', groups: [makeGroup()], hits: [makeGroup().latest] },
+      } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
 
-    await waitFor(() => expect(report).toHaveBeenCalledWith(expect.objectContaining({ status: 'error' })));
+      await waitFor(() =>
+        expect(report).toHaveBeenLastCalledWith(
+          expect.objectContaining({ query, title, status: 'error', detail: { state: 'failed' } }),
+        ),
+      );
+    });
+
+    it.each([
+      ['fetch fails outright', new TypeError('Failed to fetch')],
+      ['a proxy answers 503', Object.assign(new Error('Service Unavailable'), { response: { status: 503 } })],
+    ])('reports the server as unavailable when %s', async (__, failure) => {
+      mockOpenmrsFetch.mockRejectedValue(failure);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+      await waitFor(() =>
+        expect(report).toHaveBeenLastCalledWith(
+          expect.objectContaining({ query, title, status: 'error', detail: { state: 'unavailable' } }),
+        ),
+      );
+    });
+
+    it('reports any other failure as a plain error, never with the server message', async () => {
+      mockOpenmrsFetch.mockRejectedValue(
+        Object.assign(new Error('No index for patient Jane Doe'), {
+          response: { status: 500 },
+          responseBody: { error: { message: 'No index for patient Jane Doe' } },
+        }),
+      );
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('error'));
+      const last: OmnibarReport = report.mock.calls.at(-1)[0];
+      expect(last.detail).toBeUndefined();
+      expect(JSON.stringify(last)).not.toContain('Jane');
+    });
   });
 
   it('reports loading while the chart is not indexed yet', async () => {
