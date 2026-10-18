@@ -37,6 +37,34 @@
       "component": "destinationsProvider",
       "slot": "omnibar-providers-slot",
       "meta": { "lane": "navigate", "scopes": ["global", "patient"], "order": 10, "defaultInChart": true }
+    },
+    {
+      "name": "omnibar-cohort-criteria-provider",
+      "component": "cohortCriteriaProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["Get Patients", "Run Reports"],
+      "meta": { "lane": "navigate", "scopes": ["global"], "order": 20 }
+    },
+    {
+      "name": "omnibar-cohort-builder-provider",
+      "component": "cohortBuilderProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["Get Patients", "Run Reports"],
+      "meta": { "lane": "navigate", "scopes": ["global"], "order": 30 }
+    },
+    {
+      "name": "omnibar-saved-cohorts-provider",
+      "component": "savedCohortsProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["Get Patient Cohorts", "Get Patients", "Run Reports"],
+      "meta": { "lane": "navigate", "scopes": ["global"], "order": 40 }
+    },
+    {
+      "name": "omnibar-saved-queries-provider",
+      "component": "savedQueriesProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["View Reports", "Run Reports", "Get Patients"],
+      "meta": { "lane": "navigate", "scopes": ["global"], "order": 50 }
     }
   ]
 }

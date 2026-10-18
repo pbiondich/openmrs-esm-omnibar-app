@@ -1,5 +1,27 @@
 import { Type, validator, validators } from '@openmrs/esm-framework';
 
+// TODO(groundwork §3): RefApp demo HIV/TB program uuids. Until known, no programs are configured.
+const COHORT_PROGRAMS_DEFAULT = [];
+
+// Drug uuids differ per server, so none are shipped and "on ARVs" stays silent until a distro adds them.
+// TODO(groundwork §3): CIEL concept uuids.
+const COHORT_DRUG_GROUPS_DEFAULT = [
+  {
+    id: 'arv',
+    label: 'ARVs',
+    aliases: ['arv', 'arvs', 'art', 'antiretroviral', 'antiretrovirals', 'antiretroviral therapy', 'hiv treatment'],
+    drugUuids: [],
+    cielConceptUuids: [],
+  },
+  {
+    id: 'tld',
+    label: 'TLD',
+    aliases: ['tld', 'tdf/3tc/dtg', 'tenofovir lamivudine dolutegravir', 'tenofovir/lamivudine/dolutegravir'],
+    drugUuids: [],
+    cielConceptUuids: [],
+  },
+];
+
 export const configSchema = {
   appearance: {
     _type: Type.String,
@@ -126,7 +148,64 @@ export const configSchema = {
       ),
     ],
   },
+  cohortBuilder: {
+    savedSearchMinCharacters: {
+      _type: Type.Number,
+      _default: 2,
+      _description: 'Characters needed before saved cohorts and saved queries are searched by name.',
+    },
+    programs: {
+      _type: Type.Array,
+      _description:
+        'Programs the cohort parser understands, as in "enrolled in HIV program". Aliases are matched as whole words.',
+      _elements: {
+        _type: Type.Object,
+        uuid: { _type: Type.UUID, _description: 'The program uuid.' },
+        label: { _type: Type.String, _description: 'Shown in the cohort description.' },
+        aliases: { _type: Type.Array, _elements: { _type: Type.String }, _default: [] },
+      },
+      _default: COHORT_PROGRAMS_DEFAULT,
+    },
+    drugGroups: {
+      _type: Type.Array,
+      _description:
+        'Drug groups the cohort parser understands, as in "on ARVs". "on <alias>" means a drug order for any of drugUuids that is active today. A group with no drugUuids is never offered.',
+      _elements: {
+        _type: Type.Object,
+        id: { _type: Type.String },
+        label: { _type: Type.String, _description: 'Shown in the cohort description.' },
+        aliases: { _type: Type.Array, _elements: { _type: Type.String }, _default: [] },
+        drugUuids: {
+          _type: Type.Array,
+          _elements: { _type: Type.String },
+          _default: [],
+          _description: 'Drug (formulary) uuids, which is what the cohort builder searches drug orders by.',
+        },
+        cielConceptUuids: {
+          _type: Type.Array,
+          _elements: { _type: Type.String },
+          _default: [],
+          _description: 'The CIEL concepts the group stands for, as a reference for filling in drugUuids. Not sent.',
+        },
+      },
+      _default: COHORT_DRUG_GROUPS_DEFAULT,
+    },
+  },
 };
+
+export interface CohortProgram {
+  uuid: string;
+  label: string;
+  aliases: Array<string>;
+}
+
+export interface CohortDrugGroup {
+  id: string;
+  label: string;
+  aliases: Array<string>;
+  drugUuids: Array<string>;
+  cielConceptUuids: Array<string>;
+}
 
 export interface Destination {
   label: string;
@@ -158,4 +237,9 @@ export interface OmnibarConfig {
   };
   chartSearchSuggestion: ChartSearchSuggestionConfig;
   destinations: Array<Destination>;
+  cohortBuilder: {
+    savedSearchMinCharacters: number;
+    programs: Array<CohortProgram>;
+    drugGroups: Array<CohortDrugGroup>;
+  };
 }

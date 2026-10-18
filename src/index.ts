@@ -41,6 +41,26 @@ export const destinationsProvider = getAsyncLifecycle(
   options,
 );
 
+export const cohortBuilderProvider = getAsyncLifecycle(
+  () => import('./providers/cohort-builder.provider').then(bounded('omnibar-cohort-builder-provider')),
+  options,
+);
+
+export const cohortCriteriaProvider = getAsyncLifecycle(
+  () => import('./providers/cohort-criteria.provider').then(bounded('omnibar-cohort-criteria-provider')),
+  options,
+);
+
+export const savedCohortsProvider = getAsyncLifecycle(
+  () => import('./providers/saved-cohorts.provider').then(bounded('omnibar-saved-cohorts-provider')),
+  options,
+);
+
+export const savedQueriesProvider = getAsyncLifecycle(
+  () => import('./providers/saved-queries.provider').then(bounded('omnibar-saved-queries-provider')),
+  options,
+);
+
 export type * from './omnibar/types';
 export { OMNIBAR_SELECTED_EVENT } from './omnibar/types';
 export { withProviderBoundary };
