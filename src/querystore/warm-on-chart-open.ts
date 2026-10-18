@@ -6,13 +6,13 @@ import type { OmnibarConfig } from '../config-schema';
 const warmPrivilege = 'Get Observations';
 
 /**
- * Retry-After in milliseconds: 5 seconds when it's missing, an HTTP date or not a positive number of
- * seconds, and never more than a minute, so a bad header can neither hammer the server nor park a
+ * Retry-After in milliseconds: 5 seconds when it's missing, an HTTP date or less than one second, and
+ * never more than a minute, so a bad header can neither hammer the server nor park a
  * retry for the rest of the session.
  */
 function retryDelayMs(retryAfter: string | null | undefined): number {
   const seconds = Number(retryAfter);
-  return (seconds > 0 ? Math.min(seconds, 60) : 5) * 1000;
+  return (seconds >= 1 ? Math.min(seconds, 60) : 5) * 1000;
 }
 
 /** The teardown of the latest setup, so a second setup (a reload in development) replaces it rather than stacking. */
