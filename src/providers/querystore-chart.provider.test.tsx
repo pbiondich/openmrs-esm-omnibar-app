@@ -500,33 +500,46 @@ describe('QuerystoreChartProvider', () => {
     expect(url).not.toContain('/search');
   });
 
-  it('never reports results for a different query (stale guard)', async () => {
-    // Provider with query "cd4" reports for the query it was given.
-    mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups: [makeGroup()] } } as FetchResponse);
+  it("never reports one query's rows for another (stale guard)", async () => {
+    const percent = makeGroup({ conceptUuid: 'cd4-pct', conceptName: 'CD4 %', valueNumeric: 21, units: '%' });
+    let answerSecond: () => void;
+    mockOpenmrsFetch.mockImplementation((url: string) =>
+      url.includes('q=cd4+count')
+        ? new Promise((resolve) => {
+            answerSecond = () => resolve({ data: { status: 'indexed', groups: [percent] } } as FetchResponse);
+          })
+        : Promise.resolve({ data: { status: 'indexed', groups: [makeGroup()] } } as FetchResponse),
+    );
     const report = vi.fn();
     const { rerender } = renderWithFreshCache(
       <QuerystoreChartProvider query="cd4" context={patientContext} report={report} />,
     );
     await waitFor(() =>
-      expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'cd4', status: 'ready' })),
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: 'cd4', status: 'ready', results: [expect.anything()] }),
+      ),
     );
+    const before = report.mock.calls.length;
 
     rerender(
       <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
         <QuerystoreChartProvider query="cd4 count" context={patientContext} report={report} />
       </SWRConfig>,
     );
-    // The latest report must be for the new query, not the old one.
-    await waitFor(() => expect(report.mock.calls.at(-1)[0].query).toBe('cd4 count'));
-    expect(
-      report.mock.calls.every(
-        (call) =>
-          call[0].query !== 'cd4' ||
-          call[0].status !== 'ready' ||
-          call[0].results?.length === 0 ||
-          call[0].query === 'cd4',
-      ),
-    ).toBe(true);
+    await waitFor(() => expect(answerSecond).toBeDefined());
+    answerSecond();
+    await waitFor(() =>
+      expect(report.mock.calls.at(-1)[0]).toMatchObject({
+        query: 'cd4 count',
+        status: 'ready',
+        results: [{ title: 'CD4 %: 21 %' }],
+      }),
+    );
+
+    const after = report.mock.calls.slice(before).map(([r]) => r as OmnibarReport);
+    expect(after.filter((r) => r.query !== 'cd4 count')).toEqual([]);
+    const titles = after.flatMap((r) => (r.results ?? []).map((result) => result.title));
+    expect(titles).not.toContain('CD4 count: 350 cells/µL');
   });
 
   it('uses the group heading "In this chart (query store)" when source is both', () => {
