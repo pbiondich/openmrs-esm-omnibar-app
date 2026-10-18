@@ -46,3 +46,21 @@ describe('the contract folder', () => {
     expect(contract.OMNIBAR_CONTRACT_VERSION).toBe(1);
   });
 });
+
+describe('the built-in providers', () => {
+  // The workspace2 store isn't a framework export. The host reads it and passes context.workspaceGroup.
+  it('never subscribe to the private workspace2 store', () => {
+    const providers = join(dirname(fileURLToPath(import.meta.url)), '../providers');
+    const files = readdirSync(providers).filter((file) => /\.provider\.tsx?$/.test(file));
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const source = readFileSync(join(providers, file), 'utf8');
+      expect({ file, subscribes: /\buseStore\b|\bgetWorkspace2Store\b|\bworkspaceGroupIsOpen\b/.test(source) }).toEqual(
+        {
+          file,
+          subscribes: false,
+        },
+      );
+    }
+  });
+});

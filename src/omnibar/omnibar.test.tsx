@@ -872,6 +872,21 @@ describe('Omnibar with providers mounted through the slot', () => {
       await waitFor(() => expect(lastStatus()).toBe('idle'));
     });
 
+    it('offers no row on a host that does not say which group is open, whatever the store says', async () => {
+      const report = vi.fn();
+      render(
+        <ChartSearchSuggestionProvider
+          query="what happened at the last visit"
+          context={{ scope: 'patient', patientUuid: chartPatientUuid, locale: 'en' }}
+          report={report}
+        />,
+      );
+
+      await waitFor(() => expect(report).toHaveBeenCalled());
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(report.mock.calls.map(([sent]) => sent.status)).not.toContain('ready');
+    });
+
     it('declares patient scope and the backend privilege without opting into the chart default', () => {
       expect(providerRoute.privileges).toEqual(['AI Query Patient Data']);
       expect(providerRoute.meta).toEqual(
@@ -1431,11 +1446,17 @@ describe('Omnibar with providers mounted through the slot', () => {
 
       it('measures the question without the spaces around it, as ChartSearch does', async () => {
         const report = vi.fn();
-        // The shell trims before providers see the query, so this renders the provider directly.
+        // The shell trims before providers see the query, so this renders the provider directly, with the
+        // open group a contract 1 host passes.
         render(
           <ChartSearchSuggestionProvider
             query={`  ${questionOfLength(1000)}  `}
-            context={{ scope: 'patient', patientUuid: chartPatientUuid, locale: 'en' }}
+            context={{
+              scope: 'patient',
+              patientUuid: chartPatientUuid,
+              locale: 'en',
+              workspaceGroup: { groupName: 'patient-chart', patientUuid: chartPatientUuid },
+            }}
             report={report}
           />,
         );
