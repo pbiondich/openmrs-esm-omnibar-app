@@ -260,20 +260,65 @@ describe('QuerystoreChartProvider', () => {
     });
   });
 
-  it('reports loading while the chart is not indexed yet', async () => {
-    mockOpenmrsFetch.mockResolvedValue({ data: { status: 'not_indexed', groups: [] } } as FetchResponse);
+  it('reports loading only while the first answer is on its way', () => {
+    mockOpenmrsFetch.mockReturnValue(new Promise(() => {}));
     const report = vi.fn();
     renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
-
-    await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('loading'));
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'cd4', status: 'loading' }));
   });
 
-  it('reports status loading and re-polls when server returns projecting for search', async () => {
-    mockOpenmrsFetch.mockResolvedValue({ data: { status: 'projecting', groups: [] } } as FetchResponse);
+  it('draws an indexed chart without a detail line', async () => {
+    mockOpenmrsFetch.mockResolvedValue({ data: { status: 'indexed', groups: [makeGroup()] } } as FetchResponse);
     const report = vi.fn();
     renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
 
-    await waitFor(() => expect(report).toHaveBeenCalledWith(expect.objectContaining({ status: 'loading' })));
+    await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('ready'));
+    expect(report.mock.calls.at(-1)[0].detail).toBeUndefined();
+  });
+
+  describe.each(['projecting', 'not_indexed'])('while the server says %s', (status) => {
+    it('shows the results found so far, with the still-indexing line, rather than waiting', async () => {
+      mockOpenmrsFetch.mockResolvedValue({ data: { status, groups: [makeGroup()] } } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+      await waitFor(() =>
+        expect(report).toHaveBeenLastCalledWith(
+          expect.objectContaining({ query: 'cd4', status: 'ready', detail: { state: 'projecting' } }),
+        ),
+      );
+      expect(report.mock.calls.at(-1)[0].results.map((result) => result.title)).toEqual(['CD4 count: 350 cells/µL']);
+    });
+
+    it('still reports the group, with no results yet, so the host draws its heading and the line', async () => {
+      mockOpenmrsFetch.mockResolvedValue({ data: { status, groups: [] } } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+      await waitFor(() =>
+        expect(report).toHaveBeenLastCalledWith(
+          expect.objectContaining({ status: 'ready', results: [], detail: { state: 'projecting' } }),
+        ),
+      );
+    });
+
+    it('shows the recent records found so far in an empty field', async () => {
+      mockOpenmrsFetch.mockResolvedValue({ data: { status, hits: [makeGroup().latest] } } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="" context={patientContext} report={report} />);
+
+      await waitFor(() =>
+        expect(report).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            query: '',
+            title: 'Recent in this chart',
+            status: 'ready',
+            detail: { state: 'projecting' },
+          }),
+        ),
+      );
+      expect(report.mock.calls.at(-1)[0].results).toHaveLength(1);
+    });
   });
 
   it('uses the recent endpoint for empty query and titles the group "Recent in this chart"', async () => {
