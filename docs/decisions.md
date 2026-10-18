@@ -78,6 +78,12 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **Provisionally, Enter inside a chart submits the query to Query results.** Unless the user has arrowed or pointed to a row, in which case Enter opens that row. The default highlight stays as a visual cue. A config option, `queryResults.enterBehavior`, can restore today's "Enter opens the highlight", so both can be tried on o3.pgb.md before this is settled.
 *Why:* it's the only option where "press Enter to see everything" is always true. The alternatives were a separate key for Query results, or opening the highlight only on an exact match. Paul isn't sure yet, so this is a starting point to try, not a final call.
 
+**The query store's patient endpoints follow three rules.** The patient is always in the URL path (`/querystore/patient/{uuid}/...`). There is no cross-patient clinical search over REST. And there is no full-chart endpoint over REST: `getPatientChart` stays in-process, for ChartSearch.
+*Why:* a patient in the path makes every call auditable as "this user looked at this patient". Free-text search across every patient's chart from a global prompt is a separate privacy conversation, not a convenience. And a full-chart response is exfiltration-sized, with no use in the UI. (A name-and-ID patient lookup through the query store wasn't ruled out, since it carries the same privacy profile as today's patient search.)
+
+**Query store work stays on Paul's fork, on two branches with different jobs.** `prototype/omnibar-endpoints` holds the endpoint work, and is the candidate to propose upstream once round 2 of the benchmark is in. `prototype/omnibar-endpoints-o3` is the same work plus benchmark-only commits, and is what o3.pgb.md runs; it must never be merged into any `main`.
+*Why:* the query store belongs to other maintainers, so changes stay as local variants until Paul proposes them. The benchmark endpoint is a measuring instrument, not product.
+
 ## Open
 
 These came up but aren't decided yet.
