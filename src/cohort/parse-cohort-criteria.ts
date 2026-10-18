@@ -166,8 +166,12 @@ function matchProgram(tokens: Array<string>, start: number, programs: Array<Coho
   const hit = longestAlias(tokens, i, programs);
   if (!hit) return null;
   i = hit.next;
-  const named = PROGRAM_WORDS.has(tokens[i]);
-  if (named) i++;
+  // The matched name may already end in "program", as a label like "TB Program" does.
+  let named = PROGRAM_WORDS.has(tokens[i - 1]);
+  if (PROGRAM_WORDS.has(tokens[i])) {
+    named = true;
+    i++;
+  }
   if (!enrolled && !named) return null;
   return { next: i, clause: { kind: 'program', program: hit.item } };
 }
@@ -186,12 +190,13 @@ function describeAge(minAge?: number, maxAge?: number): string | null {
   return null;
 }
 
-const isAge = (value: number | undefined) => value == null || (Number.isInteger(value) && value >= 0 && value <= maxAge);
+const isAge = (value: number | undefined) =>
+  value == null || (Number.isInteger(value) && value >= 0 && value <= maxAge);
 
 export function parseCohortCriteria(text: string, config: CohortCriteriaConfig): CohortDefinition | null {
   const tokens = tokenize(text);
-  // A cohort needs at least one word we understood: "50+" or "15-49" on their own are not cohorts.
-  if (!tokens?.some((token) => /[a-z]/.test(token) && !STOPWORDS.has(token))) {
+  // A cohort needs at least one word: "50+" or "15-49" on their own could be anything.
+  if (!tokens?.some((token) => /[a-z]/.test(token))) {
     return null;
   }
 

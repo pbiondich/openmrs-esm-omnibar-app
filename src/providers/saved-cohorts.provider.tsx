@@ -20,7 +20,11 @@ const maxResults = 5;
 function toCohortHits(data: unknown): Array<SavedSearchHit> {
   return ((data as CohortResponse)?.results ?? [])
     .filter((cohort) => !cohort.voided)
-    .map((cohort) => ({ uuid: cohort.uuid, name: cohort.name ?? cohort.display ?? '', description: cohort.description }))
+    .map((cohort) => ({
+      uuid: cohort.uuid,
+      name: cohort.name ?? cohort.display ?? '',
+      description: cohort.description,
+    }))
     .slice(0, maxResults);
 }
 

@@ -1,0 +1,195 @@
+import { describe, expect, it } from 'vitest';
+import { type CohortCriterion } from './cohort-definition';
+import { type CohortCriteriaConfig, parseCohortCriteria } from './parse-cohort-criteria';
+
+const hiv = '64f950e6-1b07-4ac0-8e7e-f3e148f3463f';
+const tb = '9f144a34-3a4a-44a9-8486-6b7af6cc64f6';
+const tdf = '0b8c3c4e-2f9a-4b1e-9d5c-1a2b3c4d5e6f';
+const efv = '1c9d4d5f-3a0b-4c2f-8e6d-2b3c4d5e6f70';
+const tldDrug = '165086AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+const config: CohortCriteriaConfig = {
+  programs: [
+    { uuid: hiv, label: 'HIV Program', aliases: ['hiv', 'hiv care'] },
+    { uuid: tb, label: 'TB Program', aliases: ['tb', 'tuberculosis'] },
+  ],
+  drugGroups: [
+    {
+      id: 'arv',
+      label: 'ARVs',
+      aliases: ['arv', 'arvs', 'antiretroviral', 'antiretrovirals'],
+      drugUuids: [tdf, efv],
+      cielConceptUuids: [],
+    },
+    { id: 'tld', label: 'TLD', aliases: ['tld'], drugUuids: [tldDrug], cielConceptUuids: [] },
+    { id: 'statins', label: 'Statins', aliases: ['statin', 'statins'], drugUuids: [], cielConceptUuids: [] },
+  ],
+};
+
+const demographics = (gender: 'male' | 'female' | 'any', minAge?: number, maxAge?: number): CohortCriterion => ({
+  type: 'demographics',
+  gender,
+  ...(minAge != null && { minAge }),
+  ...(maxAge != null && { maxAge }),
+});
+const enrollment = (program: string): CohortCriterion => ({ type: 'enrollment', programs: [program] });
+const drugOrder = (...drugs: Array<string>): CohortCriterion => ({
+  type: 'drugOrder',
+  drugs,
+  activeOnOrAfter: 'today',
+});
+const arvs = drugOrder(tdf, efv);
+
+describe('parseCohortCriteria', () => {
+  it.each<[string, Array<CohortCriterion>]>([
+    ['women', [demographics('female')]],
+    ['female patients', [demographics('female')]],
+    ['females', [demographics('female')]],
+    ['girls', [demographics('female')]],
+    ['males', [demographics('male')]],
+    ['boys', [demographics('male')]],
+    ['men over 50', [demographics('male', 51)]],
+    ['patients older than 65', [demographics('any', 66)]],
+    ['people under 5', [demographics('any', undefined, 4)]],
+    ['younger than 18', [demographics('any', undefined, 17)]],
+    ['aged 15-49', [demographics('any', 15, 49)]],
+    ['aged 15–49', [demographics('any', 15, 49)]],
+    ['women aged 15 to 49', [demographics('female', 15, 49)]],
+    ['between 18 and 65', [demographics('any', 18, 65)]],
+    ['ages between 18 and 65 years', [demographics('any', 18, 65)]],
+    ['patients 65+', [demographics('any', 65)]],
+    ['65 and over', [demographics('any', 65)]],
+    ['18 or younger', [demographics('any', undefined, 18)]],
+    ['at least 18 years old', [demographics('any', 18)]],
+    ['aged 30', [demographics('any', 30, 30)]],
+    ['men 40 years old', [demographics('male', 40, 40)]],
+    ['over 18 and under 65', [demographics('any', 19, 64)]],
+    ['in HIV program', [enrollment(hiv)]],
+    ['enrolled in TB program', [enrollment(tb)]],
+    ['enrolled in the HIV programme', [enrollment(hiv)]],
+    ['enrolled in hiv', [enrollment(hiv)]],
+    ['patients in the tuberculosis program', [enrollment(tb)]],
+    ['enrolled in hiv care', [enrollment(hiv)]],
+    ['on ARVs', [arvs]],
+    ['taking antiretrovirals', [arvs]],
+    ['patients on TLD', [drugOrder(tldDrug)]],
+    ['currently on arvs', [arvs]],
+    ['female patients aged 15-49 on ARVs', [demographics('female', 15, 49), arvs]],
+    ['Show all women who are enrolled in HIV program and on ARVs', [demographics('female'), enrollment(hiv), arvs]],
+    ['men over 50 in TB program taking ARVs', [demographics('male', 51), enrollment(tb), arvs]],
+    ['enrolled in HIV and TB programs', [enrollment(hiv), enrollment(tb)]],
+    ['on ARVs and on TLD', [arvs, drugOrder(tldDrug)]],
+    ['Women, over 50.', [demographics('female', 51)]],
+    ['female patients aged 15–49 on ARVs?', [demographics('female', 15, 49), arvs]],
+    ['find patients who are women over 50', [demographics('female', 51)]],
+    ['build cohort of men in HIV program', [demographics('male'), enrollment(hiv)]],
+  ])('understands %j', (text, criteria) => {
+    expect(parseCohortCriteria(text, config)?.criteria).toEqual(criteria);
+  });
+
+  it.each([
+    ['empty input', ''],
+    ['only stopwords', 'show all patients'],
+    ['a numeric id', '123456'],
+    ['a compact id', '100GEJ'],
+    ['a hyphenated id', 'MRN-1234'],
+    ['an id after a gender', 'women 1234567'],
+    ['a uuid', '8673ee4f-e2ab-4077-ba55-4980f408773e'],
+    ['a bare age range', '15-49'],
+    ['a bare age with a plus', '50+'],
+    ['a name', 'Mary Achieng'],
+    ['either gender', 'women or men'],
+    ['both genders', 'women and men'],
+    ['a negation', 'women not on ARVs'],
+    ['a bare "in" with a program', 'in HIV'],
+    ['an unknown program', 'in malaria program'],
+    ['a drug group without drug uuids', 'on statins'],
+    ['a known part next to a group without drug uuids', 'women on statins'],
+    ['an unknown word next to known ones', 'women over 50 with diabetes'],
+    ['an unknown condition', 'patients with HIV'],
+    ['an age over 150', 'over 150'],
+    ['an age of 1000', 'aged 1000'],
+    ['a negative bound', 'under 0'],
+    ['a reversed range', 'aged 50-20'],
+    ['two lower bounds', 'over 18 over 21'],
+    ['a number in words', 'women over fifty'],
+    ['a dangling verb', 'women on'],
+    ['a word we do not guess', 'children'],
+    ['a character we never parse', 'women café'],
+    ['a concept lookup', 'cd4 count'],
+  ])('rejects %s: %j', (_label, text) => {
+    expect(parseCohortCriteria(text, config)).toBeNull();
+  });
+
+  it('describes the cohort in its label', () => {
+    expect(parseCohortCriteria('female patients aged 15-49 on ARVs', config).label).toBe(
+      'Female patients aged 15–49 on ARVs',
+    );
+    expect(parseCohortCriteria('men over 50 in TB program', config).label).toBe('Male patients aged 51+ in TB Program');
+    expect(parseCohortCriteria('under 5', config).label).toBe('Patients aged 4 or younger');
+    expect(parseCohortCriteria('aged 30', config).label).toBe('Patients aged 30');
+  });
+
+  it('returns a v1 definition', () => {
+    expect(parseCohortCriteria('women', config)).toEqual({
+      v: 1,
+      label: 'Female patients',
+      criteria: [demographics('female')],
+    });
+  });
+
+  it('copies drug uuids rather than sharing the config array', () => {
+    const [criterion] = parseCohortCriteria('on TLD', config).criteria;
+    expect(criterion.type === 'drugOrder' && criterion.drugs).not.toBe(config.drugGroups[1].drugUuids);
+  });
+
+  it('rejects programs and drug groups whose uuids the cohort builder would refuse', () => {
+    const broken: CohortCriteriaConfig = {
+      programs: [{ uuid: 'not-a-uuid', label: 'HIV Program', aliases: ['hiv'] }],
+      drugGroups: [{ id: 'arv', label: 'ARVs', aliases: ['arvs'], drugUuids: ['../drug'], cielConceptUuids: [] }],
+    };
+    expect(parseCohortCriteria('in HIV program', broken)).toBeNull();
+    expect(parseCohortCriteria('on ARVs', broken)).toBeNull();
+  });
+
+  it('rejects a drug group with more drugs than the contract allows', () => {
+    const drugUuids = Array.from({ length: 51 }, (_, i) => `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`);
+    const big: CohortCriteriaConfig = {
+      programs: [],
+      drugGroups: [{ id: 'arv', label: 'ARVs', aliases: ['arvs'], drugUuids, cielConceptUuids: [] }],
+    };
+    expect(parseCohortCriteria('on ARVs', big)).toBeNull();
+    expect(
+      parseCohortCriteria('on ARVs', {
+        ...big,
+        drugGroups: [{ ...big.drugGroups[0], drugUuids: drugUuids.slice(0, 50) }],
+      }),
+    ).not.toBeNull();
+  });
+
+  it('rejects more criteria than the contract allows', () => {
+    const programs = ['a', 'b', 'c', 'd', 'e'].map((name, i) => ({
+      uuid: `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`,
+      label: name,
+      aliases: [`p${name}`],
+    }));
+    const many: CohortCriteriaConfig = { programs, drugGroups: [] };
+    expect(
+      parseCohortCriteria('in pa program in pb program in pc program in pd program in pe program', many),
+    ).not.toBeNull();
+    expect(
+      parseCohortCriteria('women in pa program in pb program in pc program in pd program in pe program', many),
+    ).toBeNull();
+  });
+
+  it('prefers the longest alias', () => {
+    const overlapping: CohortCriteriaConfig = {
+      programs: [
+        { uuid: hiv, label: 'HIV Program', aliases: ['hiv'] },
+        { uuid: tb, label: 'HIV TB Program', aliases: ['hiv tb'] },
+      ],
+      drugGroups: [],
+    };
+    expect(parseCohortCriteria('in hiv tb program', overlapping).criteria).toEqual([enrollment(tb)]);
+  });
+});

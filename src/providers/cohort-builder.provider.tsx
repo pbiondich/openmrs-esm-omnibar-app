@@ -11,7 +11,14 @@ import { type OmnibarProviderProps } from '../omnibar/types';
 /** Shown while the query is the start of one of these, from three characters. */
 const NAMES = ['cohort builder', 'cohorts', 'build cohort', 'build a cohort'];
 /** Shown when the query starts with one of these. */
-const PREFIXES = ['cohort ', 'build cohort ', 'build a cohort ', 'find patients who', 'find patients with', 'patients who'];
+const PREFIXES = [
+  'cohort ',
+  'build cohort ',
+  'build a cohort ',
+  'find patients who',
+  'find patients with',
+  'patients who',
+];
 
 function asksForCohortBuilder(query: string): boolean {
   const q = query.trim().toLowerCase().replace(/\s+/g, ' ');
