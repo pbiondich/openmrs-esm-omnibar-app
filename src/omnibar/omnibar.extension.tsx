@@ -176,8 +176,9 @@ const Omnibar: React.FC = () => {
 
   // A highlighted row that is gone but showed a deduped record moves to the copy still on screen, or
   // to nothing, never to the default: that would be another record, and Enter would open it. The kept
-  // copy takes over a highlight the user chose, or one it could have taken as the default anyway. A
-  // default highlight whose row is reported again in a way that can't be the default is dropped.
+  // copy takes over a highlight the user chose, or one it could have taken as the default anyway, but
+  // never when it names another patient: the user chose this patient's row, not that one. A default
+  // highlight whose row is reported again in a way that can't be the default is dropped.
   const { selected, chosen } = useMemo(() => {
     const mayBeDefault = (result: SelectableResult) => result.mayBeDefault;
     const same = selection && selectable.find((result) => result.key === selection.key);
@@ -190,7 +191,7 @@ const Omnibar: React.FC = () => {
           result.dedupeId === selection.dedupeId && providerInfo[result.providerId].dedupeKey === selection.dedupeKey,
       );
       return {
-        selected: copy && (selection.chosen || mayBeDefault(copy)) ? copy : undefined,
+        selected: copy && !copy.namesOtherPatient && (selection.chosen || mayBeDefault(copy)) ? copy : undefined,
         chosen: selection.chosen,
       };
     }

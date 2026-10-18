@@ -34,6 +34,8 @@ export interface SelectableResult extends OmnibarResult {
    * patient than the chart's. Otherwise only an arrow key or the pointer selects it.
    */
   mayBeDefault: boolean;
+  /** Its target names another patient than the chart's. A highlight never moves onto it by itself. */
+  namesOtherPatient: boolean;
 }
 
 export interface ProviderInfo {
@@ -320,6 +322,7 @@ export function useResultCollector(
           providerId: group.providerId,
           key: `${group.providerId}:${result.id}`,
           mayBeDefault: !group.neverDefault && !namesOtherPatient(result),
+          namesOtherPatient: namesOtherPatient(result),
         })),
       ),
     [listGroups, namesOtherPatient],
