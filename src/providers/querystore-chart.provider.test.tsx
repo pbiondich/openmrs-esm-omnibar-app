@@ -679,6 +679,30 @@ describe('QuerystoreChartProvider', () => {
       ]);
     });
 
+    it('reads a blank snippet or concept name as missing, and drops a row left with no title', async () => {
+      const coded = makeGroup({
+        conceptUuid: 'c-coded',
+        resourceUuid: 'r-coded',
+        conceptName: 'HIV status',
+        snippet: ' \t ',
+      });
+      delete coded.latest.valueNumeric;
+      const blank = makeGroup({ conceptUuid: 'c-blank', resourceUuid: 'r-blank', conceptName: '   ', snippet: '  ' });
+      delete blank.latest.valueNumeric;
+      const unnamed = makeGroup({ conceptUuid: 'c-unnamed', resourceUuid: 'r-unnamed', conceptName: '  ' });
+      mockOpenmrsFetch.mockResolvedValue({
+        data: { status: 'indexed', groups: [coded, blank, unnamed] },
+      } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+      await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('ready'));
+      expect(report.mock.calls.at(-1)[0].results.map((result) => [result.id, result.title])).toEqual([
+        ['c-coded', 'HIV status'],
+        ['c-unnamed', '350 cells/µL'],
+      ]);
+    });
+
     it('drops a recent record with an empty uuid or nothing to title it with, and keeps the good ones', async () => {
       const untitled = { ...good.latest, resourceUuid: 'r-untitled', snippet: 7 };
       delete untitled.conceptName;
