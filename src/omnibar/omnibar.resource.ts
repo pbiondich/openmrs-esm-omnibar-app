@@ -144,6 +144,21 @@ export function isCollapsed(report: OmnibarReport): boolean {
 }
 
 /**
+ * True when two cleaned reports draw the same: query, status, heading, detail, and every result's id,
+ * text, record and target, or the answer. A report that can't be written out is never the same.
+ */
+function sameReport(stored: OmnibarReport | undefined, report: OmnibarReport): boolean {
+  if (!stored) {
+    return false;
+  }
+  try {
+    return JSON.stringify(stored) === JSON.stringify(report);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Among providers that share a dedupe key, shows each record (`dedupeId`) once. Groups must already
  * be in rank order (lane, then order). The copy kept is the first that may take the default
  * highlight; failing that, the first that at least stays on the chart's patient; failing that, the
@@ -236,7 +251,11 @@ export function useResultCollector(
       if (!report || generationOf() !== generation || report.query !== queryRef.current) {
         return;
       }
-      setReports((previous) => ({ ...previous, [providerId]: report }));
+      // A report equal to the one stored changes nothing, so a provider that reports on every render
+      // doesn't re-render the bar, and itself, forever.
+      setReports((previous) =>
+        sameReport(previous[providerId], report) ? previous : { ...previous, [providerId]: report },
+      );
     };
     reporters.current.set(providerId, { generation, reporter });
     return reporter;
