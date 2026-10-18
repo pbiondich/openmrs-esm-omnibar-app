@@ -19,6 +19,7 @@ describe('toConceptSearch', () => {
     ['mixed case filler', 'Show Me The Latest Weight', { phrase: 'Weight', words: [] }],
     ['a trailing question mark', 'weight?', { phrase: 'weight', words: [] }],
     ['a hyphenated concept', 'last covid-19 result', { phrase: 'covid-19', words: [] }],
+    ['a question with pronouns', 'when did she start ART?', { phrase: 'start ART', words: ['start', 'ART'] }],
     ['a two-word concept', 'last blood pressure', { phrase: 'blood pressure', words: ['blood', 'pressure'] }],
     ['two concepts', 'last pulse and weight', { phrase: 'pulse weight', words: ['pulse', 'weight'] }],
     ['repeated words', 'weight weight', { phrase: 'weight weight', words: ['weight'] }],
@@ -31,6 +32,7 @@ describe('toConceptSearch', () => {
   it.each([
     ['only filler words', 'show latest'],
     ['only a question', 'what is the latest?'],
+    ['a question about the patient with no concept', 'how is he doing'],
     ['empty input', ''],
     ['punctuation', '??'],
     ['a phrase below the minimum', 'show x'],
