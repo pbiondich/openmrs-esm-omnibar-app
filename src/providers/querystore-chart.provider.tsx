@@ -79,6 +79,23 @@ function errorDetail(error: unknown, status: QuerystoreStatus | undefined): Omni
 const dedupeIdFor = (hit: QuerystoreHit, comparing: boolean) =>
   !comparing && hit.resourceType === 'obs' && hit.resourceUuid ? `obs:${hit.resourceUuid}` : undefined;
 
+const isHit = (value: unknown): value is QuerystoreHit =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as QuerystoreHit).resourceType === 'string' &&
+  typeof (value as QuerystoreHit).resourceUuid === 'string';
+
+const isGroup = (value: unknown): value is QuerystoreGroup =>
+  typeof value === 'object' && value !== null && isHit((value as QuerystoreGroup).latest);
+
+/** The usable entries of a list from the server, so one bad entry doesn't cost the good ones. */
+const usable = <T,>(list: unknown, keep: (entry: unknown) => entry is T): Array<T> =>
+  Array.isArray(list) ? list.filter(keep) : [];
+
+/** A day-precision date from the server, formatted, or nothing when it isn't text. */
+const formatDay = (date: unknown) =>
+  typeof date === 'string' && date ? formatDate(parseDay(date), { time: false }) : undefined;
+
 const swrOptions = { revalidateOnFocus: false, revalidateOnReconnect: false, errorRetryCount: 2 };
 
 const fetcher = <T,>(url: string) => openmrsFetch<T>(url).then((r) => r.data);
@@ -207,15 +224,15 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
         report({ query, title, status: 'error', detail: errorDetail(searchData.error, searchData.data?.status) });
         return;
       }
-      const groups = searchData.data?.groups ?? [];
+      const groups = usable(searchData.data?.groups, isGroup);
       const results: Array<OmnibarResult> = groups.map((group) => {
         const latest = group.latest;
         const rowTitle = hitTitle(latest, group.conceptName, t);
         const target = targetForHit(latest, patientUuid, resultsUrl);
 
         let subtitle: string | undefined;
-        if (latest.date) {
-          const formattedDate = formatDate(parseDay(latest.date), { time: false });
+        const formattedDate = formatDay(latest.date);
+        if (formattedDate) {
           subtitle =
             group.count > 1
               ? t('querystoreRecordedOnWithCount', 'Latest, recorded {{date}} · {{count}} readings', {
@@ -259,15 +276,13 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
       });
       return;
     }
-    const hits = recentData.data?.hits ?? [];
+    const hits = usable(recentData.data?.hits, isHit);
     const results: Array<OmnibarResult> = hits.map((hit) => {
       const rowTitle = hitTitle(hit, hit.conceptName, t);
       const target = targetForHit(hit, patientUuid, resultsUrl);
-      const subtitle = hit.date
-        ? t('recordedDate', 'Recorded {{date}}', {
-            date: formatDate(parseDay(hit.date), { time: false }),
-            interpolation: { escapeValue: false },
-          })
+      const date = formatDay(hit.date);
+      const subtitle = date
+        ? t('recordedDate', 'Recorded {{date}}', { date, interpolation: { escapeValue: false } })
         : undefined;
       return {
         id: hit.resourceUuid,
