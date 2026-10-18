@@ -300,7 +300,7 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 4. Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.
 5. Add the Query results section. It needs a "submit the query" path in the provider contract, a condensed sticky patient banner, and a way for the chart to show the vitals header only where it's relevant.
 6. Add slash commands, starting with English names and designed for localized and custom aliases.
-7. Use the query store for chart lookups. A prototype provider, with warming on chart open, is on the `prototype/omnibar-endpoints` branch.
+7. Use the query store for chart lookups. A query store chart provider, with warming on chart open, is built in and off by default: `chartLookup.source` set to `querystore` replaces chart lookup, and `both` shows the two side by side. Next is trying it live.
 8. Add cohort questions, which needs the Cohort Builder to accept a query definition by URL. Work is in progress on the `feat/cohort-omnibar` branch.
 9. Fix `PatientPhoto` in esm-styleguide to load only same-origin photos, then use it in patient rows again.
 10. Move the slot and types into esm-framework through an RFC once the contract settles.

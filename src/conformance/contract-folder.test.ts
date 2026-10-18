@@ -48,10 +48,11 @@ describe('the contract folder', () => {
 });
 
 describe('the built-in providers', () => {
+  const providers = join(dirname(fileURLToPath(import.meta.url)), '../providers');
+  const files = readdirSync(providers).filter((file) => /\.provider\.tsx?$/.test(file));
+
   // The workspace2 store isn't a framework export. The host reads it and passes context.workspaceGroup.
   it('never read or subscribe to the private workspace2 store', () => {
-    const providers = join(dirname(fileURLToPath(import.meta.url)), '../providers');
-    const files = readdirSync(providers).filter((file) => /\.provider\.tsx?$/.test(file));
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
       const source = readFileSync(join(providers, file), 'utf8');
@@ -65,6 +66,18 @@ describe('the built-in providers', () => {
         file,
         subscribes: false,
       });
+    }
+  });
+
+  // The host decides the patient and passes context.patientUuid; the address bar can be ahead of it.
+  it('never read the URL to find the patient', () => {
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const source = readFileSync(join(providers, file), 'utf8');
+      expect({
+        file,
+        readsUrl: /\blocation\b|\buseParams\b|\bgetPatientUuidFromPath\b|\bpatient-path\b/.test(source),
+      }).toEqual({ file, readsUrl: false });
     }
   });
 });

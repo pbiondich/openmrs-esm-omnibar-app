@@ -639,3 +639,181 @@ Tests rewritten because the contract changed:
 - Failed first: ace8f70 9, e5a4bd1 3, 2bd9526 1, cf131cc 3 (the re-report case passed before and stays as a guard), 07408bf 1, 8a5cbf2 1, 6fd1986 1, 6083dbf 2.
 - No test was rewritten. The workspace patient test gained the encoded own-uuid case, and the conformance grep gained `getState` and `workspaceGroupNameOf`, as the brief asks.
 - `yarn verify`: `Tasks: 3 successful, 3 total`.
+
+## Feature: query store "In this chart" provider, on contract 1
+
+Merges the querystore chart provider from `prototype/omnibar-endpoints` (c303127, 95489fe) into main and brings it up to contract 1. It sits behind `chartLookup.source`: `rest` (the default, no change), `querystore` (chart lookup goes idle and the query store answers), or `both` (side by side, for comparison). Paul's decision: while a chart is still indexing, show partial results now rather than wait.
+
+Cherry-picked with Paul's authorship and messages: e35c899 (from c303127) and c731a82 (from 95489fe). Conflicts:
+
+- `src/index.ts`: kept main's `withProviderBoundary` import from `./omnibar-contract` and its `export type * from './omnibar-contract'`, and added `setupWarmOnChartOpen` in `startupApp` and `querystoreChartProvider` wrapped by `bounded(...)`.
+- `src/providers/chart-lookup.provider.tsx`: kept main's phrase-then-words concept search, and made it idle under `source: 'querystore'` by gating `search`, so no SWR request is made.
+- `src/routes.json`: kept main's `contract: 1` metas and added the querystore entry (its meta is fixed below).
+- The cherry-picked test's config lacked main's `chartLookup.maxCandidates`, which `tsc` rejected; added it.
+
+| Change | Commit |
+| --- | --- |
+| Prettier over the cherry-picked files and the merged chart lookup line, so later diffs show only real changes | ed60624 |
+| Contract types and helpers come from `../omnibar-contract` | 1726849 |
+| Meta: `lane: record`, `scopes: [patient]`, `order: 15` (the order registry's number), `contract: 1`, `dedupeKey: chart-values`, `skipIdentifierQueries: true`, and no `defaultInChart`, since chart lookup is the one `chart-values` provider that takes the default. The test compares the whole meta, so `defaultInChart` can't creep back | 1be2751 (test), b351b19 |
+| Identifier-shaped queries stay idle with no request, from `hints.looksLikeIdentifier` or, on hosts without hints, `looksLikeIdentifier(query)` | c6404de (test), 605de5e |
+| Errors: unreachable (`isServerUnreachable`) is `error` with `detail.state: 'unavailable'`; a chart the server says `failed` is `error` with `detail.state: 'failed'`; anything else is a plain `error`. Never the server's message. Both the search and the recent path, and the recent path's error now keeps the "Recent in this chart" heading | 09c12b6 (test), f9d8313 |
+| Partial results: `projecting` and `not_indexed` report `ready` with what came back and `detail.state: 'projecting'`, so the host draws "Still indexing; results may be incomplete", and the heading even with no results. Same for "Recent in this chart". Only the first request, with nothing to show yet, is `loading` | b5d9ca4 (test), 3f069ba |
+| `src/querystore/bounded-poll.ts`: `useBoundedPoll(key, pending, recheck)` re-checks after `POLL_DELAYS_MS` = 1.5, 3, 6, 12 and 24 s (about 46 s) and then gives up. Each delay starts once the previous re-check has answered, so a slow server never has two in flight. A failed re-check still counts. The count starts again for every new key, including going back to an earlier one. `exhausted` turns true only after the last re-check has answered and the chart is still pending | e3ed2e0 (test), 7e9784b |
+| The provider uses it instead of SWR's `refreshInterval`. After the last re-check it keeps the results and `detail.state: 'projecting'` with the note "This chart isn’t fully indexed yet; results may be incomplete" (`querystoreNotFullyIndexed`) | 0b5af7a (test), 081ac9f |
+| Dedupe: obs rows carry `dedupeId: 'obs:<resourceUuid>'`, the form chart lookup sends; other records carry none. In `source: 'both'` no row carries one, so the comparison isn't hidden, and the config description says so | 10454ea (test), 54414a8 |
+| Other patient: every record type (obs, condition, diagnosis, allergy, drug_order, medication_dispense, test_order, referral_order, encounter, visit), an unknown one and a path-like one all land on `context.patientUuid`'s chart, even with the address bar on another patient and the hit naming one. The conformance test now also fails any built-in provider that reads the URL to find the patient | 59e1c04 |
+| Warm on chart open: `Retry-After` is read as 5 s when it's missing, an HTTP date, zero or negative, and capped at 60 s (`Infinity` too). Opening another chart drops a retry still waiting | 3de2663 (test), eeaf74d |
+| A 503 that arrives after the user has moved to another chart schedules no retry, so it can't replace the current chart's waiting retry, which teardown cancels | fc781e3 (guard), b676f4d (test), 7e3e865 |
+
+Found while building: since 95489fe the provider never actually re-polled. Hoisting the `refreshInterval` function to a module constant gave it a stable identity, and SWR evaluates a function `refreshInterval` only when that effect re-runs. It ran once, at mount, with no data, and returned 0. In c303127 the inline arrow re-ran it on every render. The bounded poll replaces it, and 0b5af7a is what showed it: one request where five more were expected.
+
+Tests rewritten, all in the cherry-picked `querystore-chart.provider.test.tsx`, because the decision changed what they expect:
+
+- "reports an error, not empty results, when the chart failed to index" expected a plain `error`; it is now `detail.state: 'failed'`, on both paths.
+- "reports loading while the chart is not indexed yet" and "reports status loading and re-polls when server returns projecting for search" expected `loading`; they are now the partial-results tests.
+
+Translations: `yarn turbo extract-translations` turned `querystoreRecordedOnWithCount` into `_one` and `_other`, because it's called with `count` (only `_other` is used: the row says it only when there are two or more readings), sorted the new keys in, and added `querystoreNotFullyIndexed`. It also added `savedLists` from the conformance test's stand-in app, which main's `en.json` doesn't have; left out.
+
+- Tests: 416 before (11 files). After the cherry-picks, 444 with 1 failing: main's "declares contract 1 for every built-in provider", fixed by b351b19. After: 492 (14 files): 47 in the provider test, 19 in the warm test, 9 in the poll test, and 1 more in the conformance test.
+- Failed first: 1be2751 2, c6404de 5, 09c12b6 6 (the plain-error case passed before and stays as a guard), b5d9ca4 6 (loading-first and indexed-without-detail passed before), e3ed2e0 the module didn't exist, 0b5af7a 4, 10454ea 2 (the comparison mode had no dedupe ids anyway), 3de2663 4 (zero, an HTTP date and missing already gave 5 s), b676f4d 1.
+- Passed first, as guards: 59e1c04 (taking the patient from the URL fails 3 of its tests), fc781e3 (eeaf74d's drop on chart change already covered it; b676f4d is the case that needed 7e3e865).
+- The fake-timer tests advance one delay per `act`, since each next re-check is scheduled by an effect. Five runs in a row passed.
+- `src/omnibar-contract/` is unchanged.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 492 tests.
+- `yarn build`: `Rspack compiled with 1 warning`, the asset size limit on the same two shared fallbacks (`132.js`, `769.js`).
+- No new dependencies, URLs, fonts or CDNs. The provider and the warm call only the OpenMRS server's own `/ws/rest/v1/querystore/...`.
+- The order registry (15) and the `chart-values` row in the contract doc already match; unchanged.
+- Not tested live. Grok's adversarial code and security review comes next.
+
+### Review round 1 (Grok code and security): CHANGES REQUESTED
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| B1 | BLOCKING. The provider was mounted for `Get Patients`, a wider gate than chart lookup's `Get Observations`, for rows that are chart values. The chart-open warm wasn't gated at all, so a user who couldn't see the provider could still ask the server to index a chart | The extension requires `Get Observations`, and a test ties it to chart lookup's. The warm, after the source check, takes the session from `getCurrentUser()` and posts only when `userHasAccess('Get Observations', user)`; no user means no warm. The per-type checks (orders, allergies, visits) stay with the server | 883dbb9 (test), 0e82e25; e525f2f (test), 9b6eacd |
+| S1 | SHOULD-FIX. The first warm went out after the user had left the chart (home, or another chart, before `getConfig` resolved). A 503 arriving after teardown still armed a retry. Nothing aborted an in-flight warm. A second `setupWarmOnChartOpen` stacked another listener | A `stopped` flag set by teardown. Before the first POST and before arming or running a retry, the warm requires `!stopped`, the chart still being `lastUuid` and the address bar still on it; if the user has left, `lastUuid` is cleared so coming back warms once. Every warm carries the setup's `AbortSignal`, aborted on teardown. A second setup tears down the first, and tearing down a replaced setup leaves the current one alone | 776888a (test), 4060eaf |
+| S2 | SHOULD-FIX (design). Under `source: 'querystore'` chart lookup is idle and the query store rows have no `defaultInChart`, so Enter opens a default-eligible destination (`ward`, `bed`, `list`…) or does nothing | First kept unset and the config description said so (5f04460); then decided the reviewer's way, see the addendum | 5f04460, then the addendum |
+| N1 | NIT. The stale-query test's `every()` was true for every report | Each query gets its own rows; the second answer is held until after the rerender. No report after the rerender is for the old query, none carries the old row, and the last is the new query's own row. It passes, and fails with `keepPreviousData: true` on the search hook | 2d6cb19 |
+| N2 | NIT. The other-patient test never looked at the request URL | It asserts every request is `/querystore/patient/<context patient>/search?` or `/recent?` and never names the other patient. Passes; taking the patient from the address bar fails it on both paths | f5ae032 |
+| N3 | NIT. After the poll gave up, SWR still revalidated on focus and reconnect, and retried errors without end, while the bar was open; the comment said otherwise | Both hooks pass `revalidateOnFocus: false`, `revalidateOnReconnect: false`, `errorRetryCount: 2`, and the comment says so. Tests: a minute after giving up, focus, visibility and `online` events fetch nothing; an unreachable server is asked 3 times in 10 minutes | a539760 (test), fa70ddf |
+| N4 | NIT. A `Retry-After` such as `0.001` retried after 1 ms | Under one second counts as missing: 5 s. Cases `0.5` and `0.001` added | f176606 (test), f9c583c |
+| N5 | NIT. A `null` group, a missing `latest` or a non-array list threw in the effect, so the boundary replaced the good rows with "Couldn't load results" | Groups need an object `latest`; records need to be objects with a text `resourceType` and `resourceUuid`; anything else is skipped. A list that isn't an array is empty. A date that isn't text is dropped instead of crashing `parseDay` | a9500ce (test), 6ab1236 |
+
+S2 decided the reviewer's way (addendum below): the query store provider sets `defaultInChart`. The rule exists so a second `chart-values` provider can't replace chart lookup's target, and dedupe already guarantees that. Chart lookup is order 10, the query store order 15 in the same lane, and a copy with the same preference never replaces one ranked before it, so with both flags set chart lookup keeps the copy whenever both returned the obs. The query store takes the default only for rows chart lookup didn't find, which under `querystore` is all of them, and every one of its targets stays on the open chart. In `both` mode its rows carry no `dedupeId`, so nothing is hidden either way.
+
+Tests rewritten:
+
+- Three warm tests matched the POST's init exactly as `{ method: 'POST' }`; they now use `expect.objectContaining({ method: 'POST' })`, since every warm carries a `signal` (S1).
+- The stale-query test (N1), replaced as above.
+
+- Tests: 492 before, 516 after (provider 47 → 60, warm 19 → 30).
+- Failed first: 883dbb9 1, e525f2f 3, 776888a 6, f176606 2, a539760 4, a9500ce 8. On a9500ce the `null.latest` TypeError also left React mid-render, so the rest of that file failed with "Should not already be working" (10 more); 6ab1236 clears all of them.
+- The N3 focus test first passed against the old code, because the focus came straight after the last re-check while SWR's dedupe entry was still live. A probe showed focus does refetch a minute later, so the test now waits a minute first; that version failed (7 requests, not 6) before fa70ddf.
+- Passed first, as guards: 2d6cb19 and f5ae032, each shown to fail under the mutation named above.
+- Five runs in a row of the query store tests passed.
+- `src/omnibar-contract/` is unchanged. No new translation keys; the extractor's `savedLists` from the conformance stand-in is still left out.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 516 tests.
+- `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit on `132.js` and `769.js`.
+- Backend follow-ups from the review are in the build summary.
+
+### Review round 1 addendum: S2 decided, `defaultInChart` set
+
+The orchestrator decided S2 the reviewer's way.
+
+| Change | Commit |
+| --- | --- |
+| The query store meta gains `defaultInChart: true`. The exact-meta test expects it, and a new test checks that the provider ranks after chart lookup in the same lane | ec7741d (test), 2014816 |
+| Omnibar tests with the providers as routes.json declares them and `source: 'querystore'`: "cd4" highlights the query store's value and Enter opens it, with chart lookup idle. "admission", which also matches the Ward destination, highlights the query store row and Enter opens the chart's Visits, when both answers are on screen together. With chart lookup and the query store both reporting `obs:<uuid>`, the query store first, chart lookup's row is the one shown, highlighted and opened | ec7741d, b93a3f9 (tests), 2014816 |
+| The `chartLookup.source` description now says the query store rows take the default highlight in a chart as chart lookup rows do, unless a row that answered first already holds it (replaces 5f04460's wording) | 3a516b6 |
+| AGENTS.md ("Default highlight") and the contract doc (the `defaultInChart` row, Dedupe, the key registry): another `chart-values` provider may set `defaultInChart` only if it ranks after chart lookup in the same lane and every target stays on the open chart; the query store is that case | 1b151cb |
+
+Found while writing the destination test: the brief asked that a word matching both a query store row and a destination take the query store row. That holds only when both answers are on screen together. The host pins the default highlight to the first row it lands on, so a slower provider sorting above can't move it just before Enter (ad43ece). Destinations answer at once from config, while the query store answers after a request, so the first time a word like "admission" is typed, Ward is already pinned and Enter opens the ward. Typed again, the query store answers from SWR's cache in the same render, and its row wins. The first test version (ec7741d) asserted the first-time case and still failed with the flag set; b93a3f9 replaced it with the two cases that hold. Changing the pin rule, for example letting a record-lane default displace a pinned navigate-lane default while the record lane is still loading, would be a host change of its own and isn't made here. Chart lookup has the same race against destinations under `rest`.
+
+`src/omnibar-contract/types.ts` still says, on `dedupeKey`, "only one provider with a key should set `defaultInChart`". It isn't changed here (the folder is the copied contract); it's a follow-up for the original.
+
+- Tests: 516 before, 520 after (`omnibar.test.tsx` +3, provider test +1).
+- Failed first: ec7741d 2 (the exact meta; Ward held the highlight). b93a3f9's two default tests failed without the flag (nothing or Ward highlighted) and pass with it. The dedupe test passed before and after, as a guard. With the query store at order 5 it fails.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 520 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+
+### Review round 2 (Grok code and security): CHANGES REQUESTED, no blocking
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| S2 | SHOULD-FIX. With the flag set, the first Enter on a word that also matches a destination ("admission", "bed", "list", "admit") still opened the destination. The host pins the first default it lands on, and destinations answer from config before the query store's request returns | The pin stays; only the automatic default waits. The collector reports `awaitingRecordDefault`: a record-lane provider that may take the default with no report for the current query yet, or `loading` with no rows. It reads the reports before dedupe, which drops a group left empty. Inside a chart, while that holds, no navigate-lane row is chosen as the default and Enter does nothing. Its rows then take the pin; an empty, idle or error answer lets the page take it as before. The wait is at most `chartValuesGraceMs` (1.5 s) per query, keyed on chart, open state and query, so a provider stuck loading can't hang Enter. 1.5 s because chart lookup's REST path is two requests in a row (concept search, then `$lastn`). A row the user arrowed or pointed to is never touched. Applies under `rest` with chart lookup too. The config description loses its answered-first caveat. The contract doc gains "The default highlight" (the pin and the wait), and AGENTS.md links it | df5f39f (test), 11d82d3, fb83c01, 74a70f5 |
+| N5 | NIT. A date string that wasn't `YYYY-MM-DD`, such as a full timestamp, made `formatDate` throw, and the boundary replaced every good row. `2026-02-31` rolled into March | `parseDay` accepts only `^(\d{4})-(\d{2})-(\d{2})$` whose year, month and day round-trip through `Date`; anything else is no date, and the row shows without a subtitle. No try/catch around the effect | 96f84fb (test), 16b532b |
+| N6 | NIT. A rejected `getConfig` or `getCurrentUser` left `lastUuid` set, so the chart was never warmed until the user left and came back | On that rejection, `lastUuid` is cleared if it's still this chart, and the next move within it warms once. The warm itself now runs outside that rejection path, so a failing POST doesn't clear it | 262e60f (test), 1385b42 |
+| N7 | NIT. AGENTS.md's built-in list and the README's plan item 7 were stale | AGENTS.md lists the query store chart provider, off unless `chartLookup.source` is `querystore` or `both`. README item 7 says it's built in and off by default, and that trying it live is next | dab779d |
+| N8 | NIT. `src/omnibar-contract/types.ts` still says only one provider with a key should set `defaultInChart` | Not changed: the folder is the copied contract. Follow-up: fix the original and recopy | none |
+
+Tests:
+
+- Five new host tests in `omnibar.test.tsx`, with the providers as routes.json declares them:
+  - "admission" typed once, the query store answering after the destination: Enter does nothing until it answers, then opens `chart/Visits` for the chart's patient.
+  - The query store answering empty: the ward takes the highlight.
+  - The query store never answering: the ward takes it within the grace period.
+  - The user arrowing to the ward first: it keeps the highlight when the record arrives.
+  - Under `rest`, chart lookup's "Admission weight: 70 kg" taking Enter over the ward.
+- b93a3f9's comment no longer says the first pass opens the ward.
+- Totals: 520 before, 534 after (omnibar +5, provider +7, warm +2).
+- Failed first: df5f39f 3 (first keystroke, stuck loading, `rest`; the ward was highlighted at once). The empty-answer and arrowed-row tests passed before and stay as guards. With the grace period set to a minute, the stuck-loading test fails. 96f84fb 9, and the `RangeError` left React mid-render, so 11 more tests in that file failed. 262e60f 2.
+- 1385b42 amends a local commit that was never pushed. Its first version cleared `lastUuid` from one catch covering the warm too. Under the suite's `mockReset`, `openmrsFetch` returns `undefined`, so `warm()` threw and the chart was forgotten, which failed "does not POST again on navigation within the same chart". My `&&` chain committed on grep's success before I saw the failures. The amended version keeps the warm outside the rejection handler.
+- The host tests passed five runs in a row.
+- `src/omnibar-contract/` is unchanged. No new translation keys.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 534 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+
+### Review round 3 (Cursor cloud), with the Grok r3 code and security addendum
+
+Cursor's cloud review of 979dce9 found one blocker, two should-fixes and a nit. Grok's r3 code (S1) and security (S3, N9) reviews confirmed the blocker and gave the design used for it.
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 (Cursor BLOCKER, Grok S1/S3) | The query store reports its first `projecting` or `not_indexed` body as `ready`, even with no rows. The collector counted that as answered, so the hold ended at once and the ward was pinned. The admission row the re-check brought couldn't take the pin back. Rows that a slow provider sent after the 1.5 s grace couldn't either | Inside a chart only. An unanswered provider is a default-eligible record-lane one with no report, `loading` with no rows, or `projecting` with no rows and no `note`. The note is set only once the provider has given up re-checking, so a chart that never indexes still releases. Idle, error, `unavailable`, `failed` and `ready` without projecting are answers. `loading` keeps the 1.5 s cap (`chartValuesGraceMs`). An empty indexing answer gets its own cap, `chartIndexingGraceMs` = 10 s, since the first re-check comes 1.5 s after the empty body. An automatic highlight moves up to a default-eligible record-lane row from a provider ranked before its own once one arrives. A chosen row stays. Global scope keeps the plain pin, and the Home-before-slow-patient test passes unchanged | 6eac1b5, 7a521e1 (tests), aea680e, 8636474, 60be654 |
+| N9 (Grok) | `graceOverFor` was never cleared, so coming back to a query whose wait had ended skipped it | Both waits are stored with their query key and reset during render when the key changes, so any new query, including one the user returns to, waits again | 7a521e1 (test), 8636474 |
+| 2 (Cursor SHOULD-FIX) | In `source: 'both'` the query store rows carry no `dedupeId`. If they answered first, the pin kept them highlighted after chart lookup's higher-ranked row arrived, against the contract doc's "chart lookup wins" | The host rule is general rather than special to destinations. A row isn't chosen as the default while a default-eligible record-lane provider that ranks before it hasn't answered, and the give-way also moves an automatic highlight up to such a provider's row. In `both` mode the query store row waits for chart lookup (order 10). If chart lookup finds nothing, the query store row takes the highlight. Comparison keeps both copies, so no dedupe id comes back. Tested with the real providers in `both` mode | accb836 (test), 8636474 |
+| 3 (Cursor SHOULD-FIX) | The extension is gated only on `Get Observations`, but the rows include conditions, diagnoses, allergies, orders, dispenses, encounters and visits | Each row is shown only if `userHasAccess` grants that type's core privilege to the session's user. The map is the query store backend's own (core `PrivilegeConstants`): `obs` Get Observations, `condition` Get Conditions, `diagnosis` Get Diagnoses (the brief suggested Get Conditions; core has its own), `allergy` Get Allergies, the three order types Get Orders, `medication_dispense` Get Medication Dispense, `encounter` Get Encounters, `visit` Get Visits. Unknown types are dropped, and so is everything when the session has no user. The server must still filter per type itself | 14ec4e2 (test), 6b63854 |
+| 4 (Cursor NIT) | A group whose `conceptUuid` isn't text, or a row with nothing to title it, was reported and then dropped by `cleanResult` | Rows without a text id and title, neither empty, are dropped in the provider | 6026b10 (test), fdc643f |
+| Docs | The contract doc's "The default highlight" said a page takes the default once the provider "reports none", which described a no-row `projecting` report as a finished empty answer | Rewritten. It covers the ranked wait, what counts as an answer (a no-row `projecting` report without a note doesn't), the 1.5 s and 10 s caps, the per-query reset, and the give-way. The "Stale data" guard notes the one exception to "stays where it first landed". AGENTS.md and the `chartLookup.source` description match | b36d926, 197b213 |
+
+How aea680e was superseded:
+- I first counted any no-row `projecting` report as unanswered, and moved the first re-check to 0.5 s so it landed inside the 1.5 s grace.
+- The addendum's design replaced that: the note releases the hold, a separate 10 s cap covers indexing, and late rows give way. So 60be654 restores the reviewed `[1500, 3000, 6000, 12000, 24000]` schedule.
+
+Tests rewritten:
+- The cherry-picked targets test expected an unknown type and a path-like type to land on the chart root. They are now dropped (item 3).
+- The round-3 test "gives the destination the highlight when the chart is still indexing with nothing found past the grace period" became the indexing-cap test. With fake timers, the ward is still not highlighted 3 s in, and is highlighted after the 10 s cap.
+- The first not-indexed test now starts with `not_indexed` and checks that Enter does nothing meanwhile.
+
+- Tests: 534 before, 567 after (`omnibar.test.tsx` +7, provider test +26).
+- Failed first:
+  - 6eac1b5 2 (the ward was pinned at once).
+  - accb836 1 (the query store row held the highlight). Its chart-lookup-finds-nothing case passed and is a guard.
+  - 7a521e1 4: slow first answer, the 10 s cap, the given-up note, and the returning query. The `not_indexed` case passed with aea680e's 0.5 s re-check.
+  - 14ec4e2 26 (24 privilege cases and the two targets tests).
+  - 6026b10 2.
+- The new host tests and the query store tests passed five runs in a row.
+- `src/omnibar-contract/` is unchanged. N8, the `dedupeKey` comment in `types.ts`, is still a follow-up for the original.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 567 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
+
+### Review round 4 (Cursor cloud re-review: APPROVE WITH NITS; Grok r4 re-check, code and security: CHANGES REQUESTED, no blocking)
+
+| # | Finding | Fix | Commit |
+| --- | --- | --- | --- |
+| 1 (Cursor SHOULD-FIX) | `pointAt` returned early when the hovered row was already highlighted, so pointing at a destination picked by default didn't mark it chosen, and a late chart row could still take it | Pointing at a row marks it chosen when it isn't already, including when it's highlighted by default. Test: the ward is picked by default, the user points at it, the admission row arrives, and the ward keeps the highlight and Enter | ba9a959 (test), 8eee4c5 |
+| 2 (Cursor optional nit, Grok S1 SHOULD-FIX) | Once the 1.5 s cap had pinned a destination, a later empty indexing answer (a search slower than 1.5 s, or one retried after an error) didn't take the highlight back, so Enter opened the ward while the chart was still indexing | Inside a chart, a default highlight is kept only while it may be the default now. While a provider ranked before it is back to not having answered, it's withdrawn and Enter does nothing, until rows arrive (the give-way) or the cap runs out. No new clock starts: both caps still count from the query. A chosen row (arrow or pointer) is kept as it was. Outside a chart nothing waits, so the pin is unchanged. The contract doc's "The default highlight" and "Stale data", and AGENTS.md, say so | d189cce (test), 4f08ddf, 92868f9 |
+| N1 (Grok) | No test showed that a session user change after the first paint refilters the rows | Test: the session changes to a user without `Get Conditions`, and the condition row goes. It passes as a guard, and fails with `user` removed from the effect's dependencies | f9d1d9d |
+| N2 (Grok) | A whitespace-only snippet or concept name counted as a title | Blank text counts as missing. A coded row falls back to the concept name, a numeric row with a blank concept name shows just the value, and a row with nothing left is dropped | c3e3392 (test), fe6cfba |
+| N8 (Grok) | The `dedupeKey` comment in `src/omnibar-contract/types.ts` | Still a follow-up for the original; the copied folder is unchanged | none |
+
+Round 4 item 2 was first left as optional, because withdrawing a highlight under the user is what the pin was meant to prevent. Grok's r4 made it required. It holds now only inside a chart, only for a highlight the user didn't choose, and only within the per-query caps.
+
+The S1 tests use the real query store provider and real delays:
+
+- The first search is held 2 s, past the 1.5 s cap, and answers `not_indexed` with no rows. The ward loses the highlight and Enter does nothing. The re-check brings the admission row, and Enter opens this patient's `/chart/Visits`.
+- The user arrows to the ward before that answer: the ward keeps Enter.
+- A 503, then SWR's retry answering `not_indexed` with no rows: the ward is released while the indexing hold is live. `errorRetryInterval` is 200 ms in that test's `SWRConfig`, because SWR's default retry delay is random and could land past the 10 s cap.
+
+- Tests: 567 before, 574 after (`omnibar.test.tsx` +4, provider test +3).
+- Failed first: ba9a959 1, d189cce 2 (the arrowed case passed and stays as a guard), c3e3392 1.
+- The pointer test failed once in a full-suite run right after 8eee4c5's change, then passed alone and in three full runs. The likely cause is its tight timing under load: the ward highlighted at 1.5 s, the chart row due at 2.2 s. Its slow answer is now 3 s, so the pointer move always lands first.
+- The host, provider and query store tests passed three runs in a row after the last change.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 574 tests. `yarn build`: `Rspack compiled with 1 warning`, the same asset size limit.
