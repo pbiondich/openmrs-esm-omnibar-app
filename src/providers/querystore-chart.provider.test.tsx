@@ -363,6 +363,44 @@ describe('QuerystoreChartProvider', () => {
       expect(report.mock.calls[0][0].status).toBe('loading');
     });
 
+    it('asks nothing more on focus or reconnect once it has given up', async () => {
+      mockOpenmrsFetch.mockResolvedValue({
+        data: { status: 'not_indexed', groups: [makeGroup()], hits: [makeGroup().latest] },
+      } as FetchResponse);
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+      await advance(0);
+      for (const delay of POLL_DELAYS_MS) {
+        await advance(delay);
+      }
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1 + POLL_DELAYS_MS.length);
+
+      // A minute later the user comes back to the window, or the network does.
+      await advance(60_000);
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('online'));
+      });
+      await advance(10 * 60 * 1000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1 + POLL_DELAYS_MS.length);
+    });
+
+    it('retries an unreachable server only a couple of times', async () => {
+      mockOpenmrsFetch.mockRejectedValue(new TypeError('Failed to fetch'));
+      const report = vi.fn();
+      renderWithFreshCache(<QuerystoreChartProvider query={query} context={patientContext} report={report} />);
+      await advance(0);
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'error', detail: { state: 'unavailable' } }),
+      );
+
+      for (let i = 0; i < 20; i++) {
+        await advance(30_000);
+      }
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(3);
+    });
+
     it('stops re-checking once the chart is indexed, and drops the line', async () => {
       mockOpenmrsFetch
         .mockResolvedValueOnce({ data: { status: 'projecting', groups: [], hits: [] } } as FetchResponse)
