@@ -964,3 +964,36 @@ Conflicts were only in AGENTS.md, decisions.md and this file, and both sides wer
 - No new dependencies, URLs, fonts or CDNs. ChartSearch is called on the OpenMRS server's own `/ws/rest/v1/chartsearchai/search/stream`.
 - Not built: brief item 4c, "Found in the record" from the query store.
 - Seen live, not fixed here: chart values show a CD4 result as 19-Apr-2006 while ChartSearch cites it as 20 April. Chart lookup in the bar shows 19-Apr too, so it's a date display question that predates this branch.
+
+## Fix: query store rows don't take the default highlight in a chart
+
+Paul decided from query store benchmark round 2 that query store rows are chosen by arrow or pointer for now (see `docs/decisions.md`). Its keyword path was fast and every latest value was right, but its first row matched the REST dropdown's in only 17 of 26 queries.
+
+| Change | Commit |
+| --- | --- |
+| `src/routes.json`: `omnibar-querystore-chart-provider` drops `defaultInChart`. Lane, order 15, `dedupeKey`, `skipIdentifierQueries` and contract 1 are unchanged. Chart lookup and destinations keep the flag | this commit |
+| The exact-meta test expects no `defaultInChart`. A stub test with both shipped metas checks, inside a chart, that a query store row chart lookup didn't find isn't the default, and that chart lookup's copy of a shared `obs:` is shown and highlighted | this commit |
+| The `with the query store as the chart-values source` tests drove the host's wait for chart values (the 1.5 s grace, the 10 s indexing cap, taking the highlight back) through the query store. They now mount it with `defaultInChart` added back, as the contract allows, so that host code stays covered. Two new tests run the meta as shipped: "admission" highlights Ward at once and keeps it when the query store answers, and in side-by-side mode the query store's row isn't the default when chart lookup finds nothing | this commit |
+| The `chartLookup.source` description, AGENTS.md, the contract doc (the default highlight, Dedupe, the key registry) and the registration plan's status note say the query store may set the flag but doesn't for now | this commit |
+
+Found while testing: six tests in that block still passed without the flag, but only because a destination no longer waits for the query store, so they proved nothing. They run with the flag again.
+
+### Review round 1 (code and security, Claude, one pass): APPROVE WITH NITS, no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| should: no FIXES.md entry, though AGENTS.md lists the default highlight as significant | This section | this commit |
+| nit: "until benchmark round 3" read as a promise that the flag comes back | "For now", and "revisit after benchmark round 3", as `decisions.md` says | this commit |
+| nit: the block's describe name said the query store is set to take the default, but it also holds the shipped-meta tests | The name is back to `with the query store as the chart-values source`. The override is visible as `queryStoreTakingDefault()` | this commit |
+| nit: inverting the side-by-side test left no test of a flagged second `chart-values` provider taking the default after chart lookup answers empty, which the contract still allows | The old test is back, with the flag added | this commit |
+
+Not fixed, and why:
+
+- The round 2 numbers in `decisions.md` have their source in PR #13, which isn't merged. On `main` the link reaches only the brief. That resolves when #13 lands.
+- The `chartLookup.source` description doesn't spell out that, with `queryResults.enterBehavior: 'open-highlight'` and `querystore`, Enter on a query only the query store answers does nothing until the user picks a row. It already says the rows are chosen by arrow or pointer. Under the default `'submit'`, Enter goes to Query results.
+- The review was one combined pass, not separate adversarial code and security reviews. The change only removes a flag, so it can only narrow what takes the default, and the rules about other patients are untouched.
+
+- Tests: 700 before, 703 after.
+- Failed with the flag put back on the query store: the exact-meta test, the stub test and both shipped-meta tests (`Tests  4 failed | 376 passed (380)` across `omnibar.test.tsx` and the provider test).
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 703 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- Not tried live on o3.
