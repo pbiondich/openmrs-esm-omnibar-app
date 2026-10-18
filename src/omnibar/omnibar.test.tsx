@@ -2642,6 +2642,67 @@ describe('Omnibar with providers mounted through the slot', () => {
           expect(landedOn()).toBe('/openmrs/spa/ward');
         });
 
+        // The query store answers "admission" first with the chart still indexing and nothing found,
+        // then with what each re-check finds.
+        const openChartIndexing = (later: Array<object>) => {
+          window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Patient%20Summary`);
+          let searches = 0;
+          mockOpenmrsFetch.mockImplementation((url: string) => {
+            if (url.includes('/querystore/patient/') && url.includes('/recent?')) {
+              return Promise.resolve({ data: { status: 'projecting', hits: [] } } as FetchResponse);
+            }
+            if (url.includes('/querystore/patient/')) {
+              if (new URL(url, 'http://localhost').searchParams.get('q') !== 'admission') {
+                return Promise.resolve({ data: { status: 'projecting', groups: [] } } as FetchResponse);
+              }
+              searches += 1;
+              const groups = searches === 1 ? [] : later;
+              return Promise.resolve({
+                data: { status: later.length && searches > 1 ? 'indexed' : 'projecting', groups },
+              } as FetchResponse);
+            }
+            if (url.includes('/patient?')) {
+              return Promise.resolve({ data: { results: [] } } as FetchResponse);
+            }
+            return new Promise(() => {});
+          });
+          mountProviders([
+            shipped('omnibar-patient-search-provider', PatientSearchProvider),
+            shipped('omnibar-chart-lookup-provider', ChartLookupProvider),
+            shipped('omnibar-querystore-chart-provider', QuerystoreChartProvider),
+            shipped('omnibar-destinations-provider', DestinationsProvider),
+          ]);
+          renderWithFreshCache(<Omnibar />);
+        };
+
+        it('keeps waiting while the chart is still indexing with nothing found yet, and opens what a re-check finds', async () => {
+          const user = userEvent.setup();
+          openChartIndexing([admission]);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByText('Still indexing; results may be incomplete');
+          expect(ward()).toHaveAttribute('aria-selected', 'false');
+
+          const record = await screen.findByRole('option', { name: /Admission: Ward 3/ }, { timeout: 3000 });
+          expect(record).toHaveAttribute('aria-selected', 'true');
+          expect(ward()).toHaveAttribute('aria-selected', 'false');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Visits`);
+        });
+
+        it('gives the destination the highlight when the chart is still indexing with nothing found past the grace period', async () => {
+          const user = userEvent.setup();
+          openChartIndexing([]);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByText('Still indexing; results may be incomplete');
+          expect(ward()).toHaveAttribute('aria-selected', 'false');
+
+          await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'), { timeout: 3000 });
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe('/openmrs/spa/ward');
+        });
+
         it('waits for chart lookup the same way under the REST source', async () => {
           const user = userEvent.setup();
           mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig);
