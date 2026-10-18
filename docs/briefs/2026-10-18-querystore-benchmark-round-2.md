@@ -3,7 +3,7 @@
 Written 2026-10-18 after [round 1](../results/2026-10-18-querystore-benchmark/README.md). Not yet given to an agent. See [the briefs index](README.md) for status.
 
 ```text
-TASK: Benchmark the query store path the omnibar provider actually uses, on o3.pgb.md, and say whether it can become the default chart lookup.
+TASK: Benchmark the query store path the omnibar provider actually uses, on o3.pgb.md, and say how it should sit beside the REST chart lookup, which stays the exact path. The query store complements REST; it doesn't replace it (see docs/decisions.md).
 
 READ FIRST
 - docs/results/2026-10-18-querystore-benchmark/README.md: round 1's results and what it didn't test.
@@ -36,7 +36,7 @@ ENVIRONMENT
 
 REPORT BACK
 - A summary.md per variant, in the same table shape as round 1, plus a short results write-up: for each variant, latency against REST, the share of cases where the latest value is correct, and first-row agreement.
-- A one-paragraph answer to: can variant A (or B or C) replace the REST path as the default, and what would have to change first?
+- A one-paragraph answer to: should query store rows ever take the default highlight inside a chart, and if so with which variant, and what would have to change first?
 - Raw CSVs stay out of the repo. Put the write-up and summaries in docs/results/ as a new dated folder, following round 1's README.
 - Don't change the omnibar's defaults or open PRs. Paul decides.
 ```
