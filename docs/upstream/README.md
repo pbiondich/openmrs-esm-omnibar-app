@@ -1,4 +1,8 @@
-# Upstream ChartSearch patches
+# Upstream patches
+
+These are proposals for other OpenMRS repos, not merged work.
+
+## ChartSearch
 
 Both patches apply to `openmrs/openmrs-esm-chartsearchai` at commit `c2b6bf4`.
 They touch different files, so either one applies on its own.
@@ -22,3 +26,17 @@ prefilled. Unsent text in the old input is lost. The transcript stays in
 ChartSearch's session store. ChartSearch has no client request timeout at
 `c2b6bf4`. Its existing **Stop** control and error panel handle requests after
 submission.
+
+## Framework (esm-core)
+
+`esm-config-extension-config-validation.patch` applies to
+`openmrs/openmrs-esm-core` at commit `7a17208`. It stops the framework from
+logging `Unknown config key ... Ignoring.` for keys a module does declare, such
+as the omnibar's `chartLookup` and Cohort Builder's `drugCriteriaEnabled` on
+o3. The framework mounts an extension before its module has loaded and defined
+its schema, and checks the extension's config against the bare implicit schema
+in that gap. The values are still read. The patch holds back that check until
+the module has loaded, as the module config already does. No module-side fix
+exists. See
+[esm-config-extension-config-validation.md](esm-config-extension-config-validation.md)
+for the root cause, tests and risks.
