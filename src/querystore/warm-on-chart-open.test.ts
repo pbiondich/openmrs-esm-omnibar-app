@@ -125,4 +125,61 @@ describe('setupWarmOnChartOpen', () => {
     // No unhandled rejection — the promise chain is fire-and-forget.
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
+
+  describe('when the server has no indexing slot free', () => {
+    const unavailable = (retryAfter: string | null) =>
+      Object.assign(new Error('503'), {
+        response: { status: 503, headers: { get: (name: string) => (name === 'Retry-After' ? retryAfter : null) } },
+      });
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('retries the warm once, after Retry-After, while the user is still in the chart', async () => {
+      mockOpenmrsFetch.mockRejectedValue(unavailable('3'));
+      Object.defineProperty(window, 'location', {
+        value: { ...window.location, pathname: chartUrl(patientUuid) },
+        writable: true,
+        configurable: true,
+      });
+      teardown = setupWarmOnChartOpen(moduleName);
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+
+      await vi.advanceTimersByTimeAsync(2900);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry once the user has left the chart', async () => {
+      mockOpenmrsFetch.mockRejectedValue(unavailable(null));
+      Object.defineProperty(window, 'location', {
+        value: { ...window.location, pathname: chartUrl(patientUuid) },
+        writable: true,
+        configurable: true,
+      });
+      teardown = setupWarmOnChartOpen(moduleName);
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+      Object.defineProperty(window, 'location', { value: { pathname: '/openmrs/spa/home' }, writable: true, configurable: true });
+
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry other failures', async () => {
+      mockOpenmrsFetch.mockRejectedValue(Object.assign(new Error('403'), { response: { status: 403, headers: { get: () => null } } }));
+      Object.defineProperty(window, 'location', {
+        value: { ...window.location, pathname: chartUrl(patientUuid) },
+        writable: true,
+        configurable: true,
+      });
+      teardown = setupWarmOnChartOpen(moduleName);
+      await vi.waitFor(() => expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1));
+
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(mockOpenmrsFetch).toHaveBeenCalledTimes(1);
+    });
+  });
 });

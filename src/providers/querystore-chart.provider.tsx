@@ -12,6 +12,16 @@ import { type OmnibarProviderProps, type OmnibarResult, type OmnibarTarget } fro
  * re-polls until indexing completes.
  */
 
+/** As the server reports a chart: being indexed, ready, never indexed, or its last indexing failed. */
+type QuerystoreStatus = 'indexed' | 'projecting' | 'not_indexed' | 'failed';
+
+/**
+ * Poll again while the chart is being indexed, or isn't yet: the server starts a warm on each
+ * non-waiting request, so a chart that opened while every indexing slot was busy catches up.
+ */
+const pollWhileIndexing = (data?: { status: QuerystoreStatus }) =>
+  data?.status === 'projecting' || data?.status === 'not_indexed' ? 1500 : 0;
+
 interface QuerystoreHit {
   resourceType: string;
   resourceUuid: string;
@@ -33,12 +43,12 @@ interface QuerystoreGroup {
 }
 
 interface SearchResponse {
-  status: 'indexed' | 'projecting' | 'not_indexed';
+  status: QuerystoreStatus;
   groups?: Array<QuerystoreGroup>;
 }
 
 interface RecentResponse {
-  status: 'indexed' | 'projecting' | 'not_indexed';
+  status: QuerystoreStatus;
   hits: Array<QuerystoreHit>;
 }
 
@@ -117,11 +127,11 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
   const recentUrl = recents ? `${base}/recent?limit=5&wait=false` : null;
 
   const searchData = useSWR<SearchResponse>(searchUrl, fetcher, {
-    refreshInterval: (data) => (data?.status === 'projecting' ? 1500 : 0),
+    refreshInterval: pollWhileIndexing,
   });
 
   const recentData = useSWR<RecentResponse>(recentUrl, fetcher, {
-    refreshInterval: (data) => (data?.status === 'projecting' ? 1500 : 0),
+    refreshInterval: pollWhileIndexing,
   });
 
   useEffect(() => {
@@ -142,11 +152,12 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
     }
 
     if (searching) {
-      if (searchData.error) {
+      // A failed chart is an error to show, not an empty one: the server won't retry it on its own.
+      if (searchData.error || searchData.data?.status === 'failed') {
         report({ query, title, status: 'error' });
         return;
       }
-      const projecting = searchData.data?.status === 'projecting';
+      const projecting = searchData.data?.status === 'projecting' || searchData.data?.status === 'not_indexed';
       const loading = searchData.isLoading || projecting;
 
       const groups = searchData.data?.groups ?? [];
@@ -179,12 +190,12 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
     }
 
     // Recent documents path (empty query inside a chart).
-    if (recentData.error) {
+    if (recentData.error || recentData.data?.status === 'failed') {
       report({ query, title, status: 'error' });
       return;
     }
     const recentTitle = t('recentInThisChart', 'Recent in this chart');
-    const projecting = recentData.data?.status === 'projecting';
+    const projecting = recentData.data?.status === 'projecting' || recentData.data?.status === 'not_indexed';
     const loading = recentData.isLoading || projecting;
 
     const hits = recentData.data?.hits ?? [];

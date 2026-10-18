@@ -11,10 +11,29 @@ import type { OmnibarConfig } from '../config-schema';
  *   that can remount on sub-navigation within the chart,
  * - it fires exactly once per chart change (deduplicated by lastUuid), and
  * - it keeps querystore concerns out of the generic omnibar shell.
+ *
+ * When the server has no indexing slot free it answers 503 with Retry-After; the warm is retried
+ * once after that, and only if the user is still in the same chart.
+ *
+ * Returns a function that removes the listener and cancels a pending retry.
  */
-/** Returns a function that removes the listener. */
 export function setupWarmOnChartOpen(moduleName: string): () => void {
   let lastUuid: string | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+
+  const warm = (uuid: string, retriesLeft: number) => {
+    openmrsFetch(`${restBaseUrl}/querystore/patient/${uuid}/warm`, { method: 'POST' }).catch((error) => {
+      const response: Response | undefined = error?.response;
+      if (retriesLeft > 0 && response?.status === 503) {
+        const seconds = Number(response.headers?.get('Retry-After')) || 5;
+        retry = setTimeout(() => {
+          if (getPatientUuidFromPath(window.location.pathname) === uuid) {
+            warm(uuid, retriesLeft - 1);
+          }
+        }, seconds * 1000);
+      }
+    });
+  };
 
   const warmCurrentChart = () => {
     const uuid = getPatientUuidFromPath(window.location.pathname);
@@ -24,8 +43,8 @@ export function setupWarmOnChartOpen(moduleName: string): () => void {
     getConfig<OmnibarConfig>(moduleName)
       .then((config) => {
         if (config.chartLookup.source === 'rest') return;
-        // Fire-and-forget: errors are swallowed. The warm endpoint is idempotent.
-        openmrsFetch(`${restBaseUrl}/querystore/patient/${uuid}/warm`, { method: 'POST' }).catch(() => {});
+        // Fire-and-forget apart from the one 503 retry: other errors are swallowed. Warm is idempotent.
+        warm(uuid, 1);
       })
       .catch(() => {});
   };
@@ -33,5 +52,8 @@ export function setupWarmOnChartOpen(moduleName: string): () => void {
   window.addEventListener('single-spa:routing-event', warmCurrentChart);
   // A chart opened by URL may have routed before this module started, so check where we are now too.
   warmCurrentChart();
-  return () => window.removeEventListener('single-spa:routing-event', warmCurrentChart);
+  return () => {
+    window.removeEventListener('single-spa:routing-event', warmCurrentChart);
+    clearTimeout(retry);
+  };
 }

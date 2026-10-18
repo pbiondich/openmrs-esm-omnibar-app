@@ -154,6 +154,22 @@ describe('QuerystoreChartProvider', () => {
     });
   });
 
+  it('reports an error, not empty results, when the chart failed to index', async () => {
+    mockOpenmrsFetch.mockResolvedValue({ data: { status: 'failed', groups: [] } } as FetchResponse);
+    const report = vi.fn();
+    renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+    await waitFor(() => expect(report).toHaveBeenCalledWith(expect.objectContaining({ status: 'error' })));
+  });
+
+  it('reports loading while the chart is not indexed yet', async () => {
+    mockOpenmrsFetch.mockResolvedValue({ data: { status: 'not_indexed', groups: [] } } as FetchResponse);
+    const report = vi.fn();
+    renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
+
+    await waitFor(() => expect(report.mock.calls.at(-1)[0].status).toBe('loading'));
+  });
+
   it('reports status loading and re-polls when server returns projecting for search', async () => {
     mockOpenmrsFetch.mockResolvedValue({ data: { status: 'projecting', groups: [] } } as FetchResponse);
     const report = vi.fn();
