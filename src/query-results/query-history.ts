@@ -1,4 +1,5 @@
 import { getSessionStore, type SessionStore } from '@openmrs/esm-framework';
+import { clearSubmission } from './submission';
 
 /**
  * This session's queries about each patient, for the Query results page. Only the text of each query
@@ -106,6 +107,8 @@ export function setupQueryHistoryClearing(): () => void {
     const next = loggedIn(state);
     if (!next || (owner !== undefined && next !== owner)) {
       clearQueryHistory();
+      // A query the last user just submitted mustn't be asked on the next user's screen.
+      clearSubmission();
     }
     owner = next;
   };

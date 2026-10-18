@@ -3,7 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { getRegisteredWorkspace2Names, useConfig, usePatient, useSession, userHasAccess } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
-import { looksLikeChartSearchQuestion, useChartSearchMaxQuestionLength } from './chartsearch-question';
+import {
+  defaultMaxQuestionLength,
+  looksLikeChartSearchQuestion,
+  useChartSearchMaxQuestionLength,
+} from './chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
 interface ChartSearchWorkspaceProps {
@@ -24,7 +28,7 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
 
   const workspaceName = chartSearchSuggestion.workspaceName.trim();
   const workspaceRegistered = Boolean(workspaceName && getRegisteredWorkspace2Names().includes(workspaceName));
-  const maxQuestionLength = useChartSearchMaxQuestionLength(workspaceRegistered);
+  const maxQuestionLength = useChartSearchMaxQuestionLength(workspaceRegistered) ?? defaultMaxQuestionLength;
   // The config says which group the workspace opens in; the host says which group is open. A host
   // from before contract 1 was published doesn't say, so there the row isn't offered. The host checks
   // the workspace registry again at launch, so a group name set wrong here fails closed.

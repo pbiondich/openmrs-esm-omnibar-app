@@ -43,7 +43,7 @@ import {
   type OmnibarTarget,
 } from './types';
 import { looksLikeIdentifier } from '../omnibar-contract';
-import { queryResultsUrl } from '../query-results/query-results-url';
+import { maxQueryLength, queryResultsUrl } from '../query-results/query-results-url';
 import { markSubmitted } from '../query-results/submission';
 import { useChartSearchOffer } from '../views/chartsearch-offer';
 import styles from './omnibar.scss';
@@ -377,7 +377,9 @@ const Omnibar: React.FC = () => {
   const submitsOnEnter =
     queryResults?.enterBehavior !== 'open-highlight' && Boolean(scopePatientUuid) && Boolean(submittedQuery) && !chosen;
   // Said in the hint, so the user knows Enter will also ask ChartSearch, an AI, about the chart.
-  const asksChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid);
+  const offersChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid);
+  // A query longer than the page takes is cut, and the page never asks about a cut query on its own.
+  const asksChartSearch = offersChartSearch && Array.from(submittedQuery).length <= maxQueryLength;
   const submitQuery = () => {
     if (!scopePatientUuid || !submittedQuery) return;
     const to = queryResultsUrl(scopePatientUuid, submittedQuery);
@@ -801,7 +803,12 @@ const Omnibar: React.FC = () => {
           {desktop && (
             <div className={styles.footer}>
               {submitsOnEnter
-                ? t('keyboardHintsSubmit', '↑ ↓ to choose a result, Enter to see all, Esc to close')
+                ? asksChartSearch
+                  ? t(
+                      'keyboardHintsSubmitAndAsk',
+                      '↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close',
+                    )
+                  : t('keyboardHintsSubmit', '↑ ↓ to choose a result, Enter to see all, Esc to close')
                 : t('keyboardHints', '↑ ↓ to move, Enter to open, Esc to close')}
             </div>
           )}

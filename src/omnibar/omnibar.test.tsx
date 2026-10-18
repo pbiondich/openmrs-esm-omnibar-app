@@ -11,6 +11,7 @@ import {
   getGlobalStore,
   getRegisteredWorkspace2Names,
   getDefaultsFromConfigSchema,
+  getSessionStore,
   interpolateUrl,
   launchWorkspace2,
   navigate,
@@ -45,6 +46,8 @@ import {
 } from './omnibar.resource';
 import { withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
+// The framework mock re-exports this module, so this is the store getSessionStore returns.
+import { mockSessionStore } from '@openmrs/esm-api/mock';
 import { takeSubmission } from '../query-results/submission';
 import {
   OMNIBAR_SELECTED_EVENT,
@@ -4705,6 +4708,12 @@ describe('Enter inside a chart, with Query results', () => {
   beforeEach(() => {
     mockUseLayoutType.mockReturnValue('small-desktop');
     withEnter();
+    // A submission is marked for the logged-in user.
+    vi.mocked(getSessionStore).mockReturnValue(mockSessionStore);
+    mockSessionStore.setState({
+      loaded: true,
+      session: { authenticated: true, sessionId: 's', user: { uuid: 'nurse' } },
+    } as never);
     window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatient}/chart/Results`);
   });
   afterEach(() => window.history.pushState({}, '', '/'));
@@ -4746,11 +4755,32 @@ describe('Enter inside a chart, with Query results', () => {
       }),
     ).toBeInTheDocument();
 
+    expect(
+      screen.getByText('↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close'),
+    ).toBeInTheDocument();
+
     vi.mocked(userHasAccess).mockReturnValue(false);
     await user.type(screen.getByRole('combobox'), ' ');
     expect(
       screen.getByRole('button', { name: 'Enter to see all results for “when did he start ART?”' }),
     ).toBeInTheDocument();
+  });
+
+  it('promises nothing, and marks nothing, for a question longer than the page takes', async () => {
+    mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
+    vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
+    vi.mocked(userHasAccess).mockReturnValue(true);
+    vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 5000 });
+    mountProviders([]);
+    render(<Omnibar />);
+
+    const long = `what ${'x'.repeat(1100)}?`;
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: long } });
+    expect(
+      await screen.findByRole('button', { name: /^Enter to see all results for “what x+\?”$/ }),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect(takeSubmission(chartPatient, long.slice(0, 1000))).toBe(false);
   });
 
   it('keeps working when the workspace registry fails', async () => {

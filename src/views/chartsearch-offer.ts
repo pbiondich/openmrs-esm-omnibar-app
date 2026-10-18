@@ -32,6 +32,8 @@ export function useChartSearchOffer(query: string, patientUuid: string | undefin
     Boolean(patientUuid) &&
     installed &&
     Boolean(user && userHasAccess(privilege, user)) &&
+    // Not until ChartSearch's own limit has loaded: the default could be longer than the site's.
+    maxQuestionLength !== null &&
     question.length <= maxQuestionLength &&
     looksLikeChartSearchQuestion(question, chartSearchSuggestion?.minWords ?? 3)
   );

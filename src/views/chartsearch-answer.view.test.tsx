@@ -3,6 +3,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getConfig,
   getDefaultsFromConfigSchema,
   getRegisteredWorkspace2Names,
   type Session,
@@ -35,9 +36,15 @@ function streamingResponse(init: { status?: number; contentType?: string } = {})
   const encoder = new TextEncoder();
   const queue: Array<Uint8Array | null> = [];
   let wake: () => void = () => {};
+  // Like a real fetch, a stopped request's reads fail, so a stopped request reads nothing more.
+  let signal: AbortSignal | undefined;
   const next = () =>
-    new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+    new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
       const take = () => {
+        if (signal?.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
         const chunk = queue.shift();
         if (chunk === undefined) {
           wake = take;
@@ -55,6 +62,12 @@ function streamingResponse(init: { status?: number; contentType?: string } = {})
   };
   return {
     response,
+    /** The fetch to give fetchMock: it ties the response to the request's signal. */
+    fetch: (_url: string, init: { signal?: AbortSignal }) => {
+      signal = init.signal;
+      signal?.addEventListener('abort', () => wake());
+      return Promise.resolve(response);
+    },
     write: (text: string) => {
       queue.push(encoder.encode(text));
       wake();
@@ -114,7 +127,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(stream.response);
     const { states, rerender } = renderView(question, true);
 
-    expect(screen.getByRole('heading', { name: 'ChartSearch' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'ChartSearch' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ask ChartSearch' })).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ patient: humprey, question });
@@ -138,12 +151,44 @@ describe('the Ask ChartSearch view', () => {
   it('on a page nobody just asked for, such as a reload, sends nothing until Ask is pressed', async () => {
     const { states } = renderView();
 
-    expect(screen.getByRole('heading', { name: 'ChartSearch' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'ChartSearch' })).toBeInTheDocument();
     expect(screen.getByText(question)).toBeInTheDocument();
     expect(screen.getByText(/isn’t asked again when this page is reopened/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ask ChartSearch' })).toBeInTheDocument();
     await waitFor(() => expect(states.at(-1)).toBe('ready'));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('asks once its answer can stream, even under StrictMode’s remount', async () => {
+    const stream = streamingResponse();
+    fetchMock.mockImplementation(stream.fetch);
+    render(
+      <React.StrictMode>
+        <ChartSearchAnswerView
+          query={question}
+          context={{ scope: 'patient', patientUuid: humprey, locale: 'en' }}
+          contractVersion={1}
+          reportState={() => {}}
+          submitted
+        />
+      </React.StrictMode>,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await act(async () => stream.write(frame('done', done())));
+    await act(async () => stream.end());
+    expect(await screen.findByText('ART started on 3 March 2024 [1].')).toBeInTheDocument();
+  });
+
+  it('waits for ChartSearch’s own question limit before asking, and never asks past it', async () => {
+    let loadConfig: (config: object) => void;
+    vi.mocked(getConfig).mockReturnValue(new Promise((resolve) => (loadConfig = resolve)) as never);
+    const { states } = renderView(question, true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(states).toEqual(['empty']);
+
+    await act(async () => loadConfig({ maxQuestionLength: 10 }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(states.at(-1)).toBe('empty');
   });
 
   it('never asks about a submitted query that isn’t a question', async () => {
@@ -180,7 +225,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(stream.response);
     renderView();
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/openmrs/ws/rest/v1/chartsearchai/search/stream');
     expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
@@ -208,7 +253,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(stream.response);
     renderView();
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     await act(async () =>
       stream.write(
         frame('done', done({ unfaithfullyRenderedCitations: null, activeOrderClaims: null })) +
@@ -231,7 +276,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(stream.response);
     renderView('can I give him ibuprofen?');
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     await act(async () =>
       stream.write(
         frame(
@@ -300,7 +345,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(stream.response);
     renderView();
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     await act(async () => stream.write(frame('done', done({ references: [] }))));
     await act(async () => stream.end());
 
@@ -314,7 +359,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(stream.response);
     renderView();
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     await act(async () => stream.write(frame('error', "This patient's chart is too large to process.")));
     await act(async () => stream.end());
 
@@ -329,7 +374,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(stream.response);
     renderView();
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     await act(async () => stream.write(frame('token', 'ART')));
     await act(async () => stream.end());
     expect(await screen.findByText('ChartSearch couldn’t answer this question.')).toBeInTheDocument();
@@ -345,7 +390,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(streamingResponse({ status }).response);
     renderView();
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     expect(await screen.findByText(message)).toBeInTheDocument();
   });
 
@@ -354,7 +399,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(streamingResponse({ contentType: 'text/html' }).response);
     renderView();
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     expect(await screen.findByText('ChartSearch couldn’t answer this question.')).toBeInTheDocument();
   });
 
@@ -364,7 +409,7 @@ describe('the Ask ChartSearch view', () => {
     fetchMock.mockResolvedValue(stream.response);
     const { unmount } = renderView();
 
-    await user.click(screen.getByRole('button', { name: 'Ask ChartSearch' }));
+    await user.click(await screen.findByRole('button', { name: 'Ask ChartSearch' }));
     const { signal } = fetchMock.mock.calls[0][1];
     expect(signal.aborted).toBe(false);
     unmount();

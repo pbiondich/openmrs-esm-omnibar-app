@@ -21,7 +21,8 @@ import { speaksContractOf } from '../omnibar/omnibar.resource';
 import { useOpenedWorkspaceGroup } from '../omnibar/workspace-group';
 import { capQuery, queryResultsUrl } from './query-results-url';
 import { getQueryHistory, rememberQuery } from './query-history';
-import { markSubmitted, takeSubmission } from './submission';
+import { markSubmitted, onSubmission, takeSubmission } from './submission';
+import { useChartSearchOffer } from '../views/chartsearch-offer';
 import styles from './query-results.scss';
 
 interface QueryResultsPageProps {
@@ -115,9 +116,14 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
     [views],
   );
 
-  // Each query on each chart is a generation. A view's report counts only for the generation it was
-  // given, so a slow view from the last query can't mark this one empty or ready.
-  const generation = `${patientUuid ?? ''}\u0000${query}`;
+  // Submitting the query already on screen, with Enter or a history item, runs it again: the URL
+  // doesn't change, so the page counts the runs.
+  const [run, setRun] = useState(0);
+  const rerun = useRef<{ generation: string } | null>(null);
+
+  // Each run of a query on a chart is a generation. A view's report counts only for the generation it
+  // was given, so a slow view from the last query can't mark this one empty or ready.
+  const generation = `${patientUuid ?? ''}\u0000${query}\u0000${run}`;
   const currentGeneration = useRef(generation);
   currentGeneration.current = generation;
   const [states, setStates] = useState<{ generation: string; byView: Record<string, OmnibarViewState> }>({
@@ -135,11 +141,28 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   const [submission, setSubmission] = useState<{ generation: string; submitted: boolean } | null>(null);
   useLayoutEffect(() => {
     if (taken.current?.generation !== generation) {
-      taken.current = { generation, submitted: Boolean(query) && takeSubmission(patientUuid, query) };
+      const again = rerun.current?.generation === generation;
+      taken.current = { generation, submitted: again || (Boolean(query) && takeSubmission(patientUuid, query)) };
     }
     setSubmission(taken.current);
   }, [generation, patientUuid, query]);
   const submitted = submission?.generation === generation && submission.submitted;
+
+  useEffect(
+    () =>
+      onSubmission((submittedPatient, submittedQuery) => {
+        if (
+          patientUuid &&
+          submittedPatient.toLowerCase() === patientUuid.toLowerCase() &&
+          submittedQuery === query &&
+          takeSubmission(patientUuid, query)
+        ) {
+          rerun.current = { generation: `${patientUuid}\u0000${query}\u0000${run + 1}` };
+          setRun(run + 1);
+        }
+      }),
+    [patientUuid, query, run],
+  );
 
   const context = useMemo<OmnibarContext>(
     () => ({ scope: 'patient', patientUuid, locale: i18n.language, workspaceGroup }),
@@ -204,14 +227,7 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
             <ul className={styles.historyList}>
               {earlier.map((earlierQuery) => (
                 <li key={earlierQuery}>
-                  <button
-                    type="button"
-                    className={styles.historyItem}
-                    onClick={() => runAgain(earlierQuery)}
-                    dir="auto"
-                  >
-                    {earlierQuery}
-                  </button>
+                  <HistoryItem query={earlierQuery} patientUuid={patientUuid} onRun={runAgain} />
                 </li>
               ))}
             </ul>
@@ -248,6 +264,27 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
         </ExtensionSlot>
       )}
     </div>
+  );
+};
+
+/** An earlier query. Choosing it runs it again, and asks ChartSearch again where Enter would, so it says so. */
+const HistoryItem: React.FC<{ query: string; patientUuid: string; onRun: (query: string) => void }> = ({
+  query,
+  patientUuid,
+  onRun,
+}) => {
+  const { t } = useTranslation();
+  const asksChartSearch = useChartSearchOffer(query, patientUuid);
+  return (
+    <button
+      type="button"
+      className={styles.historyItem}
+      onClick={() => onRun(query)}
+      title={asksChartSearch ? t('runAgainAndAsk', 'Run again and ask ChartSearch') : t('runAgain', 'Run again')}
+      dir="auto"
+    >
+      {query}
+    </button>
   );
 };
 

@@ -149,7 +149,16 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
 
   const [state, dispatch] = useReducer(reducer, initialState);
   const controller = useRef<AbortController | null>(null);
-  useEffect(() => () => controller.current?.abort(), []);
+  const asked = useRef(false);
+  // Leaving stops the answer. A remount, which React's development checks do on purpose, may then ask
+  // again, rather than leave the section waiting on a request it stopped.
+  useEffect(
+    () => () => {
+      controller.current?.abort();
+      asked.current = false;
+    },
+    [],
+  );
 
   const ask = useCallback(() => {
     if (!offered || !patientUuid) return;
@@ -166,7 +175,6 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
   // A query the user just submitted is asked at once: Enter was the request. A page reloaded, reached
   // with back or forward, or opened from a link asks only when the clinician presses the button, so
   // nothing sends the question again on its own. Each query is a new mount, so this runs once.
-  const asked = useRef(false);
   useEffect(() => {
     if (submitted && offered && !asked.current) {
       asked.current = true;

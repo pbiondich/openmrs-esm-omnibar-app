@@ -239,6 +239,28 @@ describe('the Query results page', () => {
       expect(seen.at(-1).submitted).toBe(false);
     });
 
+    it('runs the query on screen again when it is submitted again, and says it was asked', () => {
+      const seen: Array<OmnibarViewProps> = [];
+      let mounts = 0;
+      const Counting: React.FC<OmnibarViewProps> = (props) => {
+        useEffect(() => {
+          mounts++;
+        }, []);
+        return reports('ready', 'Values', seen)(props);
+      };
+      register([{ name: 'values', meta: { scopes: ['patient'] }, component: Counting }]);
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+      expect(seen.at(-1).submitted).toBe(false);
+      expect(mounts).toBe(1);
+
+      act(() => markSubmitted(humprey, 'cd4'));
+      expect(mounts).toBe(2);
+      expect(seen.at(-1)).toMatchObject({ query: 'cd4', submitted: true });
+
+      act(() => markSubmitted(other, 'cd4'));
+      expect(mounts).toBe(2);
+    });
+
     it('counts choosing an earlier query as asking it', async () => {
       const user = userEvent.setup();
       const seen: Array<OmnibarViewProps> = [];
