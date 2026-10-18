@@ -2711,6 +2711,23 @@ describe('Omnibar with providers mounted through the slot', () => {
           expect(landedOn()).toBe(`/openmrs/spa/patient/${chartPatient}/chart/Visits`);
         });
 
+        it('leaves an automatically highlighted destination alone once the user points at it', async () => {
+          const user = userEvent.setup();
+          openChartIndexing([admission], 2200);
+
+          await user.type(screen.getByRole('combobox', { name: /search this chart/i }), 'admission');
+          await screen.findByRole('option', { name: /^Ward/ });
+          await waitFor(() => expect(ward()).toHaveAttribute('aria-selected', 'true'), { timeout: 2000 });
+          fireEvent.mouseMove(ward(), { movementX: 4, movementY: 2 });
+
+          const record = await screen.findByRole('option', { name: /Admission: Ward 3/ }, { timeout: 3000 });
+          await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+          expect(record).toHaveAttribute('aria-selected', 'false');
+          expect(ward()).toHaveAttribute('aria-selected', 'true');
+          await user.keyboard('{Enter}');
+          expect(landedOn()).toBe('/openmrs/spa/ward');
+        });
+
         it('keeps the destination waiting past the grace period while indexing finds nothing, up to the indexing cap', async () => {
           vi.useFakeTimers({ shouldAdvanceTime: true });
           try {
