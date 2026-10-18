@@ -2268,6 +2268,106 @@ describe('Omnibar with providers mounted through the slot', () => {
       expect(metaOf('omnibar-patient-search-provider').skipIdentifierQueries).toBeUndefined();
     });
 
+    describe('a group that reports its state', () => {
+      const withDetail =
+        (detail: OmnibarReport['detail'], status: OmnibarReport['status'] = 'ready'): React.FC<OmnibarProviderProps> =>
+        ({ query, report }) => {
+          useEffect(
+            () => report({ ...ready(query, 'Found in the record', query ? ['projected hit'] : []), status, detail }),
+            [query, report],
+          );
+          return null;
+        };
+      const mountWith = (component: React.FC<OmnibarProviderProps>) => {
+        mountProviders([
+          { name: 'destinations', meta: navigateLane, component: DestinationsProvider },
+          { name: 'projection', meta: { ...recordLane, order: 15 }, component },
+        ]);
+        render(<Omnibar />);
+      };
+
+      it.each([
+        ['unavailable', undefined, 'Unavailable right now'],
+        ['failed', undefined, 'Couldn’t load results'],
+        ['unavailable', 'Saved lists are offline', 'Saved lists are offline'],
+      ] as const)(
+        'collapses a group that is %s to its heading and one quiet line (note %j)',
+        async (state, note, line) => {
+          const user = userEvent.setup();
+          mountWith(withDetail({ state, note }, 'error'));
+
+          await user.type(screen.getByRole('combobox'), 'ward');
+
+          expect(screen.getByText('Found in the record')).toBeInTheDocument();
+          const quiet = screen.getByText(line);
+          expect(quiet).not.toHaveAttribute('aria-live');
+          expect(quiet).not.toHaveAttribute('role');
+          expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+          expect(
+            screen.getAllByText(new RegExp(`^(Unavailable right now|Couldn’t load results|${line})$`)),
+          ).toHaveLength(1);
+          expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Ward']);
+          await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+          expect(landedOn()).toBe('/openmrs/spa/ward');
+        },
+      );
+
+      it('shows the results of a group still indexing, with a quiet line saying they may be incomplete', async () => {
+        const user = userEvent.setup();
+        mountWith(withDetail({ state: 'projecting' }));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getByText('Still indexing; results may be incomplete')).toBeInTheDocument();
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['projected hit', 'Ward']);
+        await user.keyboard('{Enter}');
+        expect(landedOn()).toBe('/projected%20hit');
+      });
+
+      it('shows an indexed group like any other', async () => {
+        const user = userEvent.setup();
+        mountWith(withDetail({ state: 'indexed' }));
+
+        await user.type(screen.getByRole('combobox'), 'ward');
+
+        expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['projected hit', 'Ward']);
+        expect(screen.queryByText(/still indexing|unavailable|couldn’t load/i)).not.toBeInTheDocument();
+      });
+    });
+
+    describe('when the server is out of reach', () => {
+      const httpError = (status: number) =>
+        Object.assign(new Error(`Server responded with ${status} for ?q=jane+doe: Jane Doe, 100GEJ`), {
+          response: { status },
+        });
+
+      it.each([
+        ['patient search', PatientSearchProvider, 'Patients', new TypeError('Failed to fetch')],
+        ['patient search', PatientSearchProvider, 'Patients', httpError(0)],
+        ['patient search', PatientSearchProvider, 'Patients', httpError(502)],
+        ['patient search', PatientSearchProvider, 'Patients', httpError(503)],
+        ['patient search', PatientSearchProvider, 'Patients', httpError(504)],
+        ['chart lookup', ChartLookupProvider, 'In this chart', new TypeError('Failed to fetch')],
+        ['chart lookup', ChartLookupProvider, 'In this chart', httpError(503)],
+      ])('says %s is unavailable when the server is out of reach (case %#)', async (_, component, title, error) => {
+        const user = userEvent.setup();
+        window.history.pushState({}, '', '/openmrs/spa/patient/8673ee4f-e2ab-4077-ba55-4980f408773e/chart/Results');
+        mockOpenmrsFetch.mockRejectedValue(error);
+        mountProviders([
+          { name: 'provider', meta: { lane: 'record', scopes: ['global', 'patient'], order: 10 }, component },
+        ]);
+        renderWithFreshCache(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), 'jane doe');
+
+        expect(await screen.findByText('Unavailable right now')).toBeInTheDocument();
+        expect(screen.getByText(title)).toBeInTheDocument();
+        expect(screen.queryByText('Couldn’t load results')).not.toBeInTheDocument();
+        expect(screen.queryByText(/100GEJ|50\d/)).not.toBeInTheDocument();
+        window.history.pushState({}, '', '/');
+      });
+    });
+
     describe('the chart side panel', () => {
       const chartPatientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
       const setOpenedGroup = (openedGroup: { groupName: string; props: object | null } | null) =>
