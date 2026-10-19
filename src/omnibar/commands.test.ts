@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildCommandTable, type CommandTranslate, getOmnibarCommandConflicts, parseCommandInput } from './commands';
-import { type OmnibarProviderMeta } from './types';
+import { type OmnibarProviderMeta, type OmnibarViewMeta } from './types';
 import routes from '../routes.json';
 import en from '../../translations/en.json';
 
@@ -235,6 +235,80 @@ describe('the slash-command alias table', () => {
     expect(table.byId.get('go').scopes).toEqual(['global', 'patient']);
   });
 
+  describe('declared by Query results views', () => {
+    const chartSearchModule = '@openmrs/esm-chartsearchai-app';
+    const view = (name: string, meta: Partial<OmnibarViewMeta>, moduleName = chartSearchModule) => ({
+      name,
+      moduleName,
+      meta: { scopes: ['patient'], ...meta } as OmnibarViewMeta,
+    });
+    const askTranslations = translations({
+      [chartSearchModule]: {
+        'omnibarCommand.ask.aliases': 'ask, question',
+        'omnibarCommand.ask.label': 'Ask ChartSearch',
+        'omnibarCommand.ask.description': 'Ask ChartSearch, an AI, about this chart',
+      },
+    });
+
+    it('lists a view’s command with its aliases and its module’s translations, for a chart only', () => {
+      const table = buildCommandTable(
+        [provider('chart', { command: { id: 'lab', aliases: ['lab'] } })],
+        [],
+        'en',
+        askTranslations,
+        [view('answer', { command: { id: 'ask', aliases: ['ask', 'question'] } })],
+      );
+      expect(table.commands.map(({ id }) => id)).toEqual(['lab', 'ask']);
+      expect(table.byId.get('ask')).toEqual({
+        id: 'ask',
+        label: 'Ask ChartSearch',
+        description: 'Ask ChartSearch, an AI, about this chart',
+        aliases: ['ask', 'question'],
+        scopes: ['patient'],
+      });
+      expect(table.resolve('question')?.id).toBe('ask');
+    });
+
+    it('merges a view’s declaration with a provider’s of the same id, the provider’s label first', () => {
+      const table = buildCommandTable(
+        [provider('chart', { scopes: ['global', 'patient'], command: { id: 'lab', aliases: ['lab'] } }, 'labs-app')],
+        [],
+        'en',
+        translations({
+          'labs-app': { 'omnibarCommand.lab.label': 'Labs' },
+          'values-app': { 'omnibarCommand.lab.label': 'Values', 'omnibarCommand.lab.aliases': 'values' },
+        }),
+        [view('values', { command: { id: 'lab', aliases: ['obs'] } }, 'values-app')],
+      );
+      expect(table.byId.get('lab')).toMatchObject({
+        label: 'Labs',
+        aliases: ['lab', 'obs', 'values'],
+        scopes: ['global', 'patient'],
+      });
+    });
+
+    it('ignores a view that isn’t for a patient or is on a contract this host doesn’t speak', () => {
+      const table = buildCommandTable([], [], 'en', askTranslations, [
+        view('global', { scopes: ['global'], command: { id: 'ask', aliases: ['ask'] } }),
+        view('future', { contract: 2, command: { id: 'ask', aliases: ['ask'] } }),
+      ]);
+      expect(table.commands).toEqual([]);
+    });
+
+    it('applies the commands config to a view’s command', () => {
+      const views = [view('answer', { command: { id: 'ask', aliases: ['ask', 'question'] } })];
+      expect(buildCommandTable([], [{ id: 'ask', enabled: false }], 'en', askTranslations, views).commands).toEqual(
+        [],
+      );
+      expect(
+        aliasesOf(
+          buildCommandTable([], [{ id: 'ask', aliases: ['q'], replaceAliases: true }], 'en', askTranslations, views),
+          'ask',
+        ),
+      ).toEqual(['q']);
+    });
+  });
+
   describe('as routes.json and en.json declare the built-in commands', () => {
     const builtIns = routes.extensions
       .filter((extension) => extension.slot === 'omnibar-providers-slot')
@@ -242,7 +316,7 @@ describe('the slash-command alias table', () => {
     const fromEn: CommandTranslate = (_, key) =>
       key.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], en) as string;
 
-    // No built-in provider declares ask since ChartSearch step 3 removed the suggestion row.
+    // No built-in provider or view declares ask: ChartSearch's answer view does, from its own app.
     it('has patient, lab and go, with the design’s aliases and English labels', () => {
       const table = buildCommandTable(builtIns, [], 'en', fromEn);
       expect(table.commands.map(({ id, label, aliases, scopes }) => ({ id, label, aliases, scopes }))).toEqual([

@@ -66,7 +66,10 @@ interface TestProvider {
 }
 
 /** Mounts these providers, and these Query results views, each in its own slot. */
-function mount(providers: Array<TestProvider>, views: Array<{ name: string; meta: OmnibarViewMeta }> = []) {
+function mount(
+  providers: Array<TestProvider>,
+  views: Array<{ name: string; meta: OmnibarViewMeta; moduleName?: string }> = [],
+) {
   providerComponents.clear();
   for (const { name, component } of providers) {
     providerComponents.set(name, component);
@@ -554,34 +557,141 @@ describe('slash commands in the bar', () => {
     });
   });
 
-  describe('/ask', () => {
-    // The answer section, as ChartSearch's app registers it: it declares the ask command and its model.
+  describe('/ask, declared by ChartSearch’s answer view', () => {
+    const chartSearchModule = '@openmrs/esm-chartsearchai-app';
+    // The answer section, as ChartSearch's app registers it: it declares the ask command, with its
+    // aliases, and its model. Its module's translations give the label and the description.
     const answerView = {
       name: 'chartsearch-query-results-view',
+      moduleName: chartSearchModule,
       meta: {
         scopes: ['patient'],
         order: 100,
         contract: 1,
         skipIdentifierQueries: true,
-        command: { id: 'ask' },
+        command: { id: 'ask', aliases: ['ask', 'question'] },
         asksModel: 'ChartSearch',
       } as OmnibarViewMeta,
     };
+    const chartSearchTranslations: Record<string, string> = {
+      'omnibarCommand.ask.aliases': 'ask, question',
+      'omnibarCommand.ask.label': 'Ask ChartSearch',
+      'omnibarCommand.ask.description': 'Ask ChartSearch, an AI, about this chart',
+    };
 
-    it('is no command with the built-in providers, since none of them declares ask', async () => {
-      const user = userEvent.setup();
-      const { labs } = builtIns();
+    const withChartSearch = () => {
+      const recorded = builtIns();
       mount(
         [
           {
+            name: 'omnibar-patient-search-provider',
+            meta: metaFor('omnibar-patient-search-provider'),
+            component: recorded.patients.component,
+          },
+          {
             name: 'omnibar-chart-lookup-provider',
             meta: metaFor('omnibar-chart-lookup-provider'),
-            component: labs.component,
+            component: recorded.labs.component,
+          },
+          {
+            name: 'omnibar-destinations-provider',
+            meta: metaFor('omnibar-destinations-provider'),
+            component: recorded.pages.component,
           },
         ],
         [...views, answerView],
       );
+      return recorded;
+    };
+
+    beforeEach(() => {
+      vi.mocked(translateFrom).mockImplementation((moduleName: string, key: string, fallback?: string) => {
+        const text = moduleName === omnibarModule ? fromEn(key) : chartSearchTranslations[key];
+        return typeof text === 'string' ? text : (fallback ?? key);
+      });
       inChart();
+    });
+
+    it('is listed with the view module’s label and description, and either alias chooses it', async () => {
+      const user = userEvent.setup();
+      withChartSearch();
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/');
+      expect(
+        within(screen.getByRole('listbox', { name: 'Commands' })).getByRole('option', { name: /Ask ChartSearch/ }),
+      ).toHaveTextContent('Ask ChartSearch/ask /questionAsk ChartSearch, an AI, about this chart');
+
+      await user.type(screen.getByRole('combobox'), 'question when did he start ART?');
+      expect(screen.getByText('Ask ChartSearch')).toBeInTheDocument();
+      expect(screen.getByRole('combobox')).toHaveValue('when did he start ART?');
+    });
+
+    it('says beforehand that Enter asks, sends cmd=ask to Query results and marks it as asked', async () => {
+      const user = userEvent.setup();
+      withChartSearch();
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/ask when did he start ART?');
+      expect(
+        await screen.findByRole('button', { name: 'Enter to ask ChartSearch “when did he start ART?”' }),
+      ).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'when did he start ART?' }));
+      expect(takeSubmission(chartPatient, 'when did he start ART?', 'ask')).toBe(true);
+    });
+
+    it('asks about any text, skipping the question heuristic', async () => {
+      const user = userEvent.setup();
+      withChartSearch();
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/ask cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to ask ChartSearch “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'ask')).toBe(true);
+    });
+
+    it('mounts no providers, since only a view declares it, and doesn’t say nothing matched', async () => {
+      const user = userEvent.setup();
+      const { patients, labs, pages } = withChartSearch();
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/ask cd4');
+      await screen.findByRole('button', { name: 'Enter to ask ChartSearch “cd4”' });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
+
+      for (const { seen } of [patients, labs, pages]) {
+        expect(seen.filter(({ command }) => command === 'ask')).toEqual([]);
+      }
+      expect(screen.queryByRole('option')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Nothing matches/)).not.toBeInTheDocument();
+    });
+
+    it('promises nothing for an ID-shaped query', async () => {
+      const user = userEvent.setup();
+      withChartSearch();
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/ask 100GEJ');
+      expect(screen.queryByRole('button', { name: /Enter to/ })).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['no view declares it, as without ChartSearch or its privilege', () => builtIns()],
+      [
+        'the config disables it',
+        () => {
+          withConfig({ commands: [{ id: 'ask', enabled: false }] });
+          withChartSearch();
+        },
+      ],
+    ])('is absent when %s', async (_, setUp) => {
+      const user = userEvent.setup();
+      setUp();
       render(<Omnibar />);
 
       await user.type(screen.getByRole('combobox'), '/');
@@ -589,78 +699,9 @@ describe('slash commands in the bar', () => {
         within(screen.getByRole('listbox', { name: 'Commands' })).queryByRole('option', { name: /ask/i }),
       ).not.toBeInTheDocument();
 
-      await user.type(screen.getByRole('combobox'), 'ask when did he start ART?');
+      await user.type(screen.getByRole('combobox'), 'ask cd4');
       expect(screen.getByText('No command /ask')).toBeInTheDocument();
       expect(screen.queryByText('Ask ChartSearch')).not.toBeInTheDocument();
-
-      // So the whole text, "/ask " included, is a plain question, and Enter submits it as one.
-      expect(
-        screen.getByRole('button', {
-          name: 'Enter to see all results for “/ask when did he start ART?” and ask ChartSearch',
-        }),
-      ).toBeInTheDocument();
-      await user.keyboard('{Enter}');
-      expect(landedOn()).toBe(queryResultsFor({ q: '/ask when did he start ART?' }));
-      expect(takeSubmission(chartPatient, '/ask when did he start ART?')).toBe(true);
-    });
-
-    describe('declared by a provider from another app', () => {
-      const asker = recording('Ask');
-      beforeEach(() => {
-        mount(
-          [
-            {
-              name: 'ask-provider',
-              meta: {
-                lane: 'navigate',
-                scopes: ['patient'],
-                order: 100,
-                contract: 1,
-                skipIdentifierQueries: true,
-                command: { id: 'ask', aliases: ['ask', 'question'] },
-              },
-              component: asker.component,
-              moduleName: '@openmrs/esm-ask-app',
-            },
-          ],
-          [...views, answerView],
-        );
-        inChart();
-      });
-
-      it('marks the submission on Enter as a plain question does, and says beforehand that Enter asks', async () => {
-        const user = userEvent.setup();
-        render(<Omnibar />);
-
-        await user.type(screen.getByRole('combobox'), '/ask when did he start ART?');
-        expect(
-          await screen.findByRole('button', { name: 'Enter to ask ChartSearch “when did he start ART?”' }),
-        ).toBeInTheDocument();
-        await user.keyboard('{Enter}');
-
-        expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'when did he start ART?' }));
-        expect(takeSubmission(chartPatient, 'when did he start ART?', 'ask')).toBe(true);
-      });
-
-      it('says Enter asks for any text, skipping the question heuristic, and marks it', async () => {
-        const user = userEvent.setup();
-        render(<Omnibar />);
-
-        await user.type(screen.getByRole('combobox'), '/ask cd4');
-        expect(await screen.findByRole('button', { name: 'Enter to ask ChartSearch “cd4”' })).toBeInTheDocument();
-        await user.keyboard('{Enter}');
-
-        expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'cd4' }));
-        expect(takeSubmission(chartPatient, 'cd4', 'ask')).toBe(true);
-      });
-
-      it('promises nothing for an ID-shaped query', async () => {
-        const user = userEvent.setup();
-        render(<Omnibar />);
-
-        await user.type(screen.getByRole('combobox'), '/ask 100GEJ');
-        expect(screen.queryByRole('button', { name: /Enter to/ })).not.toBeInTheDocument();
-      });
     });
   });
 
@@ -700,7 +741,7 @@ describe('slash commands in the bar', () => {
       expect(patients.seen.at(-1)).toEqual({ query: '/patient jane', command: undefined });
     });
 
-    it('asks for the provider modules’ translations when the list first shows, and uses them as they arrive', async () => {
+    it('asks for the provider and view modules’ translations when the list first shows, and uses them as they arrive', async () => {
       const user = userEvent.setup();
       const handlers: Record<string, Array<() => void>> = {};
       const loadNamespaces = vi.fn(() => Promise.resolve());
@@ -712,21 +753,24 @@ describe('slash commands in the bar', () => {
         loadNamespaces,
       } as never;
       const things = recording('Things');
-      mount([
-        {
-          name: 'things',
-          moduleName: 'things-app',
-          meta: { lane: 'record', scopes: ['global'], command: { id: 'things', aliases: ['things'] } },
-          component: things.component,
-        },
-      ]);
+      mount(
+        [
+          {
+            name: 'things',
+            moduleName: 'things-app',
+            meta: { lane: 'record', scopes: ['global'], command: { id: 'things', aliases: ['things'] } },
+            component: things.component,
+          },
+        ],
+        [{ name: 'stuff', moduleName: 'stuff-app', meta: { scopes: ['patient'], command: { id: 'stuff' } } }],
+      );
       try {
         render(<Omnibar />);
         await user.click(screen.getByRole('combobox'));
         expect(loadNamespaces).not.toHaveBeenCalled();
 
         await user.type(screen.getByRole('combobox'), '/');
-        expect(loadNamespaces).toHaveBeenCalledWith(['things-app']);
+        expect(loadNamespaces).toHaveBeenCalledWith(['things-app', 'stuff-app']);
         expect(screen.getByRole('option')).toHaveTextContent('things/things');
 
         vi.mocked(translateFrom).mockImplementation((moduleName: string, key: string) =>
