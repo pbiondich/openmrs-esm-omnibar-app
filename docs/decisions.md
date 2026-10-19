@@ -230,6 +230,27 @@ Choices made while building [the cohort counts brief](briefs/2026-10-18-cohort-c
 
 **The count needs Run Reports as well as Get Patients.** Reporting's `CohortDefinitionService.evaluate` checks Get Patients; Run Reports is what the builder's own search needs (`DataSetDefinitionService.evaluate`), so a user who can't use the builder never sees a count, however small.
 
+### Cohort phrases: a phrase table and the server's vocabulary (Paul, 2026-10-19)
+
+**The cohort parser reads from a phrase table, not from code (layer 1).** Every word the count row understands is data, in the Cohort Builder's `src/omnibar/phrases/en.json`: stopwords, gender words, comparators, ranges, number words, year and month units, named age groups, and the words for enrolment, programs, drugs and encounters. A site adds phrases with `omnibar.phrases`, list by list, and can't remove any. The parser takes the reading that covers the most words, so "women of reproductive age" is one age group and not "women" followed by noise. A paraphrase set (`src/omnibar/paraphrases.test.ts`) checks hundreds of phrasings and every phrase in the table.
+*Why:* the variation in how people ask is mostly in the words, and words are cheap to add and check one by one. Embeddings would blur exactly what a count must not get wrong: "under 30" and "over 30" sit almost on top of each other as vectors, and so do "on ART" and "not on ART".
+
+**No standard phrase lexicon exists, so the table borrows from the nearest ones.** Comparators are named after FHIR's search prefixes (`lt`, `le`, `gt`, `ge`, `eq`): `under` is lt, `atMost` le, `over` gt, `atLeast` ge, `aged` eq, and `orUnder` and `orOver` are the same comparisons written after the number. Named age groups give their source in the table: WHO's adolescents (10 to 19), young people (10 to 24) and women of reproductive age (15 to 49); the UN's youth (15 to 24); the UN Convention on the Rights of the Child for children (under 18) and adults (18 and over); WHO and PEPFAR HIV reporting for paediatric (under 15); WHO and UNICEF for under-fives; WHO and the UN for older people (60 and over). MeSH's age groups disagree with some of these; the table says which source it follows. CLDR's rule-based number formats and Facebook's Duckling are the references for number words and units in other languages, when a table is added for one.
+*Why:* a shared vocabulary for the operators makes the table easy to map onto FHIR queries later, and a cited band can be argued with; the row's subtitle shows the numbers either way.
+
+**Negations and alternatives always end the reading.** The table's `never` list (not, no, without, except, or, nor, but, other and the like) can't be stopwords, and a site's stopword holding one is ignored. So "women not on ARVs" and "under 30 or over 60" give no row, while a phrase that contains such a word and means one bound ("not older than 29", "not under 30") is read as that bound.
+*Why:* a negation skipped as noise turns a question into its opposite and gives a confident, wrong count.
+
+**Bounds written as numbers narrow a named group.** "children under 5" is under 5, "adolescents under 15" is 10 to 14, and a bound outside the group ("adults under 10") leaves no one, so no row.
+
+**Months count only in whole years, and other units not at all.** The builder searches ages in whole years and reads an age of 0 as unset, so "under 24 months" is under 2, while "under 18 months" and "2 weeks old" give no row.
+
+**The count row knows the server's programs and encounter types (layer 2).** Once per user and language, when the row may first answer, it asks for programs (`uuid`, `name`, `retired`, and the names of the program's concept) and encounter types (`uuid`, `name`, `retired`), the first 100 of each. A program is known by its name, its concept's names in the user's language and English (CIEL gives most programs several), and each without a trailing "program" or "clinic". Config keeps its label for a program both name; the server's names become aliases. `omnibar.serverVocabulary` turns it off. The parser itself still makes no request.
+*Why:* this was "CIEL synonyms before any model": the names are already on the server, maintained by the people who run it, often in several languages, and a site no longer has to copy program uuids into config. The brief's "no network in the parser" holds: the request is the provider's, once, never per keystroke.
+
+**A name with one slip still matches, if only one does.** In words of five letters or more that aren't words of the phrase table, one letter added, dropped, changed or two swapped ("tuberclosis") matches a program, drug group or encounter type name, unless two names match as well.
+*Why:* misspellings are common at a keyboard in a clinic, and the subtitle shows the name it matched, so a slip that lands somewhere unexpected is seen before the number is trusted.
+
 ## Open
 
 These came up but aren't decided yet.
