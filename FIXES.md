@@ -1521,3 +1521,16 @@ Not fixed, and why:
 - Tests: 1,174 on `feat/cohort-phrases`; 1,326 at `0290d48`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
 - REST and reporting read in source: concept search passes no datatype filter (so the row filters to numeric itself); `numericObsSearchAdvanced` applies the window before choosing the latest, earliest, lowest, highest or average, as the descriptions say.
 - Not tried on o3 or in a browser.
+
+### Replayed onto the fork and pushed (Paul, 2026-10-19)
+
+The local `feat/url-definition`, `feat/omnibar-providers` and `feat/cohort-phrases` had diverged from the fork, which held the same work under other hashes plus a later phrase session's commits. The local branches now track the fork, and the 29 commits above were replayed onto the fork's `feat/cohort-phrases` (`eab23e5`), so the hashes in the tables above are the pre-replay ones. The pre-replay tip, `0290d48`, is on the fork as `wip/cohort-tests-local`.
+
+| Conflict | Resolution | Commit |
+| --- | --- | --- |
+| The tokenizer: the phrase session keeps commas as tokens, and this branch keeps "1,000" and "49.5" as numbers | Thousands and decimals first, then commas as before | 4bd309b |
+| The parse loop: the phrase session tracks "and", "with" and commas between populations, and this branch moved the loop into `readClauses` | `readClauses` marks each clause that a joiner or comma came before, and the parser joins on it as before, so "women, children" still gives no row | 4bd309b, 5a7c2b3 |
+| The program nouns' wording in `vocabulary.resource.ts` and the README | Both kept: every name in any language, and the table's `programNouns` | ca82184, 736320e |
+
+- Tests: 1,383 at `736320e`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
+- Pushed to the fork as `feat/cohort-tests`, PR [pbiondich/openmrs-esm-cohortbuilder-app#4](https://github.com/pbiondich/openmrs-esm-cohortbuilder-app/pull/4), stacked on #3.
