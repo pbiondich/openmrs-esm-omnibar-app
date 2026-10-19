@@ -288,7 +288,7 @@ The host ranks by lane, then by `order`. Now that several apps pick numbers, thi
 | Order | Use |
 | --- | --- |
 | 10 | Core record providers: patients, chart values in a chart. Destinations in the navigate lane |
-| 15 | Querystore chart search (record lane, after the REST chart values), from the query store app in `packages/esm-querystore-app/` |
+| 15 | Querystore chart search (record lane, after the REST chart values), from [`openmrs-esm-querystore-app`](https://github.com/pbiondich/openmrs-esm-querystore-app) |
 | 20-50 | Cohort Builder: count 20 (`omnibar-cohort-count-provider`, which replaced the "Build cohort" criteria row), builder 30, saved cohorts 40, saved queries 50. All navigate lane, global scope |
 | 100 | ChartSearch's answer section (Query results view, registered from ChartSearch's app) |
 
@@ -299,7 +299,7 @@ Command ids, like dedupe keys, are shared across apps. Register new ones here.
 | Id | Default aliases | Providers | Views |
 | --- | --- | --- | --- |
 | `patient` | patient, pt, find | Patient search | none |
-| `lab` | lab, labs, results, obs, value | Chart lookup, query store chart (from its own app) | Chart values |
+| `lab` | lab, labs, results, obs, value | Chart lookup, query store chart (from [its own app](https://github.com/pbiondich/openmrs-esm-querystore-app)) | Chart values |
 | `go` | go, open, page | Destinations | none |
 | `ask` | ask, question | None | ChartSearch's answer view (`chartsearch-query-results-view`, from its own app), which declares the command with its aliases and translations and sets `commandAsksModel`. Without it, `/ask` is absent |
 | `cohort` | cohort, count | The Cohort Builder's count row (`omnibar-cohort-count-provider`, from its own app), global scope only. Inside a chart, or without that app or its privileges, `/cohort` is absent | none |
@@ -308,7 +308,7 @@ Command ids, like dedupe keys, are shared across apps. Register new ones here.
 
 | Key | `dedupeId` | Providers |
 | --- | --- | --- |
-| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search (order 15, `defaultInChart`, allowed because it ranks after chart lookup and stays on the open chart) |
+| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search ([its own app](https://github.com/pbiondich/openmrs-esm-querystore-app), order 15, `defaultInChart`, allowed because it ranks after chart lookup and stays on the open chart) |
 
 The Cohort Builder's rows (count, builder, saved cohorts, saved queries) share no key: no two of them can show the same record.
 
@@ -331,7 +331,7 @@ The folder holds everything another app needs:
 3. Don't edit the copy. Fix the original and copy it again.
 4. Declare `"contract": 1` in the provider's meta.
 
-The omnibar keeps two guards on the folder: `src/conformance/contract-folder.test.ts` fails if the folder imports anything else, and `src/conformance/conformance.test.tsx` mounts a provider built only on the folder, the way another app would, through the slot. It checks the navigate result, `contractVersion`, `hints`, dedupe against the built-in chart lookup, the unavailable line, `skipIdentifierQueries` and the version check. It also mounts a Query results view built only on the folder on the Query results page, and checks its props, the page's empty state, the view boundary and the version check, and a view that declares `asksModel`, for the bar's hint, `hints.looksLikeQuestion`, a `signal` aborted on a rerun, a chart change and the page closing, and its own command with `commandAsksModel` getting `/ask`'s behaviour, and no model call without the flag. Providers and views in other apps should keep a test of their own against their copy.
+The omnibar keeps two guards on the folder: `src/conformance/contract-folder.test.ts` fails if the folder imports anything else, and `src/conformance/conformance.test.tsx` mounts a provider built only on the folder, the way another app would, through the slot. It checks the navigate result, `contractVersion`, `hints`, dedupe against the built-in chart lookup, the unavailable line, `skipIdentifierQueries` and the version check. It also mounts a Query results view built only on the folder on the Query results page, and checks its props, the page's empty state, the view boundary and the version check, and a view that declares `asksModel`, for the bar's hint, `hints.looksLikeQuestion`, a `signal` aborted on a rerun, a chart change and the page closing, and its own command with `commandAsksModel` getting `/ask`'s behaviour, and no model call without the flag. `src/conformance/chart-values-source.test.tsx` mounts a second chart-values provider from a fixture app (`external-app/chart-index.provider.tsx`, registered at order 15 like the query store's) and checks the host's waits, highlight hand-offs, indexing cap and dedupe against chart lookup, and `slot-config.test.ts` runs both apps' `routes.json` through the framework's own registration and slot config. Providers and views in other apps should keep a test of their own against their copy.
 
 The view types and `view-boundary.tsx` were added to the folder on `feat/query-results`. Apps that copied the folder before then need to copy it again to write a view; their providers keep working without it. `asksModel`, `hints.looksLikeQuestion`, `signal`, `looksLikeQuestion` and a view's `command.aliases` were added on `feat/chartsearch-step3`, and `commandAsksModel` on `feat/thin-pass`, all optional, so the number stays 1. A view that declared `ask` before `commandAsksModel` existed needs the flag added to its `routes.json` to keep asking under `/ask`.
 

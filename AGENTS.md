@@ -15,7 +15,7 @@ The omnibar is a thin shell, and capabilities live in the apps that own the data
 
 Feature apps such as Cohort Builder and ChartSearch **register their own providers** in `omnibar-providers-slot`, and their own Query results views in `omnibar-query-results-slot`, from their own `routes.json`. Each app also declares its own page. New capabilities go into the owning app as a provider, not into this repo.
 
-The omnibar keeps these built-in providers as defaults for now: patient search with recently viewed patients, chart lookup and destinations (see [`src/routes.json`](src/routes.json)). They move to their owning apps later. The query store chart provider is its own app, `@openmrs/esm-querystore-app`, in [`packages/esm-querystore-app/`](packages/esm-querystore-app/), registering from its own `routes.json` on its own copy of the contract folder. It isn't a yarn workspace; the root `lint`, `typescript`, `test`, `build` and `extract-translations` cover it. Its source imports nothing of the omnibar's but that copy, and nothing under `src/` imports it; `packages/esm-querystore-app/src/app-boundary.test.ts` enforces both and fails if the copy drifts. Nothing in the omnibar's non-test `src/` names ChartSearch or the query store. See [`docs/decisions.md`](docs/decisions.md). See the [design rules](README.md#design-rules) in the README and [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
+The omnibar keeps these built-in providers as defaults for now: patient search with recently viewed patients, chart lookup and destinations (see [`src/routes.json`](src/routes.json)). They move to their owning apps later. The query store chart provider is its own app in its own repo, [`openmrs-esm-querystore-app`](https://github.com/pbiondich/openmrs-esm-querystore-app), registering from its own `routes.json` on its own copy of the contract folder, like Cohort Builder and ChartSearch. Host behaviour with a second chart-values provider is tested here in `src/conformance/` against a fixture provider, not the real app. Nothing in the omnibar's non-test `src/` names ChartSearch or the query store. See [`docs/decisions.md`](docs/decisions.md). See the [design rules](README.md#design-rules) in the README and [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
 
 ## Contract v1, in brief
 
@@ -80,7 +80,7 @@ yarn test     # vitest only, while iterating
 
 If plain `yarn` isn't on the PATH (Homebrew's Node ships without corepack), use the copy the repo pins: `node .yarn/releases/yarn-4.10.3.cjs <command>`.
 
-`yarn verify` and `yarn build` must both pass before a change is offered for review or deploy. `yarn build` builds the omnibar into `dist/` and the query store app into `packages/esm-querystore-app/dist/`. `yarn start` serves the omnibar alone; `yarn start:querystore` serves both. The one expected warning is the asset size limit, once per bundle. When you change the contract folder, keep `src/conformance/` passing, and expect the copies in other apps to need updating.
+`yarn verify` and `yarn build` must both pass before a change is offered for review or deploy. The one expected build warning is the asset size limit. To serve another app beside the omnibar in development, pass both folders: `yarn start --sources . --sources <other app>`. When you change the contract folder, keep `src/conformance/` passing, and expect the copies in other apps to need updating.
 
 ## Where things are documented
 

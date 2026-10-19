@@ -1400,3 +1400,23 @@ Not fixed, and why:
 | ChartSearch's contract copy refreshed from 7ba5078: it gains `commandAsksModel` and the neutral comments. Its lint, type check and 527 tests pass | csai 9c389e1 |
 | `yarn start:querystore` runs `openmrs develop --sources . --sources packages/esm-querystore-app`. Tried with `--backend` pointed at a closed port: both dev servers came up (ports 8092 and 8093), each served its bundle, and the dev import map listed `@openmrs/esm-omnibar-app` and `@openmrs/esm-querystore-app` at those local URLs. The app shell's own import map fell back to dev3.openmrs.org, as `yarn start` does; nothing was tried in a browser | 39dc44c |
 | The "query store only" setup checked through the real framework: `@openmrs/esm-routes` registers both apps' `routes.json`, the omnibar registers the slot, and `@openmrs/esm-config` takes `{"@openmrs/esm-omnibar-app": {"extensionSlots": {"omnibar-providers-slot": {"remove": ["omnibar-chart-lookup-provider"]}}}}`. The slot then holds patient search, destinations and the query store provider, against all four without it; a user without Get Observations gets neither chart-values provider. With the config line taken out, the test fails. This framework version merges `extensionSlots` from any module's config by slot name (`getExtensionSlotConfigs` in esm-config), so the key could sit under either app. The bar's behaviour with chart lookup absent is covered by `omnibar-integration.test.tsx` | this commit |
+
+### The query store app moves to its own repo (Paul, 2026-10-19)
+
+The package in `packages/esm-querystore-app/` becomes the standalone repo `pbiondich/openmrs-esm-querystore-app`, built locally at `~/projects/omnibar/thin-pass/querystore` (branch `main`, no remote; Paul creates and pushes it). This supersedes `start:querystore` and the package's own `query-store-only.test.ts` in the follow-ups above.
+
+The standalone repo keeps the provider's history: `git filter-repo` on a clone of 4ab87d8, with the provider's earlier paths renamed to where the package had them, kept 60 commits from "Add a query store chart provider and warm charts on open" on, and its tree at the tip equals the package's at 4ab87d8. Nine commits on top give it the template's tooling (rspack and vitest, as the template uses today, not webpack and jest), CI with no publish job, a README, and tests that no longer reach into the omnibar: a fake host built on its contract copy, the copy pinned by SHA-256 to the omnibar's folder at 4ab87d8, the path parser against a fixed table of the omnibar's answers, and its `routes.json` through the framework's own stores. In that repo, `yarn install --immutable`, `verify` (7 files, 165 tests), `build` and `extract-translations` pass on a fresh clone.
+
+In this repo:
+
+| Change | Commit |
+| --- | --- |
+| The host behaviour the app's integration tests checked with the real omnibar is checked here against a fixture second chart-values provider, `external-app/chart-index.provider.tsx`, in `chart-values-source.test.tsx` (18 tests); the slot config that removes chart lookup in `slot-config.test.ts` (3 tests, through the framework's own stores). Each went red under at least one deliberate break of the host or the registrations | 565a7e2 |
+| The package is deleted, and the build, lint, prettier and extract-translations scripts and the eslint ignores go back to the omnibar alone, keeping 00df3ac's conformance exclusion | 6839e80 |
+| `start:querystore` removed (package.json part of 39dc44c) | 2c79f9c |
+| 3b14cf7, 3783e7b and d390892 reverted; `.github` and `.turbo.json` match 32ca7d6 again | 1f60e01, 0ec6e9b, fbfc3a2 |
+| README, AGENTS.md, decisions.md, the contract's registries and the briefs index point at the new repo | this commit |
+
+Not ported, because they test the provider rather than the host: no index request for a scanned ID, the group title, and the query store's response shapes. They stay in the new repo's own tests.
+
+The wristband case already had host coverage in `omnibar.test.tsx` (a second chart-values provider that skips identifier queries), so it wasn't ported again.
