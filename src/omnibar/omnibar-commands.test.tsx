@@ -592,6 +592,16 @@ describe('slash commands in the bar', () => {
       await user.type(screen.getByRole('combobox'), 'ask when did he start ART?');
       expect(screen.getByText('No command /ask')).toBeInTheDocument();
       expect(screen.queryByText('Ask ChartSearch')).not.toBeInTheDocument();
+
+      // So the whole text, "/ask " included, is a plain question, and Enter submits it as one.
+      expect(
+        screen.getByRole('button', {
+          name: 'Enter to see all results for “/ask when did he start ART?” and ask ChartSearch',
+        }),
+      ).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+      expect(landedOn()).toBe(queryResultsFor({ q: '/ask when did he start ART?' }));
+      expect(takeSubmission(chartPatient, '/ask when did he start ART?')).toBe(true);
     });
 
     describe('declared by a provider from another app', () => {
