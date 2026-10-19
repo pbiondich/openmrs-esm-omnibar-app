@@ -64,7 +64,7 @@ Pressing Enter on a query, rather than choosing a suggestion, opens a new sectio
 
 ### Slash commands
 
-Typing `/` starts a command, which states the type of query up front instead of leaving the omnibar to infer it. Pressing `/` anywhere opens the omnibar already in command mode; Ctrl K opens it for plain text. Commands are optional, and plain text always works. *Status: built in the bar for `/patient`, `/lab` and `/go`. `/ask` was declared only by the bar's ChartSearch row, which ChartSearch step 3 removed, so it isn't a command until Paul decides who declares it (see [`docs/decisions.md`](docs/decisions.md), Open). Query results doesn't read the command yet: until it does, Enter under `/lab` shows every section, as for plain text.*
+Typing `/` starts a command, which states the type of query up front instead of leaving the omnibar to infer it. Pressing `/` anywhere opens the omnibar already in command mode; Ctrl K opens it for plain text. Commands are optional, and plain text always works. *Status: built for `/patient`, `/lab` and `/go`, in the bar and on Query results. `/ask` was declared only by the bar's ChartSearch row, which ChartSearch step 3 removed, so it isn't a command until Paul decides who declares it (see [`docs/decisions.md`](docs/decisions.md), Open).*
 
 | The user types | What it means |
 | --- | --- |
@@ -151,7 +151,7 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 
 ### Slash commands, under the hood
 
-*Status: built in the bar; Query results filtering its views by command is next. See [`docs/design/slash-commands.md`](docs/design/slash-commands.md).* Command names start in English, but the design expects other names from the start: translations, synonyms and site-specific labels. So each command has a stable **id**, which is never shown or translated, and any number of **aliases**. A provider declares its command in `meta`, as an optional field that keeps the contract at version 1:
+*Status: built. See [`docs/design/slash-commands.md`](docs/design/slash-commands.md).* Command names start in English, but the design expects other names from the start: translations, synonyms and site-specific labels. So each command has a stable **id**, which is never shown or translated, and any number of **aliases**. A provider declares its command in `meta`, as an optional field that keeps the contract at version 1:
 
 ```json
 "meta": {
@@ -167,7 +167,8 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 - URLs carry the id, not the alias (`?cmd=lab&q=cd4`), so a bookmarked query works in any language.
 - When a command is given, only the providers that declare it run, and they learn which from `context.command`. More than one provider can declare the same command: chart lookup and the query store provider both answer `/lab`. The default highlight, dedupe and the fail-closed rules are the same as for plain text.
 - Inside a chart, Enter under a command sends it to Query results when a view there declares it, as the chart values view declares `lab`; otherwise Enter opens the highlighted row. An ID-shaped query, or a row the user arrowed to, opens as for plain text.
-- *Next:* under a command only the Query results views that declare it mount, so `/lab` can never bring up the view that asks a model. Until then, only a plain query, or `ask` from a provider that declares it, lets a view ask on its own.
+- On Query results, under a command only the views that declare it mount, so `/lab` can never bring up the view that asks a model. A command the bar doesn't offer here, or that no view declares, fails closed: the page shows the query, says the command isn't available, and offers a plain search. Only a plain query or `/ask`, from whichever app declares it, lets a view ask a model on its own, and under `/ask` any text counts as a question.
+- History keeps each query with its command, and shows the command's chip beside the text.
 - If the same alias is claimed for two different commands, one set in config wins, then the first provider in slot order, and the conflict is logged and returned by `getOmnibarCommandConflicts()` rather than silently shadowed.
 
 The `commands` config adds, replaces or disables aliases by id:
@@ -327,7 +328,7 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 3. Add a dedicated centre slot to the navbar in esm-primary-navigation-app, since `top-nav-actions-slot` is crowded.
 4. ~~Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.~~ Retired: the bar's ChartSearch row is gone, and ChartSearch answers on Query results instead.
 5. ~~Add the Query results section.~~ A first prototype is built: Enter submits the query, and views in `omnibar-query-results-slot` fill the page, starting with chart values and ChartSearch's answer. Still to do, in the patient chart: a condensed sticky patient banner, and showing the vitals header only where it's relevant. The answer section has moved into ChartSearch's own app.
-6. Add slash commands, starting with English names and designed for localized and custom aliases. The bar side is built (see [`docs/design/slash-commands.md`](docs/design/slash-commands.md)); next is the thin Query results slice, where the page reads the command and mounts only the views that declare it.
+6. ~~Add slash commands, starting with English names and designed for localized and custom aliases.~~ Built, in the bar and on Query results; see [`docs/design/slash-commands.md`](docs/design/slash-commands.md). Still to come: the inferred-command chip, and `/cohort` and `/help` from their own apps.
 7. Use the query store for chart lookups. A query store chart provider, with warming on chart open, is built in and off by default: `chartLookup.source` set to `querystore` replaces chart lookup, and `both` shows the two side by side. Next is trying it live.
 8. Add cohort questions from the Cohort Builder's own app, which needs it to accept a query definition by URL. The first attempt, `feat/cohort-omnibar`, is retired and kept as history; see the [provider registration plan](docs/design/provider-registration.md).
 9. Fix `PatientPhoto` in esm-styleguide to load only same-origin photos, then use it in patient rows again.

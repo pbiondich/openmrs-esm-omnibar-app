@@ -113,7 +113,7 @@ A provider may declare the command it answers in `meta.command`. `id` is stable 
 - Several providers may declare the same id. Their aliases are merged; the label and description come from the first in slot order whose module has them.
 - A command is listed, greyed out, but can't be chosen in a scope none of its providers declares. Commands never widen the scope.
 - The default highlight, dedupe and the fail-closed rules are the same as for plain text.
-- Inside a chart, Enter sends the command to Query results (`?cmd=<id>&q=<query>`) only when a [view](#query-results-views-new-in-v1) declares it; otherwise Enter opens the highlighted row. Only a plain query or `ask` marks the submission, so no other command lets a view call a model on its own. That makes `ask` special: a provider that declares it receives text the user is about to send to ChartSearch, an AI, so declare it only for a provider that is part of asking a model.
+- Inside a chart, Enter sends the command to Query results (`?cmd=<id>&q=<query>`) only when a [view](#query-results-views-new-in-v1) declares it; otherwise Enter opens the highlighted row. Only a plain query or `ask` marks the submission, so no other command lets a view call a model on its own. That makes `ask` special: a provider that declares it receives text the user is about to send to ChartSearch, an AI, so declare it only for a provider that is part of asking a model. The same goes for a view: one that declares `ask` gets `submitted: true` for what the user sent with `/ask`, and must follow the rules above for calling a model.
 - Implementers add, replace or disable aliases by id in the omnibar's `commands` config. An alias claimed for two ids goes to the one set in config, then to the first provider in slot order; the conflict is logged and listed by `getOmnibarCommandConflicts()`.
 
 ### `hints` (`OmnibarQueryHints`)
@@ -236,8 +236,8 @@ Pressing Enter on a query inside a chart opens the chart's **Query results** sec
 | `order` | Lower comes first. Defaults to 100. Views use the provider numbers: the built-in chart values 10, ChartSearch's answer section, registered from its own app, 100 |
 | `contract` | As for providers: missing means 1, and a host mounts only versions it speaks |
 | `skipIdentifierQueries` | As for providers: not mounted while the query looks like a patient identifier |
-| `command` | `{ id: string }`. The slash command this view shows results for; aliases are the bar's. The bar sends a command to Query results only when a view declares it. *The page doesn't read the command yet: until it does, every view mounts under a command, as for plain text.* Built in: chart values declares `lab` |
-| `asksModel` | *New in v1.* The view may call a model for a query the user just submitted, and this is that model's name, such as `"ChartSearch"`. The bar's hint then says "Enter to see all results for '…' and ask ChartSearch", and an earlier query's tooltip "Run again and ask ChartSearch", but only while the view is assigned to the user (the framework has applied its privileges), isn't skipped for the query, the query looks like a question by the host's `looksLikeQuestion`, and Enter marks the submission: for plain text and under `ask`, never under another command such as `lab`. Shown as written, so it is a product name, not a sentence. If several views declare it, the first in page order names it |
+| `command` | `{ id: string }`. The slash command this view shows results for; aliases are the bar's. The bar sends a command to Query results only when a view declares it. Under `?cmd=<id>` only the views declaring it mount, with `context.command`; a view without one mounts only for plain queries. A command the bar doesn't offer here (disabled, or no provider this user has declares it) or that no view this user can see declares fails closed: the page shows the query, "That command isn't available here.", and a link to search the text plainly. Built in: chart values declares `lab` |
+| `asksModel` | *New in v1.* The view may call a model for a query the user just submitted, and this is that model's name, such as `"ChartSearch"`. The bar's hint then says "Enter to see all results for '…' and ask ChartSearch", and an earlier query's tooltip "Run again and ask ChartSearch", but only while the view is assigned to the user (the framework has applied its privileges), isn't skipped for the query, a plain query looks like a question by the host's `looksLikeQuestion` (under `ask`, any text that isn't ID-shaped counts), the view would mount for the input (under a command, only a view declaring it), and Enter marks the submission: for plain text and under `ask`, never under another command such as `lab`. Shown as written, so it is a product name, not a sentence. If several views declare it, the first in page order names it |
 
 **Props (`OmnibarViewProps`)**
 
@@ -264,7 +264,9 @@ The hint can promise more than a view keeps: a question longer than a model's ow
 
 **Errors.** Wrap each view in `withViewBoundary(View, extensionName)`. A view that throws then shows "This section couldn't be shown." in its own section and counts as `error`; the page and the other views carry on.
 
-**History.** The page, not the views, keeps this session's queries for each patient, in `sessionStorage`, and only their text. Choosing one runs it again; nothing a view showed is stored.
+**History.** The page, not the views, keeps this session's queries for each patient, in `sessionStorage`, and only their text and slash command id, if any. Choosing one runs it again, under its command; nothing a view showed is stored.
+
+**`submitted` under a command.** The mark is made for one patient, one query and its command, and taken only by a page showing that same command, or none. Only a plain query or `/ask` is ever marked, by Enter or by choosing an earlier query, so no other command lets a view call a model on its own. A page that fails closed drops any mark, and its plain-search link isn't marked. Under `/ask`, a view that asks a model may take any text that isn't ID-shaped as a question.
 
 ## Errors
 

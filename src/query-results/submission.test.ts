@@ -31,6 +31,17 @@ describe('the "just asked" mark', () => {
     expect(takeSubmission(humprey, 'cd4')).toBe(false);
   });
 
+  it('is taken only under the slash command it was made with, or with none', () => {
+    markSubmitted(humprey, 'when did he start ART?', 'ask');
+    expect(takeSubmission(humprey, 'when did he start ART?')).toBe(false);
+    expect(takeSubmission(humprey, 'when did he start ART?', 'lab')).toBe(false);
+    expect(takeSubmission(humprey, 'when did he start ART?', 'ask')).toBe(true);
+
+    markSubmitted(humprey, 'when did he start ART?');
+    expect(takeSubmission(humprey, 'when did he start ART?', 'ask')).toBe(false);
+    expect(takeSubmission(humprey, 'when did he start ART?')).toBe(true);
+  });
+
   it('isn’t taken by the next user', () => {
     markSubmitted(humprey, 'when did he start ART?');
     logIn('doctor');
@@ -76,7 +87,7 @@ describe('the "just asked" mark', () => {
     const heard = vi.fn();
     const stop = onSubmission(heard);
     markSubmitted(humprey, 'cd4');
-    expect(heard).toHaveBeenCalledWith(humprey, 'cd4');
+    expect(heard).toHaveBeenCalledWith(humprey, 'cd4', undefined);
     stop();
   });
 });

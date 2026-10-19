@@ -1,14 +1,31 @@
 import React, { useEffect } from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getSessionStore, navigate, useAssignedExtensions } from '@openmrs/esm-framework';
+import {
+  getDefaultsFromConfigSchema,
+  getSessionStore,
+  interpolateUrl,
+  navigate,
+  translateFrom,
+  useAssignedExtensions,
+  useConfig,
+} from '@openmrs/esm-framework';
 // The framework mock re-exports this module, so this is the store getSessionStore returns.
 import { mockSessionStore } from '@openmrs/esm-api/mock';
-import { OMNIBAR_CONTRACT_VERSION, type OmnibarViewMeta, type OmnibarViewProps } from '../omnibar-contract';
+import {
+  OMNIBAR_CONTRACT_VERSION,
+  OMNIBAR_QUERY_RESULTS_SLOT,
+  type OmnibarProviderMeta,
+  type OmnibarViewMeta,
+  type OmnibarViewProps,
+} from '../omnibar-contract';
+import { configSchema, type CommandConfig, type OmnibarConfig } from '../config-schema';
+import routes from '../routes.json';
+import en from '../../translations/en.json';
 import QueryResultsPage from './query-results.page';
-import { rememberQuery } from './query-history';
-import { markSubmitted } from './submission';
+import { getQueryHistory, queryHistoryKey, rememberQuery } from './query-history';
+import { markSubmitted, takeSubmission } from './submission';
 
 // As in the omnibar's tests: the framework mock's slot mounts nothing, so this one filters with
 // `select`, runs the render function per extension and passes <Extension state> as props.
@@ -307,5 +324,268 @@ describe('the Query results page', () => {
       goTo('weight');
       expect(seen.at(-1)).toMatchObject({ query: 'weight', submitted: true });
     });
+  });
+});
+
+describe('the Query results page under a slash command', () => {
+  const omnibarModule = '@openmrs/esm-omnibar-app';
+  // The built-in providers, as routes.json declares them, and one from another app declaring ask, which
+  // no built-in does: they make up the bar's command table.
+  const providers = [
+    ...routes.extensions
+      .filter((extension) => extension.slot === 'omnibar-providers-slot')
+      .map((extension) => ({
+        id: extension.name,
+        name: extension.name,
+        moduleName: omnibarModule,
+        meta: extension.meta as OmnibarProviderMeta,
+        config: null,
+      })),
+    {
+      id: 'ask-provider',
+      name: 'ask-provider',
+      moduleName: '@openmrs/esm-ask-app',
+      meta: {
+        lane: 'navigate',
+        scopes: ['patient'],
+        contract: 1,
+        command: { id: 'ask', aliases: ['ask'] },
+      } as OmnibarProviderMeta,
+      config: null,
+    },
+  ];
+
+  /** Mounts these views, with the built-in providers in their own slot. */
+  function registerViews(
+    views: Array<{ name: string; meta: OmnibarViewMeta; component: React.ComponentType<OmnibarViewProps> }>,
+  ) {
+    viewComponents.clear();
+    views.forEach(({ name, component }) => viewComponents.set(name, component));
+    const viewExtensions = views.map(({ name, meta }) => ({
+      id: name,
+      name,
+      moduleName: 'some-app',
+      meta,
+      config: null,
+    }));
+    vi.mocked(useAssignedExtensions).mockImplementation(
+      (slot: string) => (slot === OMNIBAR_QUERY_RESULTS_SLOT ? viewExtensions : providers) as never,
+    );
+  }
+
+  const withCommands = (commands: Array<Partial<CommandConfig>> = []) =>
+    vi.mocked(useConfig).mockReturnValue({
+      ...(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig),
+      commands: commands as Array<CommandConfig>,
+    });
+
+  const goToRequest = (params: Record<string, string>) =>
+    act(() => {
+      window.history.pushState(
+        {},
+        '',
+        `/openmrs/spa/patient/${humprey}/chart/query-results?${new URLSearchParams(params)}`,
+      );
+      window.dispatchEvent(new Event('single-spa:routing-event'));
+    });
+
+  const lab: Array<OmnibarViewProps> = [];
+  const asks: Array<OmnibarViewProps> = [];
+  const plain: Array<OmnibarViewProps> = [];
+  const standardViews = () => {
+    lab.length = asks.length = plain.length = 0;
+    registerViews([
+      {
+        name: 'values',
+        meta: { scopes: ['patient'], order: 10, command: { id: 'lab' } },
+        component: reports('ready', 'Values', lab),
+      },
+      {
+        name: 'answer',
+        meta: { scopes: ['patient'], order: 100, command: { id: 'ask' } },
+        component: reports('ready', 'Answer', asks),
+      },
+      { name: 'notes', meta: { scopes: ['patient'], order: 50 }, component: reports('ready', 'Notes', plain) },
+    ]);
+  };
+  const landedOn = () => interpolateUrl(vi.mocked(navigate).mock.calls.at(-1)[0].to);
+
+  beforeEach(() => {
+    vi.mocked(getSessionStore).mockReturnValue(mockSessionStore);
+    mockSessionStore.setState({
+      loaded: true,
+      session: { authenticated: true, sessionId: 's', user: { uuid: 'nurse' } },
+    } as never);
+    window.sessionStorage.clear();
+    withCommands();
+    vi.mocked(translateFrom).mockImplementation((moduleName: string, key: string, fallback?: string) => {
+      const text =
+        moduleName === omnibarModule
+          ? key.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], en)
+          : undefined;
+      return typeof text === 'string' ? text : (fallback ?? key);
+    });
+    standardViews();
+  });
+  afterEach(() => window.history.pushState({}, '', '/'));
+
+  it('mounts only the views declaring the command, and tells them the command', () => {
+    goToRequest({ cmd: 'lab', q: 'cd4' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    expect(screen.getByText('Values: cd4')).toBeInTheDocument();
+    expect(screen.queryByText('Answer: cd4')).not.toBeInTheDocument();
+    expect(screen.queryByText('Notes: cd4')).not.toBeInTheDocument();
+    expect(lab.at(-1).context.command).toEqual({ id: 'lab' });
+    // The chip the bar showed, then the text.
+    expect(screen.getByRole('heading', { name: 'Lab results : Results for “cd4”' })).toBeInTheDocument();
+  });
+
+  it('mounts every view for a plain query, with no command in the context', () => {
+    goToRequest({ q: 'cd4' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    expect(screen.getAllByText(/: cd4$/).map((node) => node.textContent)).toEqual([
+      'Values: cd4',
+      'Notes: cd4',
+      'Answer: cd4',
+    ]);
+    expect(lab.at(-1).context.command).toBeUndefined();
+    expect(screen.getByRole('heading', { name: 'Results for “cd4”' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['an id no view or provider declares', { cmd: 'cohort' }, []],
+    ['something that isn’t an id', { cmd: 'Lab' }, []],
+    ['an empty cmd', { cmd: '' }, []],
+    ['a command the config disables', { cmd: 'lab' }, [{ id: 'lab', enabled: false }]],
+    ['a command no view declares', { cmd: 'go' }, []],
+  ])('fails closed for %s: only the query, a line saying so, and a plain search', async (_, params, commands) => {
+    const user = userEvent.setup();
+    withCommands(commands);
+    markSubmitted(humprey, 'when did he start ART?');
+    goToRequest({ ...params, q: 'when did he start ART?' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    expect(screen.getByRole('heading', { name: 'Results for “when did he start ART?”' })).toBeInTheDocument();
+    expect(screen.getByText('That command isn’t available here.')).toBeInTheDocument();
+    expect(screen.queryByText(/^(Values|Answer|Notes):/)).not.toBeInTheDocument();
+    expect(screen.queryByText('There’s nothing installed that can show results here.')).not.toBeInTheDocument();
+    expect(getQueryHistory(humprey)).toEqual([]);
+    // A refused page drops a mark it could never take, so the plain search below can't inherit one.
+    expect(takeSubmission(humprey, 'when did he start ART?')).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: 'Show all results for “when did he start ART?”' }));
+    expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?q=when+did+he+start+ART%3F`);
+    // The plain search isn't marked as asked for.
+    expect(takeSubmission(humprey, 'when did he start ART?')).toBe(false);
+  });
+
+  it('keeps a mark for its own command while the command is refused, and takes it once it is available', () => {
+    registerViews([{ name: 'notes', meta: { scopes: ['patient'] }, component: reports('ready', 'Notes', plain) }]);
+    markSubmitted(humprey, 'cd4', 'ask');
+    goToRequest({ cmd: 'ask', q: 'cd4' });
+    const { rerender } = render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    expect(screen.getByText('That command isn’t available here.')).toBeInTheDocument();
+
+    // The app with the /ask view registers its extensions later.
+    standardViews();
+    rerender(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    expect(screen.queryByText('That command isn’t available here.')).not.toBeInTheDocument();
+    expect(asks.at(-1)).toMatchObject({ query: 'cd4', submitted: true });
+  });
+
+  it('shows no view for an ID-shaped query under /ask, whose only view skips identifiers', () => {
+    registerViews([
+      {
+        name: 'answer',
+        meta: { scopes: ['patient'], command: { id: 'ask' }, skipIdentifierQueries: true },
+        component: reports('ready', 'Answer', asks),
+      },
+    ]);
+    asks.length = 0;
+    goToRequest({ cmd: 'ask', q: '100GEJ' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    expect(asks).toEqual([]);
+    expect(screen.queryByText('That command isn’t available here.')).not.toBeInTheDocument();
+    expect(screen.getByText('There’s nothing installed that can show results here.')).toBeInTheDocument();
+  });
+
+  it('fails closed for a command whose only view this user can’t see', () => {
+    registerViews([{ name: 'notes', meta: { scopes: ['patient'] }, component: reports('ready', 'Notes', plain) }]);
+    goToRequest({ cmd: 'ask', q: 'when did he start ART?' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    expect(screen.getByText('That command isn’t available here.')).toBeInTheDocument();
+    expect(screen.queryByText(/^Notes:/)).not.toBeInTheDocument();
+  });
+
+  it('tells the /ask view the user just asked, once, only for a mark made under /ask', () => {
+    markSubmitted(humprey, 'cd4', 'ask');
+    goToRequest({ cmd: 'ask', q: 'cd4' });
+    const { unmount } = render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    expect(asks.at(-1)).toMatchObject({ query: 'cd4', submitted: true, context: { command: { id: 'ask' } } });
+    unmount();
+
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    expect(asks.at(-1).submitted).toBe(false);
+  });
+
+  it.each([
+    ['a plain mark', () => markSubmitted(humprey, 'cd4')],
+    ['a mark under another command', () => markSubmitted(humprey, 'cd4', 'lab')],
+  ])('doesn’t tell the /ask view it was asked after %s', (_, mark) => {
+    mark();
+    goToRequest({ cmd: 'ask', q: 'cd4' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    expect(asks.at(-1).submitted).toBe(false);
+  });
+
+  it('remembers the query under its command and shows it with the command’s chip', async () => {
+    const user = userEvent.setup();
+    window.sessionStorage.setItem(
+      queryHistoryKey,
+      JSON.stringify({ owner: 'nurse', byPatient: { [humprey]: ['weight'] } }),
+    );
+    goToRequest({ cmd: 'lab', q: 'cd4' });
+    const { unmount } = render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    expect(getQueryHistory(humprey)).toEqual([{ cmd: 'lab', q: 'cd4' }, { q: 'weight' }]);
+    unmount();
+
+    // The same text without the command is another query, so the /lab one is listed beside it.
+    goToRequest({ q: 'cd4' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    const history = screen.getByRole('navigation', { name: 'Earlier this session' });
+    const items = within(history).getAllByRole('button');
+    expect(items.map((item) => item.textContent)).toEqual(['Lab results:  cd4', 'weight']);
+
+    // Choosing it runs it again with its command, and, under /lab, isn't marked as asked for.
+    await user.click(items[0]);
+    expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=lab&q=cd4`);
+    expect(takeSubmission(humprey, 'cd4', 'lab')).toBe(false);
+    expect(items[0]).toHaveAttribute('title', 'Run again');
+  });
+
+  it('runs an earlier /ask again as asking it', async () => {
+    const user = userEvent.setup();
+    rememberQuery(humprey, 'cd4', 'ask');
+    goToRequest({ q: 'weight' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    await user.click(within(screen.getByRole('navigation', { name: 'Earlier this session' })).getByRole('button'));
+    expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=ask&q=cd4`);
+    expect(takeSubmission(humprey, 'cd4', 'ask')).toBe(true);
+  });
+
+  it('shows an earlier query under a command the bar no longer knows as its text alone', () => {
+    withCommands([{ id: 'lab', enabled: false }]);
+    rememberQuery(humprey, 'cd4', 'lab');
+    goToRequest({ q: 'weight' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    expect(
+      within(screen.getByRole('navigation', { name: 'Earlier this session' })).getByRole('button'),
+    ).toHaveTextContent(/^cd4$/);
   });
 });

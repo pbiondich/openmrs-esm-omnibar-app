@@ -159,6 +159,22 @@ Choices the design left open, or where it met an earlier decision, made while bu
 
 **Built-in labels.** Patients, Lab results, Pages and Ask ChartSearch, with English aliases in `en.json` too so translators see them. The hint under a command reads "Enter to see Lab results for 'cd4'", and under `/ask` "Enter to ask ChartSearch '…'" when Enter will ask.
 
+### Building the Query results slice of slash commands
+
+Choices made while building PR 2 (`feat/slash-commands-query-results`).
+
+**A command fails closed unless the bar offers it here and a view declares it.** "Offers" means it is in the bar's alias table for a chart: declared by a provider this user has, and not disabled in config. So `?cmd=lab` with `lab` disabled fails closed, even though the chart values view declares it. `cmd=` with nothing, or anything that isn't a command id, fails closed too; only a URL with no `cmd` at all is a plain query.
+*Why:* the design lists a disabled command among the cases that fail closed, and the only way to know it's disabled is the bar's own table. Failing closed on junk keeps a malformed link from quietly becoming a plain query.
+
+**A refused page drops every "just asked" mark it could never take, and its plain-search link isn't marked.** Following the link shows the plain results with an Ask button rather than asking ChartSearch at once. A mark for the page's own command is kept, in case the command becomes available once a lazily loaded app registers its extensions; the page takes nothing while it refuses.
+*Why:* the user asked for a command, not for a model call on the plain text, so the link is a new page nobody asked a model on, like a bookmark.
+
+**The mark carries its command.** A mark made for `/ask cd4` is taken only by a page showing `cmd=ask&q=cd4`, and a plain one only by a page with no `cmd`. The bar and an earlier query chosen on the page still mark only a plain query or `/ask`; that PR 1 rule now backs up the view filtering.
+*Why:* the view filtering alone would do, but a mark that could be taken under another command is a second way for something to ask that the user didn't ask for.
+
+**History stores a plain query as its text, as before, and one under a command as `{ cmd, q }`.** The same text with and without a command are two entries.
+*Why:* history written before this change reads unchanged, and a page from before it would skip the new entries rather than break.
+
 ### From ChartSearch step 3, Paul's decisions of 2026-10-18
 
 **The Ask ChartSearch view now lives in ChartSearch's own app.** This retires the exception "For now the Ask ChartSearch view lives in this repo" above. ChartSearch's app (`openmrs-esm-chartsearchai`, as a local branch on Paul's machine and o3) registers the answer section as `chartsearch-query-results-view` in `omnibar-query-results-slot`, at order 100, gated by `AI Query Patient Data` in its own `routes.json`, on its own copy of the contract folder. The omnibar deleted its view, stream client, styles, offer hook and their translations. The bar's hint still says "and ask ChartSearch", from the view's new `meta.asksModel` and the host's own question heuristic, `looksLikeQuestion`, now in the contract folder with `queryResults.questionMinWords`. The page also passes views a `signal`, aborted on a rerun, another query or chart, and the page closing. See [the step 3 brief](briefs/2026-10-18-chartsearch-step3.md).
