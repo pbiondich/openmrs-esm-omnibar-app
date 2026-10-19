@@ -1222,3 +1222,16 @@ Deviations, and why:
 - Tests: 714 in 20 files after the merge; 722 in 20 files after option a. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
 - No new origin in `src/`.
 - Not reviewed yet, and not tried live on o3.
+
+### Review round (Grok, code, both sides, on omnibar 8153cf5 and chartsearchai 8432367): APPROVE WITH SHOULD-FIX, no blocking
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| should-fix (chartsearchai): its CI "Verify translations" runs the extractor over `src/**/*.component.tsx` only, with `keepRemoved: false`, so it deletes `omnibarCommand.ask.aliases`, `.label` and `.description`, which no `t()` call names (the host reads them with `translateFrom`), along with the view's own keys | In chartsearchai, handled by its builder: the extractor also scans `src/**/*.view.tsx` and `src/omnibar-contract/**/*.tsx`, and `keepRemoved` keeps `omnibarCommand.*`; today's extract output isn't committed | chartsearchai: pending |
+| nit 1 (omnibar): README's slash-commands section said "under `/ask` any text counts as a question", leaving out the ID exception the contract doc, `useAsksModel` and the view all keep | README says any text that isn't ID-shaped counts, and that an ID still opens its patient on Enter | this commit |
+| nit 2 (chartsearchai): a test comment in `src/query-results/omnibar-contract.test.ts` says the aliases and strings were "as the omnibar's built-in view did"; on 5de0d24 the view declared only `{ id: 'ask' }`, and the aliases and strings were the suggestion provider's | In chartsearchai, handled by its builder: the comment names the suggestion provider and the omnibar catalogue | chartsearchai: pending |
+
+The reviewer checked the merge against 5de0d24 (`submission.ts`, `query-history.ts`, `query-results-url.ts` and the styles identical; command filtering, fail-closed, command-bound marks and `{ cmd, q }` history intact; step 3's deletions kept), `useAsksModel` following the page's mount rule and #22's `/ask` rule, view-declared commands (patient only, contract-checked, cleaned like a provider's, config applied, namespaces loaded, no providers mounted), that no command but a plain query or `/ask` can lead to a model call, the hint and chip strings against #22's catalogue, the contract folder (version 1, only the optional `command.aliases`, identical in both apps), and offline-first. They accepted the two builder deviations above and noted the known `maxQuestionLength` hint gap from step 3 is unchanged.
+
+- `src/omnibar-contract/` unchanged in this round.
+- Tests: 722 in 20 files, unchanged. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
