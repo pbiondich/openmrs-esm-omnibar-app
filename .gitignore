@@ -89,3 +89,6 @@ e2e/storageState.json
 
 # Local working files: raw benchmark and verification outputs, logs, notes
 scratch/
+
+# Per-session git worktrees (see AGENTS.md, "Working in parallel")
+.worktrees/

@@ -7,13 +7,13 @@ Start it in its own worktree, branched from the current `main`:
 ```sh
 cd ~/Projects/openmrs-esm-omnibar-app
 git fetch origin
-git worktree add -b feat/slash-commands ~/Projects/openmrs-esm-omnibar-app-slash-build origin/main
-cd ~/Projects/openmrs-esm-omnibar-app-slash-build
+git worktree add -b feat/slash-commands .worktrees/slash-commands origin/main
+cd .worktrees/slash-commands
 claude
 ```
 
 ```text
-TASK: Build slash commands in esm-omnibar-app, on branch feat/slash-commands, including the thin Query results slice.
+TASK: Build slash commands in esm-omnibar-app, as two PRs in sequence: the bar side on branch feat/slash-commands, then the thin Query results slice on feat/slash-commands-query-results, branched from the first.
 
 READ FIRST
 - AGENTS.md: architecture, contract conventions, review policy, working in parallel, commits and pushes.
@@ -22,6 +22,10 @@ READ FIRST
 - docs/design/omnibar-provider-contract.md, including the Query results views section.
 - README.md: the design rules and both "Slash commands" sections.
 - src/omnibar/omnibar.extension.tsx (provider filtering, Enter handling, the chip), src/omnibar/omnibar.resource.ts (useOmnibarShortcut), src/query-results/ (the page, submission.ts, query-history.ts, query-results-url.ts), src/config-schema.ts.
+
+SHAPE
+- PR 1, the bar (items 1 to 7, 9 and the matching tests in 10). Useful on its own: commands shape the dropdown, and Enter under a command inside a chart already builds the Query results URL with cmd, which the page ignores until PR 2. Get it through both reviews and offer it before starting PR 2.
+- PR 2, Query results (item 8, its translations and its tests). Branch from PR 1's branch so it can be reviewed on its own; it merges after PR 1. This is where the security review should concentrate.
 
 WHAT TO BUILD
 1. Contract types, in src/omnibar-contract/types.ts, all optional and marked "new in v1":
@@ -35,7 +39,7 @@ WHAT TO BUILD
 4. Shell: "/" outside a field opens in command mode with "/" in the field and the list showing; Ctrl/Cmd K still opens for plain text. The chosen command is a chip after the patient chip, showing the label. Backspace in an empty field removes the command chip, then the patient chip. Escape removes the chip, then closes. The list greys commands whose providers don't declare the current scope, with a short reason, and they can't be chosen. Scope is never widened. The id never appears on screen.
 5. Mounting: with a command active, mount only providers declaring its id, with every other mounting rule unchanged (scope, skipIdentifierQueries, contract, privileges). Pass context.command. Default highlight, dedupe, the fail-closed rule and the wristband exception are untouched; /patient inside a chart gives no new default.
 6. Built-in declarations in routes.json, per the design doc's table: patient (patient, pt, find); lab on chart lookup and the query store provider (lab, labs, results, obs, value); go on destinations (go, open, page); ask on the ChartSearch suggestion (ask, question). Under /ask the suggestion provider skips its question heuristic. Empty query under a command: each provider does what it does for an empty field today.
-7. Enter under a command, inside a chart: send cmd and q to Query results, with the hint naming the label beforehand, under the same exceptions as plain text (arrowed/pointed row, ID-shaped query, enterBehavior). Outside a chart Enter opens the highlight as today.
+7. Enter under a command, inside a chart: send cmd and q to Query results, with the hint naming the label beforehand, under the same exceptions as plain text (arrowed/pointed row, ID-shaped query, enterBehavior). Outside a chart Enter opens the highlight as today. Until PR 2 lands, the page ignores cmd and shows the plain query; say so in PR 1's description.
 8. Query results, thin slice:
    - queryResultsUrl takes an optional command id and adds ?cmd=<id>. The page reads cmd and q.
    - With cmd set, mount only views declaring that id; views with no command mount only for plain queries. Chart values view declares lab; Ask ChartSearch view declares ask.
@@ -52,7 +56,7 @@ OUT OF SCOPE
 CONSTRAINTS
 - Don't break any of the six design rules. A command never makes the bar act directly. The only model call is /ask + Enter on Query results, in the one way Enter on a question already works.
 - Significant feature under the review policy: independent adversarial code and security reviews until neither has a blocker left, logged round by round in FIXES.md. The security review should look hardest at: cmd in URLs (fail closed, never mount a model view for a cmd that doesn't declare it), the chip and parsing never sending an ID-shaped query to Query results, and translation-sourced aliases being data, not code.
-- Commit locally on feat/slash-commands and don't push unless Paul asks. yarn verify and yarn build must both pass. If plain yarn isn't on the PATH, use node .yarn/releases/yarn-4.10.3.cjs.
+- Commit locally on the two branches above and don't push unless Paul asks. yarn verify and yarn build must both pass. If plain yarn isn't on the PATH, use node .yarn/releases/yarn-4.10.3.cjs.
 - Verify framework APIs by reading source, and flag anything you assumed.
 - When done: add an entry to docs/decisions.md for any choice the design doc didn't settle; update the two README slash-command sections from "Planned" to built, keeping the Background section untouched; add the new meta and context fields to docs/design/omnibar-provider-contract.md; and update the slash-commands status in docs/briefs/README.md.
 ```

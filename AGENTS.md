@@ -65,7 +65,7 @@ O3 runs in clinics with poor or no internet, so a change must not add a CDN, web
 
 Several agents often work on this repo at once, from different tools.
 
-- **Give each session its own branch in its own git worktree,** so no two sessions share a checkout: `git worktree add -b <branch> ../openmrs-esm-omnibar-app-<topic> origin/main`. Remove the worktree and its local branch once the PR merges.
+- **Give each session its own branch in its own git worktree,** so no two sessions share a checkout. Worktrees live inside the repo under the gitignored `.worktrees/`, never as siblings in `~/Projects`, which holds only actual GitHub repos: `git worktree add -b <branch> .worktrees/<topic> origin/main`. Remove the worktree and its local branch once the PR merges (`git worktree remove .worktrees/<topic>`).
 - **Bring `main` into a pushed branch with a merge, never a rebase.**
 - **Before starting, read [`docs/decisions.md`](docs/decisions.md) and the [briefs index](docs/briefs/README.md),** so you don't reopen a settled question or duplicate work in flight. When you finish a brief, update its status there.
 
