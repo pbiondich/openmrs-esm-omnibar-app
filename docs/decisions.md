@@ -112,6 +112,12 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **Query store rows don't take the default highlight inside a chart, for now.** The query store chart provider no longer sets `defaultInChart`, so its rows are chosen by arrow or pointer. Chart lookup keeps the default. The contract still allows the query store to set it, so this is a choice in `routes.json`, not a rule. Revisit after the synonym and short-word fix and benchmark round 3. This settles plan question 11.
 *Why:* in [round 2](briefs/2026-10-18-querystore-benchmark-round-2.md) on o3, the query store's keyword path was fast (p50 about 165–245 ms, against 340–820 ms for REST and FHIR) and every latest value was correct (27 of 27). But its first row matched the REST dropdown's in only 17 of 26 queries, because keyword search misses synonyms and two-letter queries such as "hb".
 
+### From query store benchmark round 3, 8:24 PM ET
+
+Results only; the decision above stands until Paul changes it.
+
+**Round 3 against the default-highlight question.** In [round 3](results/2026-10-18-querystore-benchmark-round-3/README.md), with query store a558163 (synonyms and two-letter whole-word search, main-name matches above synonym-only ones), variant A was still fast (p50 about 167–210 ms, against 334–831 ms for REST and FHIR), had every latest value right (31 of 31), and its first row matched the REST dropdown's in 21 of 26 queries, up from 17. `hb` now matches REST everywhere. All five remaining misses are `cd4`, where the query store puts CD4 count first and REST puts CD4%; round 1 noted CD4% first was probably the wrong pick. Whether to set `defaultInChart` on the query store provider again is Paul's decision: re-enable it if he accepts the CD4 count-first order.
+
 ## Open
 
 These came up but aren't decided yet.
