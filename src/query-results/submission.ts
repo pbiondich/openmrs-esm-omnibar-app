@@ -86,6 +86,18 @@ export function takeSubmission(patientUuid: string | undefined, query: string, c
   return submitted;
 }
 
+/**
+ * Drops a mark no page showing this command, or `null` for a plain query, could take: one made under
+ * another command or none. A page that refuses its command calls it, so its plain search can't inherit
+ * a plain mark, while a mark for its own command stays for when the command becomes available, such as
+ * once a lazily loaded app's extensions register.
+ */
+export function dropOtherSubmissions(command: string | null) {
+  if (pending && pending.command !== (command ?? '')) {
+    pending = null;
+  }
+}
+
 /** Drops any mark, as at logout. */
 export function clearSubmission() {
   pending = null;

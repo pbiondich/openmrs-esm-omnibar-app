@@ -388,7 +388,7 @@ describe('the Query results page under a slash command', () => {
     expect(screen.queryByText('Notes: cd4')).not.toBeInTheDocument();
     expect(lab.at(-1).context.command).toEqual({ id: 'lab' });
     // The chip the bar showed, then the text.
-    expect(screen.getByRole('heading', { name: 'Lab results Results for “cd4”' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Lab results : Results for “cd4”' })).toBeInTheDocument();
   });
 
   it('mounts every view for a plain query, with no command in the context', () => {
@@ -422,13 +422,44 @@ describe('the Query results page under a slash command', () => {
     expect(screen.queryByText(/^(Values|Answer|Notes):/)).not.toBeInTheDocument();
     expect(screen.queryByText('There’s nothing installed that can show results here.')).not.toBeInTheDocument();
     expect(getQueryHistory(humprey)).toEqual([]);
-    // A refused page drops any mark, so the plain search below can't inherit one.
+    // A refused page drops a mark it could never take, so the plain search below can't inherit one.
     expect(takeSubmission(humprey, 'when did he start ART?')).toBe(false);
 
     await user.click(screen.getByRole('button', { name: 'Show all results for “when did he start ART?”' }));
     expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?q=when+did+he+start+ART%3F`);
     // The plain search isn't marked as asked for.
     expect(takeSubmission(humprey, 'when did he start ART?')).toBe(false);
+  });
+
+  it('keeps a mark for its own command while the command is refused, and takes it once it is available', () => {
+    registerViews([{ name: 'notes', meta: { scopes: ['patient'] }, component: reports('ready', 'Notes', plain) }]);
+    markSubmitted(humprey, 'cd4', 'ask');
+    goToRequest({ cmd: 'ask', q: 'cd4' });
+    const { rerender } = render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    expect(screen.getByText('That command isn’t available here.')).toBeInTheDocument();
+
+    // The app with the /ask view registers its extensions later.
+    standardViews();
+    rerender(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+    expect(screen.queryByText('That command isn’t available here.')).not.toBeInTheDocument();
+    expect(asks.at(-1)).toMatchObject({ query: 'cd4', submitted: true });
+  });
+
+  it('shows no view for an ID-shaped query under /ask, whose only view skips identifiers', () => {
+    registerViews([
+      {
+        name: 'answer',
+        meta: { scopes: ['patient'], command: { id: 'ask' }, skipIdentifierQueries: true },
+        component: reports('ready', 'Answer', asks),
+      },
+    ]);
+    asks.length = 0;
+    goToRequest({ cmd: 'ask', q: '100GEJ' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    expect(asks).toEqual([]);
+    expect(screen.queryByText('That command isn’t available here.')).not.toBeInTheDocument();
+    expect(screen.getByText('There’s nothing installed that can show results here.')).toBeInTheDocument();
   });
 
   it('fails closed for a command whose only view this user can’t see', () => {
@@ -477,7 +508,7 @@ describe('the Query results page under a slash command', () => {
     render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
     const history = screen.getByRole('navigation', { name: 'Earlier this session' });
     const items = within(history).getAllByRole('button');
-    expect(items.map((item) => item.textContent)).toEqual(['Lab results cd4', 'weight']);
+    expect(items.map((item) => item.textContent)).toEqual(['Lab results:  cd4', 'weight']);
 
     // Choosing it runs it again with its command, and, under /lab, isn't marked as asked for.
     await user.click(items[0]);

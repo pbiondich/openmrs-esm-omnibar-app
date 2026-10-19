@@ -31,7 +31,7 @@ import { type OmnibarConfig } from '../config-schema';
 import { useOpenedWorkspaceGroup } from '../omnibar/workspace-group';
 import { capQuery, queryResultsUrl } from './query-results-url';
 import { getQueryHistory, type QueryHistoryEntry, rememberQuery, sameQuery } from './query-history';
-import { clearSubmission, markSubmitted, onSubmission, takeSubmission } from './submission';
+import { clearSubmission, dropOtherSubmissions, markSubmitted, onSubmission, takeSubmission } from './submission';
 import { useChartSearchOffer } from '../views/chartsearch-offer';
 import styles from './query-results.scss';
 
@@ -193,10 +193,17 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   const taken = useRef<{ generation: string; submitted: boolean } | null>(null);
   const [submission, setSubmission] = useState<{ generation: string; submitted: boolean } | null>(null);
   useLayoutEffect(() => {
-    // A refused command drops any mark, so its plain search, or anything else, can't inherit one.
+    // While the command is refused, no view is mounted, and nothing is taken: the command may become
+    // available in this generation, as a lazily loaded app's extensions register, and its mark is then
+    // still there to take. A mark for anything else is dropped, so the plain search can't inherit one.
     if (failsClosed) {
-      clearSubmission();
-      taken.current = { generation, submitted: false };
+      if (isCommandId(command)) {
+        dropOtherSubmissions(command);
+      } else {
+        clearSubmission();
+      }
+      setSubmission({ generation, submitted: false });
+      return;
     }
     if (taken.current?.generation !== generation) {
       const again = rerun.current?.generation === generation;
@@ -291,7 +298,8 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
               <>
                 <span className={styles.commandChip} dir="auto">
                   {commandLabel}
-                </span>{' '}
+                </span>
+                <span className="cds--visually-hidden">: </span>{' '}
               </>
             )}
             <span dir="auto">
@@ -389,12 +397,14 @@ const HistoryItem: React.FC<{
       className={styles.historyItem}
       onClick={() => onRun(entry)}
       title={asksChartSearch ? t('runAgainAndAsk', 'Run again and ask ChartSearch') : t('runAgain', 'Run again')}
+      dir="auto"
     >
       {label && (
         <>
           <span className={styles.commandChip} dir="auto">
             {label}
-          </span>{' '}
+          </span>
+          <span className="cds--visually-hidden">: </span>{' '}
         </>
       )}
       <span dir="auto">{entry.q}</span>
