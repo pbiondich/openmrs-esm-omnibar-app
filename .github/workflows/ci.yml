@@ -32,6 +32,7 @@ jobs:
           name: dist
           path: |
             dist
+            packages/esm-querystore-app/dist
 
   pre_release:
     runs-on: ubuntu-latest
