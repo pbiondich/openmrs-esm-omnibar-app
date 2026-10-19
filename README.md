@@ -204,7 +204,17 @@ The query store's provider is its own frontend module, `@openmrs/esm-querystore-
 | --- | --- | --- | --- |
 | Query store chart (`omnibar-querystore-chart-provider`, order 15) | record | patient | Query store REST: `/querystore/patient/{uuid}/search` (keyword mode, one row per concept) while typing, `/recent` for an empty field. Shares `chart-values` dedupe with chart lookup, which keeps the copy |
 
-Installing it turns it on: `yarn build` writes its bundle to `packages/esm-querystore-app/dist/`, and a site adds that directory, an importmap entry for `@openmrs/esm-querystore-app` and its `routes.json` to the routes registry, as for any app. It needs the `querystore` backend module. A page that renders nothing on chart routes loads the module when a chart opens, so it can ask the server to index that chart (`warmOnChartOpen`, default `true`). Its own config also has `minSearchCharacters` and `resultsUrl`. To have the query store answer instead of chart lookup, remove `omnibar-chart-lookup-provider` from `omnibar-providers-slot` with slot config. The side-by-side comparison mode of the old `chartLookup.source` setting is gone.
+Installing it turns it on: `yarn build` writes its bundle to `packages/esm-querystore-app/dist/`, and a site adds that directory, an importmap entry for `@openmrs/esm-querystore-app` and its `routes.json` to the routes registry, as for any app. It needs the `querystore` backend module. A page that renders nothing on chart routes loads the module when a chart opens, so it can ask the server to index that chart (`warmOnChartOpen`, default `true`). Its own config also has `minSearchCharacters` and `resultsUrl`. To have the query store answer instead of chart lookup, remove chart lookup from the slot:
+
+```json
+{
+  "@openmrs/esm-omnibar-app": {
+    "extensionSlots": { "omnibar-providers-slot": { "remove": ["omnibar-chart-lookup-provider"] } }
+  }
+}
+```
+
+[`query-store-only.test.ts`](packages/esm-querystore-app/src/query-store-only.test.ts) checks this through the framework's own route registration, config and extension stores: with both apps installed the slot holds chart lookup and the query store, and with this config only the query store is left of the two. The side-by-side comparison mode of the old `chartLookup.source` setting is gone.
 
 The built-in Query results views, in `omnibar-query-results-slot`:
 

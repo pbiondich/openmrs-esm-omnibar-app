@@ -1391,3 +1391,12 @@ Not fixed, and why:
 - Tests: 770 in 24 files (`yarn verify`: `Tasks: 3 successful, 3 total`). csai: 527 in 20 files, lint and type check clean.
 - No new dependency or origin: `package.json`'s dependencies and `yarn.lock` are unchanged, and the query store app has only peer dependencies and calls the OpenMRS server through `openmrsFetch`.
 - Not tried live on o3.
+
+### Follow-ups (Paul, 2026-10-19)
+
+| Change | Commit |
+| --- | --- |
+| The asksModel comment b0dbb80 left as one long line is rewrapped, and the query store app's copy matches | 7ba5078 |
+| ChartSearch's contract copy refreshed from 7ba5078: it gains `commandAsksModel` and the neutral comments. Its lint, type check and 527 tests pass | csai 9c389e1 |
+| `yarn start:querystore` runs `openmrs develop --sources . --sources packages/esm-querystore-app`. Tried with `--backend` pointed at a closed port: both dev servers came up (ports 8092 and 8093), each served its bundle, and the dev import map listed `@openmrs/esm-omnibar-app` and `@openmrs/esm-querystore-app` at those local URLs. The app shell's own import map fell back to dev3.openmrs.org, as `yarn start` does; nothing was tried in a browser | 39dc44c |
+| The "query store only" setup checked through the real framework: `@openmrs/esm-routes` registers both apps' `routes.json`, the omnibar registers the slot, and `@openmrs/esm-config` takes `{"@openmrs/esm-omnibar-app": {"extensionSlots": {"omnibar-providers-slot": {"remove": ["omnibar-chart-lookup-provider"]}}}}`. The slot then holds patient search, destinations and the query store provider, against all four without it; a user without Get Observations gets neither chart-values provider. With the config line taken out, the test fails. This framework version merges `extensionSlots` from any module's config by slot name (`getExtensionSlotConfigs` in esm-config), so the key could sit under either app. The bar's behaviour with chart lookup absent is covered by `omnibar-integration.test.tsx` | this commit |
