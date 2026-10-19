@@ -4,9 +4,6 @@
     "webservices.rest": ">=2.2.0",
     "fhir2": ">=1.2"
   },
-  "optionalBackendDependencies": {
-    "querystore": ">=1.0.0-SNAPSHOT"
-  },
   "pages": [
     {
       "component": "sessionChangePage",
@@ -41,13 +38,6 @@
       "component": "destinationsProvider",
       "slot": "omnibar-providers-slot",
       "meta": { "lane": "navigate", "scopes": ["global", "patient"], "order": 10, "defaultInChart": true, "contract": 1, "command": { "id": "go", "aliases": ["go", "open", "page"] } }
-    },
-    {
-      "name": "omnibar-querystore-chart-provider",
-      "component": "querystoreChartProvider",
-      "slot": "omnibar-providers-slot",
-      "privileges": ["Get Observations"],
-      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true, "command": { "id": "lab", "aliases": ["lab", "labs", "results", "obs", "value"] } }
     },
     {
       "name": "omnibar-query-results-dashboard",

@@ -1,0 +1,19 @@
+{
+  "name": "@openmrs/esm-querystore-app",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MPL-2.0",
+  "description": "O3 query store: the omnibar's query store provider and the warm-up when a chart opens (prototype)",
+  "browser": "dist/openmrs-esm-querystore-app.js",
+  "main": "src/index.ts",
+  "source": true,
+  "browserslist": [
+    "extends browserslist-config-openmrs"
+  ],
+  "peerDependencies": {
+    "@openmrs/esm-framework": "10.x || 11.x",
+    "react": "18.x",
+    "react-i18next": "16.x",
+    "swr": "2.x"
+  }
+}

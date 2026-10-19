@@ -24,7 +24,7 @@ const mockGetCurrentUser = vi.mocked(getCurrentUser as () => Promise<Session>);
 const mockUserHasAccess = vi.mocked(userHasAccess);
 const user = { uuid: 'user-uuid', privileges: [], roles: [] } as unknown as Session['user'];
 
-const moduleName = '@openmrs/esm-omnibar-app';
+const moduleName = '@openmrs/esm-querystore-app';
 const patientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
 const otherUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
 const chartUrl = (uuid: string) => `/openmrs/spa/patient/${uuid}/chart/Patient%20Summary`;
@@ -42,7 +42,7 @@ describe('setupWarmOnChartOpen', () => {
   let teardown: (() => void) | undefined;
 
   beforeEach(() => {
-    mockGetConfig.mockResolvedValue({ chartLookup: { source: 'querystore' } });
+    mockGetConfig.mockResolvedValue({ warmOnChartOpen: true });
     mockGetCurrentUser.mockResolvedValue({ authenticated: true, sessionId: 's', user } as Session);
     mockUserHasAccess.mockReturnValue(true);
   });
@@ -59,7 +59,7 @@ describe('setupWarmOnChartOpen', () => {
     });
   });
 
-  it('POSTs warm when a chart opens and source is querystore', async () => {
+  it('POSTs warm when a chart opens', async () => {
     teardown = setupWarmOnChartOpen(moduleName);
     fireRoutingEvent(chartUrl(patientUuid));
 
@@ -143,8 +143,8 @@ describe('setupWarmOnChartOpen', () => {
     );
   });
 
-  it('does not POST when source is rest', async () => {
-    mockGetConfig.mockResolvedValue({ chartLookup: { source: 'rest' } });
+  it('does not POST when warmOnChartOpen is off', async () => {
+    mockGetConfig.mockResolvedValue({ warmOnChartOpen: false });
     teardown = setupWarmOnChartOpen(moduleName);
     fireRoutingEvent(chartUrl(patientUuid));
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -173,7 +173,7 @@ describe('setupWarmOnChartOpen', () => {
     const deferredConfig = () => {
       let resolve: (config: unknown) => void;
       mockGetConfig.mockReturnValueOnce(new Promise((r) => (resolve = r)));
-      return () => resolve({ chartLookup: { source: 'querystore' } });
+      return () => resolve({ warmOnChartOpen: true });
     };
     const warmUrl = (uuid: string) => `/ws/rest/v1/querystore/patient/${uuid}/warm`;
     const settle = () => new Promise((resolve) => setTimeout(resolve, 10));

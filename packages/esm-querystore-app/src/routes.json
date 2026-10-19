@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.openmrs.org/routes.schema.json",
+  "backendDependencies": {
+    "webservices.rest": ">=2.2.0",
+    "querystore": ">=1.0.0-SNAPSHOT"
+  },
+  "pages": [
+    {
+      "component": "chartOpenPage",
+      "routeRegex": "^patient/[^/]+/chart(?:/|$)",
+      "online": true,
+      "offline": false
+    }
+  ],
+  "extensions": [
+    {
+      "name": "omnibar-querystore-chart-provider",
+      "component": "querystoreChartProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["Get Observations"],
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true, "command": { "id": "lab", "aliases": ["lab", "labs", "results", "obs", "value"] } }
+    }
+  ]
+}

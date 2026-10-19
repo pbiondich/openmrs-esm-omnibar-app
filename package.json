@@ -9,17 +9,17 @@
   "scripts": {
     "start": "openmrs develop",
     "serve": "rspack serve --mode=development",
-    "build": "rspack --mode production",
+    "build": "rspack --mode production && cd packages/esm-querystore-app && rspack --mode production",
     "analyze": "rspack --mode=production --env analyze=true",
-    "lint": "eslint src --max-warnings 0",
-    "prettier": "prettier --write \"src/**/*.{ts,tsx}\" --list-different",
+    "lint": "eslint src packages --max-warnings 0",
+    "prettier": "prettier --write \"{src,packages/*/src}/**/*.{ts,tsx}\" --list-different",
     "typescript": "tsc",
     "test": "cross-env TZ=UTC vitest run --passWithNoTests",
     "test:watch": "cross-env TZ=UTC vitest watch",
     "verify": "turbo lint typescript coverage",
     "coverage": "cross-env TZ=UTC vitest run --coverage --passWithNoTests",
     "prepare": "husky install",
-    "extract-translations": "i18next 'src/**/*.{ts,tsx}' --config ./tools/i18next-parser.config.js",
+    "extract-translations": "i18next 'src/**/*.{ts,tsx}' --config ./tools/i18next-parser.config.js && cd packages/esm-querystore-app && i18next 'src/**/*.{ts,tsx}' --config ../../tools/i18next-parser.config.js",
     "test-e2e": "playwright test"
   },
   "browserslist": [

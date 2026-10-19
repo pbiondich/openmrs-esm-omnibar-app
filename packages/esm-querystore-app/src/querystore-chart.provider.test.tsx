@@ -12,11 +12,11 @@ import {
   userHasAccess,
 } from '@openmrs/esm-framework';
 import { isVersionSatisfied } from '@openmrs/esm-utils';
-import { configSchema, type OmnibarConfig } from '../config-schema';
-import { type OmnibarContext, type OmnibarProviderMeta, type OmnibarReport } from '../omnibar-contract';
-import routes from '../routes.json';
-import { POLL_DELAYS_MS } from '../querystore/bounded-poll';
-import ChartLookupProvider from './chart-lookup.provider';
+import omnibarRoutes from '../../../src/routes.json';
+import { configSchema, type QuerystoreConfig } from './config-schema';
+import { type OmnibarContext, type OmnibarProviderMeta, type OmnibarReport } from './omnibar-contract';
+import routes from './routes.json';
+import { POLL_DELAYS_MS } from './bounded-poll';
 import QuerystoreChartProvider from './querystore-chart.provider';
 
 vi.mock('@openmrs/esm-framework', async (importOriginal) => ({
@@ -27,7 +27,7 @@ vi.mock('@openmrs/esm-framework', async (importOriginal) => ({
     template.replace(/\$\{openmrsSpaBase\}/g, '/openmrs/spa').replace(/\$\{(\w+)\}/g, (_, k) => vars[k] ?? ''),
 }));
 
-const mockUseConfig = vi.mocked(useConfig<OmnibarConfig>);
+const mockUseConfig = vi.mocked(useConfig<QuerystoreConfig>);
 const mockOpenmrsFetch = vi.mocked(openmrsFetch);
 
 const patientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
@@ -38,15 +38,9 @@ const renderWithFreshCache = (ui: React.ReactElement) =>
 
 const defaultConfig = () =>
   ({
-    ...(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig),
-    chartLookup: {
-      minSearchCharacters: 2,
-      maxConcepts: 5,
-      maxCandidates: 20,
-      resultsUrl: '/openmrs/spa/patient/${patientUuid}/chart/Results',
-      source: 'querystore' as const,
-    },
-  }) satisfies OmnibarConfig;
+    ...(getDefaultsFromConfigSchema(configSchema) as QuerystoreConfig),
+    resultsUrl: '/openmrs/spa/patient/${patientUuid}/chart/Results',
+  }) satisfies QuerystoreConfig;
 
 const user = { uuid: 'user-uuid', privileges: [], roles: [] } as unknown as Session['user'];
 
@@ -92,17 +86,6 @@ function makeGroup(
 describe('QuerystoreChartProvider', () => {
   beforeEach(() => {
     mockUseConfig.mockReturnValue(defaultConfig());
-  });
-
-  it('is idle when source is rest', () => {
-    mockUseConfig.mockReturnValue({
-      ...defaultConfig(),
-      chartLookup: { ...defaultConfig().chartLookup, source: 'rest' },
-    });
-    const report = vi.fn();
-    render(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
-    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'idle' }));
-    expect(mockOpenmrsFetch).not.toHaveBeenCalled();
   });
 
   it('is idle when query is shorter than minSearchCharacters but not empty', () => {
@@ -229,7 +212,7 @@ describe('QuerystoreChartProvider', () => {
   });
 
   describe.each([
-    ['search', 'cd4', 'In this chart'],
+    ['search', 'cd4', 'In this chart (query store)'],
     ['recent', '', 'Recent in this chart'],
   ])('errors on the %s path', (_, query, title) => {
     it('reports a chart whose indexing failed as a failed source, not as empty results', async () => {
@@ -465,21 +448,6 @@ describe('QuerystoreChartProvider', () => {
         expect(other.dedupeId).toBeUndefined();
       },
     );
-
-    it('leaves dedupe out in the side-by-side comparison mode, so neither copy is hidden', async () => {
-      mockUseConfig.mockReturnValue({
-        ...defaultConfig(),
-        chartLookup: { ...defaultConfig().chartLookup, source: 'both' },
-      });
-      mockOpenmrsFetch.mockResolvedValue({ data: rows } as FetchResponse);
-      const report = vi.fn();
-      renderWithFreshCache(<QuerystoreChartProvider query="cd4" context={patientContext} report={report} />);
-
-      await waitFor(() => expect(report.mock.calls.at(-1)[0].results).toHaveLength(2));
-      for (const result of report.mock.calls.at(-1)[0].results) {
-        expect(result.dedupeId).toBeUndefined();
-      }
-    });
   });
 
   describe.each(['cd4', ''])('targets (query "%s")', (query) => {
@@ -850,52 +818,10 @@ describe('QuerystoreChartProvider', () => {
     expect(titles).not.toContain('CD4 count: 350 cells/µL');
   });
 
-  it('uses the group heading "In this chart (query store)" when source is both', () => {
-    mockUseConfig.mockReturnValue({
-      ...defaultConfig(),
-      chartLookup: { ...defaultConfig().chartLookup, source: 'both' },
-    });
+  it('uses the group heading "In this chart (query store)", apart from chart lookup\'s', () => {
     const report = vi.fn();
     render(<QuerystoreChartProvider query="x" context={patientContext} report={report} />);
     expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'In this chart (query store)' }));
-  });
-});
-
-describe('ChartLookupProvider with source config', () => {
-  beforeEach(() => {
-    mockUseConfig.mockReturnValue(defaultConfig());
-  });
-
-  it('goes idle when source is querystore', () => {
-    const report = vi.fn();
-    render(<ChartLookupProvider query="cd4" context={patientContext} report={report} />);
-    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'idle' }));
-    expect(mockOpenmrsFetch).not.toHaveBeenCalled();
-  });
-
-  it('runs normally when source is rest', async () => {
-    mockUseConfig.mockReturnValue({
-      ...defaultConfig(),
-      chartLookup: { ...defaultConfig().chartLookup, source: 'rest' },
-    });
-    mockOpenmrsFetch.mockResolvedValue({ data: { results: [] } } as FetchResponse);
-    const report = vi.fn();
-    renderWithFreshCache(<ChartLookupProvider query="cd4" context={patientContext} report={report} />);
-
-    await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })));
-    expect(mockOpenmrsFetch).toHaveBeenCalled();
-  });
-
-  it('runs normally when source is both', async () => {
-    mockUseConfig.mockReturnValue({
-      ...defaultConfig(),
-      chartLookup: { ...defaultConfig().chartLookup, source: 'both' },
-    });
-    mockOpenmrsFetch.mockResolvedValue({ data: { results: [] } } as FetchResponse);
-    const report = vi.fn();
-    renderWithFreshCache(<ChartLookupProvider query="cd4" context={patientContext} report={report} />);
-
-    await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })));
   });
 });
 
@@ -912,6 +838,8 @@ describe('QuerystoreChartProvider props contract', () => {
 describe('QuerystoreChartProvider registration', () => {
   const metaOf = (name: string) =>
     routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
+  const chartLookup = omnibarRoutes.extensions.find((extension) => extension.name === 'omnibar-chart-lookup-provider');
+  const chartLookupMeta = chartLookup.meta as OmnibarProviderMeta;
 
   it('declares contract 1, ranks after chart lookup, skips identifiers, answers /lab and may take the default highlight', () => {
     // Exact. It may take the default only because it ranks after chart lookup in the same lane, so
@@ -929,40 +857,48 @@ describe('QuerystoreChartProvider registration', () => {
   });
 
   it('answers /lab with chart lookup', () => {
-    expect(metaOf('omnibar-querystore-chart-provider').command).toEqual(
-      metaOf('omnibar-chart-lookup-provider').command,
-    );
+    expect(metaOf('omnibar-querystore-chart-provider').command).toEqual(chartLookupMeta.command);
   });
 
   it('ranks after chart lookup in the same lane', () => {
-    const lookup = metaOf('omnibar-chart-lookup-provider');
     const store = metaOf('omnibar-querystore-chart-provider');
-    expect(store.lane).toBe(lookup.lane);
-    expect(store.order).toBeGreaterThan(lookup.order);
+    expect(store.lane).toBe(chartLookupMeta.lane);
+    expect(store.order).toBeGreaterThan(chartLookupMeta.order);
   });
 
-  it('is mounted only for users who may see observations, like chart lookup, the provider it replaces', () => {
-    const privilegesOf = (name: string) => routes.extensions.find((extension) => extension.name === name).privileges;
-    expect(privilegesOf('omnibar-querystore-chart-provider')).toEqual(['Get Observations']);
-    expect(privilegesOf('omnibar-querystore-chart-provider')).toEqual(privilegesOf('omnibar-chart-lookup-provider'));
+  it('is mounted only for users who may see observations, like chart lookup', () => {
+    const privileges = routes.extensions.find(
+      (extension) => extension.name === 'omnibar-querystore-chart-provider',
+    ).privileges;
+    expect(privileges).toEqual(['Get Observations']);
+    expect(privileges).toEqual(chartLookup.privileges);
   });
 
   it('shares its dedupe key with chart lookup', () => {
-    expect(metaOf('omnibar-querystore-chart-provider').dedupeKey).toBe(
-      metaOf('omnibar-chart-lookup-provider').dedupeKey,
-    );
+    expect(metaOf('omnibar-querystore-chart-provider').dedupeKey).toBe(chartLookupMeta.dedupeKey);
   });
 
-  // The framework compares with prereleases included, so ">=1.0.0" rejects 1.0.0-SNAPSHOT, and the
-  // version mismatch popup that follows takes keyboard focus from the bar.
+  // The framework compares with prereleases included, so ">=1.0.0" rejects 1.0.0-SNAPSHOT.
   it.each(['1.0.0-SNAPSHOT', '1.0.0', '1.2.0-SNAPSHOT'])(
-    'accepts query store %s as its optional backend, as the framework checks it',
+    'accepts query store %s as its backend, as the framework checks it',
     (installed) => {
-      expect(isVersionSatisfied(routes.optionalBackendDependencies.querystore, installed)).toBe(true);
+      expect(isVersionSatisfied(routes.backendDependencies.querystore, installed)).toBe(true);
     },
   );
 
   it('still flags a query store older than 1.0.0', () => {
-    expect(isVersionSatisfied(routes.optionalBackendDependencies.querystore, '0.9.0')).toBe(false);
+    expect(isVersionSatisfied(routes.backendDependencies.querystore, '0.9.0')).toBe(false);
+  });
+
+  // The app shell matches a page's routeRegex against the path after the SPA base.
+  it.each([
+    [`patient/${patientUuid}/chart`, true],
+    [`patient/${patientUuid}/chart/Results`, true],
+    ['home', false],
+    ['search', false],
+    [`patient/${patientUuid}/charts`, false],
+  ])('loads the app on %s: %s', (path, loads) => {
+    const page = routes.pages.find((candidate) => candidate.component === 'chartOpenPage');
+    expect(new RegExp(page.routeRegex).test(path)).toBe(loads);
   });
 });

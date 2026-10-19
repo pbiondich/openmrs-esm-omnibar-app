@@ -10,7 +10,7 @@ import {
   useSession,
   userHasAccess,
 } from '@openmrs/esm-framework';
-import { type OmnibarConfig } from '../config-schema';
+import { type QuerystoreConfig } from './config-schema';
 import {
   isServerUnreachable,
   looksLikeIdentifier,
@@ -18,18 +18,17 @@ import {
   type OmnibarReportDetail,
   type OmnibarResult,
   type OmnibarTarget,
-} from '../omnibar-contract';
-import { useBoundedPoll } from '../querystore/bounded-poll';
+} from './omnibar-contract';
+import { useBoundedPoll } from './bounded-poll';
 
 /**
  * Inside a chart, queries the querystore index for matching concepts (grouped by concept) or
- * recent documents. Active only when chartLookup.source is 'querystore' or 'both'. While the chart
- * is still being indexed it shows what the server has found so far, with the host's "Still
- * indexing" line, rather than waiting, and re-checks a few times with growing delays (see
- * `useBoundedPoll`). Each re-check is a non-waiting request, which also starts a warm on the server,
- * so a chart that opened while every indexing slot was busy catches up. If it still isn't indexed
- * after the last, the line says so and the provider stops asking until the query changes: SWR's
- * focus and reconnect revalidation are off, and an error is retried only twice.
+ * recent documents. While the chart is still being indexed it shows what the server has found so
+ * far, with the host's "Still indexing" line, rather than waiting, and re-checks a few times with
+ * growing delays (see `useBoundedPoll`). Each re-check is a non-waiting request, which also starts a
+ * warm on the server, so a chart that opened while every indexing slot was busy catches up. If it
+ * still isn't indexed after the last, the line says so and the provider stops asking until the query
+ * changes: SWR's focus and reconnect revalidation are off, and an error is retried only twice.
  */
 
 /** As the server reports a chart: being indexed, ready, never indexed, or its last indexing failed. */
@@ -81,11 +80,10 @@ function errorDetail(error: unknown, status: QuerystoreStatus | undefined): Omni
 
 /**
  * The record a row shows, in the `chart-values` form chart lookup also sends, so the host shows an
- * obs both found once. Left out in the side-by-side comparison mode, where hiding one copy would
- * defeat the comparison.
+ * obs both found once.
  */
-const dedupeIdFor = (hit: QuerystoreHit, comparing: boolean) =>
-  !comparing && hit.resourceType === 'obs' && hit.resourceUuid ? `obs:${hit.resourceUuid}` : undefined;
+const dedupeIdFor = (hit: QuerystoreHit) =>
+  hit.resourceType === 'obs' && hit.resourceUuid ? `obs:${hit.resourceUuid}` : undefined;
 
 /**
  * The core privilege that reads each record type, as the query store's REST resource maps them. The
@@ -202,20 +200,20 @@ function targetForHit(hit: QuerystoreHit, patientUuid: string, resultsUrl: strin
 
 const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, context, report, hints }) => {
   const { t } = useTranslation();
-  const { chartLookup } = useConfig<OmnibarConfig>();
+  const { minSearchCharacters, resultsUrl: resultsUrlTemplate } = useConfig<QuerystoreConfig>();
   const { user } = useSession();
   const patientUuid = context.patientUuid;
 
-  const active = (chartLookup.source === 'querystore' || chartLookup.source === 'both') && Boolean(patientUuid);
+  const active = Boolean(patientUuid);
   // The host doesn't mount this provider for an ID-shaped query (skipIdentifierQueries), but an older
   // host passes no hints and mounts it anyway, so a scanned MRN never reaches the index either way.
   const identifier = hints?.looksLikeIdentifier ?? looksLikeIdentifier(query);
-  const searching = active && !identifier && query.length >= chartLookup.minSearchCharacters;
+  const searching = active && !identifier && query.length >= minSearchCharacters;
   const recents = active && query.length === 0;
 
   const base = active ? `${restBaseUrl}/querystore/patient/${patientUuid}` : null;
 
-  const resultsUrl = interpolateUrl(chartLookup.resultsUrl, { patientUuid });
+  const resultsUrl = interpolateUrl(resultsUrlTemplate, { patientUuid });
 
   const searchUrl = searching
     ? `${base}/search?${new URLSearchParams({ q: query, mode: 'keyword', collapse: 'concept', limit: '5', wait: 'false' })}`
@@ -234,10 +232,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
   );
 
   useEffect(() => {
-    const title =
-      chartLookup.source === 'both'
-        ? t('inThisChartQuerystore', 'In this chart (query store)')
-        : t('inThisChart', 'In this chart');
+    const title = t('inThisChartQuerystore', 'In this chart (query store)');
 
     const indexingDetail = (status: QuerystoreStatus | undefined): OmnibarReportDetail | undefined => {
       if (!isIndexing(status)) {
@@ -301,7 +296,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
             title: rowTitle,
             subtitle,
             target,
-            dedupeId: dedupeIdFor(latest, chartLookup.source === 'both'),
+            dedupeId: dedupeIdFor(latest),
           };
         })
         .filter(isShowable);
@@ -341,7 +336,7 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
           title: rowTitle,
           subtitle,
           target,
-          dedupeId: dedupeIdFor(hit, chartLookup.source === 'both'),
+          dedupeId: dedupeIdFor(hit),
         };
       })
       .filter(isShowable);
@@ -360,7 +355,6 @@ const QuerystoreChartProvider: React.FC<OmnibarProviderProps> = ({ query, contex
     recents,
     patientUuid,
     resultsUrl,
-    chartLookup.source,
     searchData.data,
     searchData.error,
     searchData.isLoading,

@@ -1,6 +1,6 @@
 import { getConfig, getCurrentUser, openmrsFetch, restBaseUrl, userHasAccess } from '@openmrs/esm-framework';
-import { getPatientUuidFromPath } from '../omnibar/use-omnibar-context';
-import type { OmnibarConfig } from '../config-schema';
+import { chartPatientIdOf } from './chart-path';
+import type { QuerystoreConfig } from './config-schema';
 
 /** The privilege the query store provider is mounted with. A user without it has no reason to warm a chart. */
 const warmPrivilege = 'Get Observations';
@@ -24,9 +24,8 @@ let stopCurrent: (() => void) | undefined;
  *
  * This is a module-level listener rather than an extension in a patient-chart slot because:
  * - it reuses the shell's own chart detection without coupling to patient-chart-app slot names
- *   that can remount on sub-navigation within the chart,
- * - it fires exactly once per chart change (deduplicated by lastUuid), and
- * - it keeps querystore concerns out of the generic omnibar shell.
+ *   that can remount on sub-navigation within the chart, and
+ * - it fires exactly once per chart change (deduplicated by lastUuid).
  *
  * A warm is sent only while the user is still in that chart, once the config and the session have
  * arrived. When the server has no indexing slot free it answers 503 with Retry-After; the warm is
@@ -46,7 +45,7 @@ export function setupWarmOnChartOpen(moduleName: string): () => void {
   // If the user has left the chart, forget it, so coming back to it warms once.
   const stillIn = (uuid: string) => {
     if (stopped || uuid !== lastUuid) return false;
-    if (getPatientUuidFromPath(window.location.pathname) !== uuid) {
+    if (chartPatientIdOf(window.location.pathname) !== uuid) {
       lastUuid = undefined;
       return false;
     }
@@ -73,14 +72,14 @@ export function setupWarmOnChartOpen(moduleName: string): () => void {
   };
 
   const warmCurrentChart = () => {
-    const uuid = getPatientUuidFromPath(window.location.pathname);
+    const uuid = chartPatientIdOf(window.location.pathname);
     if (!uuid || uuid === lastUuid) return;
     lastUuid = uuid;
     clearTimeout(retry);
 
-    getConfig<OmnibarConfig>(moduleName)
+    getConfig<QuerystoreConfig>(moduleName)
       .then(async (config) => {
-        if (config.chartLookup.source === 'rest') return false;
+        if (!config.warmOnChartOpen) return false;
         const session = await getCurrentUser();
         return Boolean(session?.user && userHasAccess(warmPrivilege, session.user));
       })
