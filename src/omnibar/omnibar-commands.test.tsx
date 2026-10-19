@@ -584,7 +584,10 @@ describe('slash commands in the bar', () => {
             component: ChartSearchSuggestionProvider,
           },
         ],
-        views,
+        // The answer view declares the model it asks, as ChartSearch's app registers it.
+        views.map((view) =>
+          view.meta.command?.id === 'ask' ? { ...view, meta: { ...view.meta, asksModel: 'ChartSearch' } } : view,
+        ),
       );
       inChart();
     });

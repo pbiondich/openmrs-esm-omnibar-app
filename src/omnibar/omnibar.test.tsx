@@ -46,7 +46,7 @@ import {
   type ProviderInfo,
   useResultCollector,
 } from './omnibar.resource';
-import { withProviderBoundary } from '../omnibar-contract';
+import { OMNIBAR_QUERY_RESULTS_SLOT, type OmnibarViewMeta, withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
 // The framework mock re-exports this module, so this is the store getSessionStore returns.
 import { mockSessionStore } from '@openmrs/esm-api/mock';
@@ -5240,12 +5240,32 @@ describe('Enter inside a chart, with Query results', () => {
     expect(takeSubmission(chartPatient, 'cd4')).toBe(false);
   });
 
-  it('says in the hint when Enter will also ask ChartSearch', async () => {
+  // Views in the Query results slot, as their apps' routes.json register them. The framework assigns
+  // only those the user may see; the bar's providers slot is left empty.
+  const assignViews = (...metas: Array<OmnibarViewMeta>) =>
+    mockUseAssignedExtensions.mockImplementation((slot: string) =>
+      slot === OMNIBAR_QUERY_RESULTS_SLOT
+        ? metas.map((meta, index) => ({
+            id: `view-${index}`,
+            name: `view-${index}`,
+            moduleName: 'some-app',
+            meta,
+            config: null,
+          }))
+        : [],
+    );
+  const asksChartSearch: OmnibarViewMeta = {
+    scopes: ['patient'],
+    order: 100,
+    contract: 1,
+    skipIdentifierQueries: true,
+    asksModel: 'ChartSearch',
+  };
+  const chartValues: OmnibarViewMeta = { scopes: ['patient'], order: 10, contract: 1 };
+
+  it('says in the hint when Enter will also ask the model a view declares', async () => {
     const user = userEvent.setup();
-    mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
-    vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
-    vi.mocked(userHasAccess).mockReturnValue(true);
-    mountProviders([]);
+    assignViews(chartValues, asksChartSearch);
     render(<Omnibar />);
 
     await user.type(screen.getByRole('combobox'), 'when did he start ART?');
@@ -5254,24 +5274,45 @@ describe('Enter inside a chart, with Query results', () => {
         name: 'Enter to see all results for “when did he start ART?” and ask ChartSearch',
       }),
     ).toBeInTheDocument();
-
     expect(
       screen.getByText('↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close'),
     ).toBeInTheDocument();
 
-    vi.mocked(userHasAccess).mockReturnValue(false);
-    await user.type(screen.getByRole('combobox'), ' ');
+    // Not for a query that doesn't look like a question.
+    await user.clear(screen.getByRole('combobox'));
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    expect(await screen.findByRole('button', { name: 'Enter to see all results for “cd4”' })).toBeInTheDocument();
+  });
+
+  it('says only "see all results" when no assigned view asks a model', async () => {
+    const user = userEvent.setup();
+    // As for a user without the view's privilege, or with its app not installed: the framework
+    // doesn't assign it.
+    assignViews(chartValues);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'when did he start ART?');
     expect(
-      screen.getByRole('button', { name: 'Enter to see all results for “when did he start ART?”' }),
+      await screen.findByRole('button', { name: 'Enter to see all results for “when did he start ART?”' }),
     ).toBeInTheDocument();
+    expect(screen.getByText('↑ ↓ to choose a result, Enter to see all, Esc to close')).toBeInTheDocument();
+    expect(screen.queryByText(/and ask/)).not.toBeInTheDocument();
+  });
+
+  it('promises no model for an ID-shaped query, which Enter never submits', async () => {
+    const user = userEvent.setup();
+    assignViews(chartValues, asksChartSearch, { ...asksChartSearch, skipIdentifierQueries: undefined });
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'what is 100GEJ?');
+    await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
+    expect(screen.queryByRole('button', { name: /see all results/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/and ask/)).not.toBeInTheDocument();
+    expect(screen.getByText('↑ ↓ to move, Enter to open, Esc to close')).toBeInTheDocument();
   });
 
   it('promises nothing, and marks nothing, for a question longer than the page takes', async () => {
-    mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
-    vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
-    vi.mocked(userHasAccess).mockReturnValue(true);
-    vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 5000 });
-    mountProviders([]);
+    assignViews(chartValues, asksChartSearch);
     render(<Omnibar />);
 
     const long = `what ${'x'.repeat(1100)}?`;

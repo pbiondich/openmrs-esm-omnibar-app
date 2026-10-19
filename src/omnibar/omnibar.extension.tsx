@@ -49,8 +49,8 @@ import {
 } from './types';
 import { looksLikeIdentifier } from '../omnibar-contract';
 import { maxQueryLength, queryResultsUrl } from '../query-results/query-results-url';
+import { useAsksModel } from '../query-results/query-results-views';
 import { markSubmitted } from '../query-results/submission';
-import { useChartSearchOffer } from '../views/chartsearch-offer';
 import styles from './omnibar.scss';
 
 export const providersSlot = 'omnibar-providers-slot';
@@ -517,10 +517,10 @@ const Omnibar: React.FC = () => {
   // Only a plain query and /ask are marked as asked for just now, which is what lets a view call a
   // model on its own, so no other command can cause one.
   const marksSubmission = !activeCommandId || activeCommandId === askCommandId;
-  // Said in the hint, so the user knows Enter will also ask ChartSearch, an AI, about the chart.
-  const offersChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid);
+  // Said in the hint, so the user knows Enter will also ask a model, such as ChartSearch, about the chart.
+  const modelForQuery = useAsksModel(submittedQuery);
   // A query longer than the page takes is cut, and the page never asks about a cut query on its own.
-  const asksChartSearch = marksSubmission && offersChartSearch && Array.from(submittedQuery).length <= maxQueryLength;
+  const asksModel = marksSubmission && Array.from(submittedQuery).length <= maxQueryLength ? modelForQuery : null;
   const submitQuery = () => {
     if (!scopePatientUuid || !submittedQuery) return;
     const to = queryResultsUrl(scopePatientUuid, submittedQuery, activeCommandId);
@@ -678,17 +678,18 @@ const Omnibar: React.FC = () => {
   const hintValues = {
     query: submittedQuery,
     command: activeCommand?.label,
+    model: asksModel,
     interpolation: { escapeValue: false },
   };
   const submitHint =
-    asksChartSearch && activeCommandId === askCommandId
+    asksModel && activeCommandId === askCommandId
       ? desktop
         ? t('enterToAskChartSearch', 'Enter to ask ChartSearch “{{query}}”', hintValues)
         : t('askChartSearchAbout', 'Ask ChartSearch “{{query}}”', hintValues)
-      : asksChartSearch
+      : asksModel
         ? desktop
-          ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask ChartSearch', hintValues)
-          : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask ChartSearch', hintValues)
+          ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask {{model}}', hintValues)
+          : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask {{model}}', hintValues)
         : activeCommand && activeCommandId !== askCommandId
           ? desktop
             ? t('enterToSeeCommand', 'Enter to see {{command}} for “{{query}}”', hintValues)
@@ -1119,10 +1120,14 @@ const Omnibar: React.FC = () => {
           {desktop && (
             <div className={styles.footer}>
               {submitsOnEnter
-                ? asksChartSearch
+                ? asksModel
                   ? t(
                       'keyboardHintsSubmitAndAsk',
-                      '↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close',
+                      '↑ ↓ to choose a result, Enter to see all and ask {{model}}, Esc to close',
+                      {
+                        model: asksModel,
+                        interpolation: { escapeValue: false },
+                      },
                     )
                   : t('keyboardHintsSubmit', '↑ ↓ to choose a result, Enter to see all, Esc to close')
                 : listing

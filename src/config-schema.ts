@@ -112,6 +112,18 @@ export const configSchema = {
       _default: 50,
       _description: 'Values shown for each matching concept on the Query results page, newest first.',
     },
+    questionMinWords: {
+      _type: Type.Number,
+      _default: 3,
+      _description:
+        'Words needed for a query to count as a question without a question word or question mark. Passed to Query results views as hints.looksLikeQuestion, and used for the bar\'s "and ask …" hint.',
+      _validators: [
+        validator(
+          (value: number) => Number.isInteger(value) && value >= 2,
+          'questionMinWords must be a whole number of at least 2.',
+        ),
+      ],
+    },
   },
   commands: {
     _type: Type.Array,
@@ -242,6 +254,7 @@ export interface OmnibarConfig {
     enterBehavior: 'submit' | 'open-highlight';
     askChartSearch: boolean;
     maxValuesPerConcept: number;
+    questionMinWords: number;
   };
   commands: Array<CommandConfig>;
   destinations: Array<Destination>;

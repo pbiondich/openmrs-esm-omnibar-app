@@ -7,9 +7,9 @@ import {
   ExtensionSlot,
   navigate,
   useAssignedExtensions,
+  useConfig,
 } from '@openmrs/esm-framework';
 import {
-  looksLikeIdentifier,
   OMNIBAR_CONTRACT_VERSION,
   OMNIBAR_QUERY_RESULTS_SLOT,
   type OmnibarContext,
@@ -17,12 +17,13 @@ import {
   type OmnibarViewProps,
   type OmnibarViewState,
 } from '../omnibar-contract';
+import { type OmnibarConfig } from '../config-schema';
 import { speaksContractOf } from '../omnibar/omnibar.resource';
 import { useOpenedWorkspaceGroup } from '../omnibar/workspace-group';
 import { capQuery, queryResultsUrl } from './query-results-url';
 import { getQueryHistory, rememberQuery } from './query-history';
 import { markSubmitted, onSubmission, takeSubmission } from './submission';
-import { useChartSearchOffer } from '../views/chartsearch-offer';
+import { queryHints, useAsksModel } from './query-results-views';
 import styles from './query-results.scss';
 
 interface QueryResultsPageProps {
@@ -87,7 +88,9 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   }, [patientUuid, query]);
   const earlier = history.filter((other) => other.toLocaleLowerCase() !== query.toLocaleLowerCase());
 
-  const hints = useMemo(() => ({ looksLikeIdentifier: looksLikeIdentifier(query) }), [query]);
+  const { queryResults } = useConfig<OmnibarConfig>();
+  const questionMinWords = queryResults?.questionMinWords;
+  const hints = useMemo(() => queryHints(query, questionMinWords), [query, questionMinWords]);
 
   const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   const views = useMemo(
@@ -148,6 +151,27 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   }, [generation, patientUuid, query]);
   const submitted = submission?.generation === generation && submission.submitted;
 
+  // One signal per generation, aborted once the page has moved past it: another query or chart, a
+  // rerun, or the page closing. The abort waits a microtask, because React's development checks
+  // unmount and remount effects at once, and that mustn't abort a run that carries on.
+  const controllers = useRef<{ generation: string; controller: AbortController } | null>(null);
+  if (controllers.current?.generation !== generation) {
+    controllers.current = { generation, controller: new AbortController() };
+  }
+  const { controller } = controllers.current;
+  const liveController = useRef<AbortController | null>(null);
+  useEffect(() => {
+    liveController.current = controller;
+    return () => {
+      liveController.current = null;
+      queueMicrotask(() => {
+        if (liveController.current !== controller) {
+          controller.abort();
+        }
+      });
+    };
+  }, [controller]);
+
   useEffect(
     () =>
       onSubmission((submittedPatient, submittedQuery) => {
@@ -183,12 +207,20 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
             return byView[name] === state ? current : { generation, byView: { ...byView, [name]: state } };
           });
         };
-        props = { query, context, contractVersion: OMNIBAR_CONTRACT_VERSION, reportState, hints, submitted };
+        props = {
+          query,
+          context,
+          contractVersion: OMNIBAR_CONTRACT_VERSION,
+          reportState,
+          hints,
+          submitted,
+          signal: controller.signal,
+        };
         cache.set(name, props);
       }
       return props;
     };
-  }, [generation, query, context, hints, submitted]);
+  }, [generation, query, context, hints, submitted, controller]);
 
   const reported = views.map((view) => statesNow[view.name]);
   const settled = reported.length > 0 && reported.every((state) => state && state !== 'loading');
@@ -227,7 +259,7 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
             <ul className={styles.historyList}>
               {earlier.map((earlierQuery) => (
                 <li key={earlierQuery}>
-                  <HistoryItem query={earlierQuery} patientUuid={patientUuid} onRun={runAgain} />
+                  <HistoryItem query={earlierQuery} onRun={runAgain} />
                 </li>
               ))}
             </ul>
@@ -267,20 +299,23 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   );
 };
 
-/** An earlier query. Choosing it runs it again, and asks ChartSearch again where Enter would, so it says so. */
-const HistoryItem: React.FC<{ query: string; patientUuid: string; onRun: (query: string) => void }> = ({
-  query,
-  patientUuid,
-  onRun,
-}) => {
+/** An earlier query. Choosing it runs it again, and asks a model again where Enter would, so it says so. */
+const HistoryItem: React.FC<{ query: string; onRun: (query: string) => void }> = ({ query, onRun }) => {
   const { t } = useTranslation();
-  const asksChartSearch = useChartSearchOffer(query, patientUuid);
+  const asksModel = useAsksModel(query);
   return (
     <button
       type="button"
       className={styles.historyItem}
       onClick={() => onRun(query)}
-      title={asksChartSearch ? t('runAgainAndAsk', 'Run again and ask ChartSearch') : t('runAgain', 'Run again')}
+      title={
+        asksModel
+          ? t('runAgainAndAsk', 'Run again and ask {{model}}', {
+              model: asksModel,
+              interpolation: { escapeValue: false },
+            })
+          : t('runAgain', 'Run again')
+      }
       dir="auto"
     >
       {query}

@@ -3,12 +3,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SWRConfig } from 'swr';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type FetchResponse,
   getDefaultsFromConfigSchema,
+  getSessionStore,
   interpolateUrl,
   navigate,
   openmrsFetch,
@@ -16,6 +17,8 @@ import {
   useConfig,
   useLayoutType,
 } from '@openmrs/esm-framework';
+// The framework mock re-exports this module, so this is the store getSessionStore returns.
+import { mockSessionStore } from '@openmrs/esm-api/mock';
 import { configSchema as appConfigSchema, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
 import Omnibar from '../omnibar/omnibar.extension';
@@ -23,14 +26,20 @@ import ChartLookupProvider from '../providers/chart-lookup.provider';
 import {
   looksLikeIdentifier,
   OMNIBAR_CONTRACT_VERSION,
+  OMNIBAR_QUERY_RESULTS_SLOT,
   OMNIBAR_SELECTED_EVENT,
   type OmnibarProviderMeta,
   type OmnibarProviderProps,
+  type OmnibarViewMeta,
   type OmnibarViewProps,
+  withViewBoundary,
 } from '../omnibar-contract';
 import { extensionName, type SavedList, savedListsProvider } from './external-app/saved-lists.provider';
 import { savedListsView, viewExtensionName } from './external-app/saved-lists.view';
+import { askModelView, askModelViewName } from './external-app/ask-model.view';
 import QueryResultsPage from '../query-results/query-results.page';
+import { markSubmitted } from '../query-results/submission';
+import ChartValuesView from '../views/chart-values.view';
 
 // Most of these tests describe Enter opening the highlighted row, which inside a chart is now the
 // "open-highlight" behaviour. The tests of Enter submitting to Query results set "submit" themselves.
@@ -323,5 +332,180 @@ describe('a Query results view from another app, built only on the copied contra
     registerView(savedListsView(search), { contract: OMNIBAR_CONTRACT_VERSION + 1 });
     render(<QueryResultsPage patientUuid={humprey} />);
     expect(search).not.toHaveBeenCalled();
+  });
+});
+
+describe('a Query results view that asks a model, from another app', () => {
+  const humprey = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+  const otherPatient = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+  const question = 'when did he start ART?';
+  const meta: OmnibarViewMeta = { scopes: ['patient'], order: 100, contract: 1, asksModel: 'Clinic Assistant' };
+
+  // Assigned to the Query results slot only, as the framework assigns a view; the bar's providers slot
+  // has nothing in it.
+  const registerView = (seen: Array<OmnibarViewProps>, viewMeta: OmnibarViewMeta = meta) => {
+    const View = askModelView(async () => 'An answer');
+    providerComponents.clear();
+    providerComponents.set(askModelViewName, ((props: OmnibarViewProps) => {
+      seen.push(props);
+      return <View {...props} />;
+    }) as unknown as React.ComponentType<OmnibarProviderProps>);
+    vi.mocked(useAssignedExtensions).mockImplementation((slot: string) =>
+      slot === OMNIBAR_QUERY_RESULTS_SLOT
+        ? [
+            {
+              id: askModelViewName,
+              name: askModelViewName,
+              moduleName: '@openmrs/esm-ask-app',
+              meta: viewMeta,
+              config: null,
+            },
+          ]
+        : [],
+    );
+  };
+  const withConfig = (queryResults: Partial<OmnibarConfig['queryResults']> = {}) => {
+    // The real defaults, so Enter inside a chart submits to Query results.
+    const defaults = getDefaultsFromConfigSchema(appConfigSchema) as OmnibarConfig;
+    vi.mocked(useConfig<OmnibarConfig>).mockReturnValue({
+      ...defaults,
+      queryResults: { ...defaults.queryResults, ...queryResults },
+    });
+  };
+  const openPage = (query: string) =>
+    window.history.pushState(
+      {},
+      '',
+      `/openmrs/spa/patient/${humprey}/chart/query-results?${new URLSearchParams({ q: query })}`,
+    );
+
+  beforeEach(() => {
+    withConfig();
+    vi.mocked(useLayoutType).mockReturnValue('small-desktop');
+    vi.mocked(getSessionStore).mockReturnValue(mockSessionStore);
+    mockSessionStore.setState({
+      loaded: true,
+      session: { authenticated: true, sessionId: 's', user: { uuid: 'nurse' } },
+    } as never);
+  });
+  afterEach(() => window.history.pushState({}, '', '/'));
+
+  it('imports nothing from the omnibar but the contract folder', () => {
+    const file = join(dirname(fileURLToPath(import.meta.url)), 'external-app/ask-model.view.tsx');
+    const imports = [...readFileSync(file, 'utf8').matchAll(/from\s+['"]([^'"]+)['"]/g)].map(([, from]) => from);
+    expect(imports.sort()).toEqual(['../../omnibar-contract', 'react', 'react-i18next']);
+  });
+
+  it('makes the bar’s hint say Enter will ask it, by the name it declares', async () => {
+    const user = userEvent.setup();
+    registerView([]);
+    window.history.pushState({}, '', `/openmrs/spa/patient/${humprey}/chart/Results`);
+    renderOmnibar();
+
+    await user.type(screen.getByRole('combobox'), question);
+    expect(
+      await screen.findByRole('button', {
+        name: `Enter to see all results for “${question}” and ask Clinic Assistant`,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('↑ ↓ to choose a result, Enter to see all and ask Clinic Assistant, Esc to close'),
+    ).toBeInTheDocument();
+  });
+
+  it('is passed hints.looksLikeQuestion, worked out by the host with its own word count', () => {
+    const seen: Array<OmnibarViewProps> = [];
+    registerView(seen);
+    openPage('blood pressure trend');
+    const { unmount } = render(<QueryResultsPage patientUuid={humprey} />);
+    expect(seen.at(-1).hints).toEqual({ looksLikeIdentifier: false, looksLikeQuestion: true });
+    unmount();
+
+    withConfig({ questionMinWords: 4 });
+    render(<QueryResultsPage patientUuid={humprey} />);
+    expect(seen.at(-1).hints).toEqual({ looksLikeIdentifier: false, looksLikeQuestion: false });
+  });
+
+  it('gets a signal the host aborts on a rerun, on a chart change and when the page closes', async () => {
+    const seen: Array<OmnibarViewProps> = [];
+    registerView(seen);
+    openPage(question);
+    const { rerender, unmount } = render(<QueryResultsPage patientUuid={humprey} />);
+    const first = seen.at(-1).signal;
+    expect(first.aborted).toBe(false);
+
+    // Enter on the query already on screen runs it again.
+    await act(async () => markSubmitted(humprey, question));
+    expect(first.aborted).toBe(true);
+    const second = seen.at(-1).signal;
+    expect(second).not.toBe(first);
+    expect(second.aborted).toBe(false);
+
+    rerender(<QueryResultsPage patientUuid={otherPatient} />);
+    await waitFor(() => expect(second.aborted).toBe(true));
+    const third = seen.at(-1).signal;
+    expect(third.aborted).toBe(false);
+
+    unmount();
+    await waitFor(() => expect(third.aborted).toBe(true));
+  });
+
+  it('keeps its signal live under StrictMode, whose effects run twice', async () => {
+    const seen: Array<OmnibarViewProps> = [];
+    registerView(seen);
+    openPage(question);
+    render(
+      <React.StrictMode>
+        <QueryResultsPage patientUuid={humprey} />
+      </React.StrictMode>,
+    );
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(seen.at(-1).signal.aborted).toBe(false);
+  });
+});
+
+describe('the Query results page with no model-asking view installed', () => {
+  const humprey = '8673ee4f-e2ab-4077-ba55-4980f408773e';
+  const logged = () => (['log', 'info', 'debug', 'warn', 'error'] as const).map((method) => vi.spyOn(console, method));
+
+  beforeEach(() => {
+    vi.mocked(useConfig<OmnibarConfig>).mockReturnValue(getDefaultsFromConfigSchema(appConfigSchema) as OmnibarConfig);
+    window.history.pushState({}, '', `/openmrs/spa/patient/${humprey}/chart/query-results?q=when+did+he+start+ART%3F`);
+  });
+  afterEach(() => window.history.pushState({}, '', '/'));
+
+  it('says nothing installed can show results when no view is assigned', () => {
+    const consoles = logged();
+    register([]);
+    render(<QueryResultsPage patientUuid={humprey} />);
+
+    expect(screen.getByText('There’s nothing installed that can show results here.')).toBeInTheDocument();
+    consoles.forEach((method) => expect(method).not.toHaveBeenCalled());
+  });
+
+  it('says nothing matched when chart values alone find nothing, with no answer section and nothing logged', async () => {
+    const consoles = logged();
+    vi.mocked(openmrsFetch).mockResolvedValue({ data: { results: [], entry: [] } } as FetchResponse);
+    const chartValues = routes.extensions.find((extension) => extension.name === 'omnibar-chart-values-view');
+    register([
+      {
+        name: chartValues.name,
+        moduleName: '@openmrs/esm-omnibar-app',
+        meta: chartValues.meta as unknown as OmnibarProviderMeta,
+        component: withViewBoundary(
+          ChartValuesView,
+          chartValues.name,
+        ) as unknown as React.ComponentType<OmnibarProviderProps>,
+      },
+    ]);
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <QueryResultsPage patientUuid={humprey} patient={{ name: [{ given: ['Humprey'] }] }} />
+      </SWRConfig>,
+    );
+
+    expect(await screen.findByText('Nothing in Humprey’s chart matches “when did he start ART?”.')).toBeInTheDocument();
+    expect(screen.queryByText(/ask|ChartSearch|Searching/i)).not.toBeInTheDocument();
+    consoles.forEach((method) => expect(method).not.toHaveBeenCalled());
   });
 });
