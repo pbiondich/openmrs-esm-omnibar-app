@@ -197,6 +197,44 @@ describe('the Ask ChartSearch view', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('under /ask, asks about any submitted text, question or not, once', async () => {
+    const stream = streamingResponse();
+    fetchMock.mockResolvedValue(stream.response);
+    const props = {
+      query: 'cd4',
+      context: { scope: 'patient' as const, patientUuid: humprey, locale: 'en', command: { id: 'ask' } },
+      contractVersion: 1,
+      reportState: () => {},
+      submitted: true,
+    };
+    const { rerender } = render(<ChartSearchAnswerView {...props} />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ patient: humprey, question: 'cd4' });
+    rerender(<ChartSearchAnswerView {...props} />);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['an ID-shaped query under /ask', '100GEJ', true],
+    ['text under /ask nobody just asked for', 'cd4', false],
+  ])('doesn’t ask about %s', async (_, query, submitted) => {
+    const states: Array<string> = [];
+    render(
+      <ChartSearchAnswerView
+        query={query}
+        context={{ scope: 'patient', patientUuid: humprey, locale: 'en', command: { id: 'ask' } }}
+        contractVersion={1}
+        reportState={(state) => {
+          states.push(state);
+        }}
+        submitted={submitted}
+      />,
+    );
+    await waitFor(() => expect(states.at(-1)).toBe(query === '100GEJ' ? 'empty' : 'ready'));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['a query that isn’t a question', () => renderView('cd4')],
     ['a user without the privilege', () => (vi.mocked(userHasAccess).mockReturnValue(false), renderView())],

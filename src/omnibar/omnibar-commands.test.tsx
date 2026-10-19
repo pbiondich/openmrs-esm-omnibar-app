@@ -616,15 +616,19 @@ describe('slash commands in the bar', () => {
       await user.keyboard('{Enter}');
 
       expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'when did he start ART?' }));
-      expect(takeSubmission(chartPatient, 'when did he start ART?')).toBe(true);
+      expect(takeSubmission(chartPatient, 'when did he start ART?', 'ask')).toBe(true);
     });
 
-    it('promises no answer for text the page won’t ask about until Query results knows the command', async () => {
+    it('says Enter asks for any text, skipping the question heuristic, and marks it', async () => {
       const user = userEvent.setup();
       render(<Omnibar />);
 
       await user.type(screen.getByRole('combobox'), '/ask cd4');
-      expect(await screen.findByRole('button', { name: 'Enter to see all results for “cd4”' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Enter to ask ChartSearch “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'ask')).toBe(true);
     });
 
     it('never offers an ID-shaped query', async () => {

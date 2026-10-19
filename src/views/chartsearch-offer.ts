@@ -1,5 +1,6 @@
 import { getRegisteredWorkspace2Names, useConfig, useSession, userHasAccess } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
+import { looksLikeIdentifier } from '../omnibar-contract';
 import { looksLikeChartSearchQuestion, useChartSearchMaxQuestionLength } from '../providers/chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
@@ -16,9 +17,10 @@ function isRegistered(workspaceName: string): boolean {
 /**
  * Whether the Query results page asks ChartSearch about this query: a question-like query, in a chart,
  * from a user who may ask, with ChartSearch installed and the option on. The page's view and the bar's
- * hint both use it, so the hint says "and ask ChartSearch" exactly when Enter will.
+ * hint both use it, so the hint says "and ask ChartSearch" exactly when Enter will. Under `/ask`
+ * (`asked`), the clinician has said it is a question, so any text that isn't ID-shaped counts.
  */
-export function useChartSearchOffer(query: string, patientUuid: string | undefined): boolean {
+export function useChartSearchOffer(query: string, patientUuid: string | undefined, asked = false): boolean {
   const { queryResults, chartSearchSuggestion } = useConfig<OmnibarConfig>();
   const { user } = useSession();
   // ChartSearch's workspace being registered says its app is installed; nothing here opens it. The bar
@@ -35,6 +37,8 @@ export function useChartSearchOffer(query: string, patientUuid: string | undefin
     // Not until ChartSearch's own limit has loaded: the default could be longer than the site's.
     maxQuestionLength !== null &&
     question.length <= maxQuestionLength &&
-    looksLikeChartSearchQuestion(question, chartSearchSuggestion?.minWords ?? 3)
+    (asked
+      ? Boolean(question) && !looksLikeIdentifier(question)
+      : looksLikeChartSearchQuestion(question, chartSearchSuggestion?.minWords ?? 3))
   );
 }

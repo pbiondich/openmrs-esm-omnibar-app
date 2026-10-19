@@ -40,14 +40,56 @@ describe('query history', () => {
     rememberQuery(other, 'hb');
     rememberQuery(humprey, 'CD4');
 
-    expect(getQueryHistory(humprey)).toEqual(['CD4', 'weight']);
-    expect(getQueryHistory(other)).toEqual(['hb']);
+    expect(getQueryHistory(humprey)).toEqual([{ q: 'CD4' }, { q: 'weight' }]);
+    expect(getQueryHistory(other)).toEqual([{ q: 'hb' }]);
+  });
+
+  it('keeps a query under a slash command apart from the same text without one, and once each', () => {
+    rememberQuery(humprey, 'cd4');
+    rememberQuery(humprey, 'cd4', 'lab');
+    rememberQuery(humprey, 'CD4', 'lab');
+
+    expect(getQueryHistory(humprey)).toEqual([{ cmd: 'lab', q: 'CD4' }, { q: 'cd4' }]);
+    // A plain query is stored as its text, as before slash commands, and one under a command as { cmd, q }.
+    expect(JSON.parse(window.sessionStorage.getItem(queryHistoryKey)).byPatient[humprey]).toEqual([
+      { cmd: 'lab', q: 'CD4' },
+      'cd4',
+    ]);
+  });
+
+  it('reads entries stored before slash commands as plain queries, and drops anything else', () => {
+    window.sessionStorage.setItem(
+      queryHistoryKey,
+      JSON.stringify({
+        owner: 'nurse',
+        byPatient: {
+          [humprey]: [
+            'weight',
+            { cmd: 'ask', q: 'when did he start ART?' },
+            { cmd: 'Not An Id', q: 'x' },
+            { q: 'hb' },
+            42,
+            '',
+          ],
+        },
+      }),
+    );
+
+    expect(getQueryHistory(humprey)).toEqual([
+      { q: 'weight' },
+      { cmd: 'ask', q: 'when did he start ART?' },
+      { q: 'hb' },
+    ]);
+  });
+
+  it('leaves off a command that isn’t a command id', () => {
+    expect(rememberQuery(humprey, 'cd4', 'lab&x=1')).toEqual([{ q: 'cd4' }]);
   });
 
   it(`keeps at most ${maxHistory}`, () => {
     for (let i = 0; i < 15; i++) rememberQuery(humprey, `query ${i}`);
     expect(getQueryHistory(humprey)).toHaveLength(maxHistory);
-    expect(getQueryHistory(humprey)[0]).toBe('query 14');
+    expect(getQueryHistory(humprey)[0]).toEqual({ q: 'query 14' });
   });
 
   it('lives in sessionStorage, with only the query text and never the session id', () => {
@@ -63,7 +105,7 @@ describe('query history', () => {
     logIn('doctor');
     expect(getQueryHistory(humprey)).toEqual([]);
     rememberQuery(humprey, 'weight');
-    expect(getQueryHistory(humprey)).toEqual(['weight']);
+    expect(getQueryHistory(humprey)).toEqual([{ q: 'weight' }]);
   });
 
   it('is empty, and remembers nothing, when nobody is logged in', () => {
@@ -102,7 +144,7 @@ describe('query history', () => {
       stop = setupQueryHistoryClearing();
       rememberQuery(humprey, 'cd4');
       logIn('nurse');
-      expect(getQueryHistory(humprey)).toEqual(['cd4']);
+      expect(getQueryHistory(humprey)).toEqual([{ q: 'cd4' }]);
     });
 
     it('clears a history left from before the app started when nobody is logged in', () => {

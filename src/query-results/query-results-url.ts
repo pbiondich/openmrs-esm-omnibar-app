@@ -1,3 +1,5 @@
+import { isCommandId } from '../omnibar/command-id';
+
 /** The chart dashboard's path, as in /patient/<uuid>/chart/query-results?q=cd4. */
 export const queryResultsPath = 'query-results';
 
@@ -16,7 +18,7 @@ export function capQuery(query: string): string {
  */
 export function queryResultsUrl(patientUuid: string, query: string, command?: string): string {
   const params = new URLSearchParams();
-  if (command && /^[a-z][a-z0-9-]{0,31}$/.test(command)) {
+  if (isCommandId(command)) {
     params.set('cmd', command);
   }
   params.set('q', capQuery(query));
