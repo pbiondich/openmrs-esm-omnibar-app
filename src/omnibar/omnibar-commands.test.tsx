@@ -656,6 +656,7 @@ describe('slash commands in the bar', () => {
         skipIdentifierQueries: true,
         command: { id: 'ask', aliases: ['ask', 'question'] },
         asksModel: 'ChartSearch',
+        commandAsksModel: true,
       } as OmnibarViewMeta,
     };
     const chartSearchTranslations: Record<string, string> = {
@@ -787,6 +788,88 @@ describe('slash commands in the bar', () => {
       await user.type(screen.getByRole('combobox'), 'ask cd4');
       expect(screen.getByText('No command /ask')).toBeInTheDocument();
       expect(screen.queryByText('Ask ChartSearch')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('a command asks a model because its view says so, not because of its id', () => {
+    const consultView = {
+      name: 'example-consult-view',
+      moduleName: '@openmrs/esm-example-app',
+      meta: {
+        scopes: ['patient'],
+        contract: 1,
+        command: { id: 'consult', aliases: ['consult'] },
+        asksModel: 'Example model',
+        commandAsksModel: true,
+      } as OmnibarViewMeta,
+    };
+    const unflaggedAskView = {
+      name: 'example-ask-view',
+      moduleName: '@openmrs/esm-example-app',
+      meta: {
+        scopes: ['patient'],
+        contract: 1,
+        command: { id: 'ask', aliases: ['ask'] },
+        asksModel: 'Example model',
+      } as OmnibarViewMeta,
+    };
+
+    beforeEach(() => inChart());
+
+    it('lists and chooses a made-up command whose view sets commandAsksModel', async () => {
+      const user = userEvent.setup();
+      mount([], [...views, consultView]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/');
+      expect(
+        within(screen.getByRole('listbox', { name: 'Commands' })).getByRole('option', { name: /consult/ }),
+      ).toBeInTheDocument();
+
+      await user.type(screen.getByRole('combobox'), 'consult what changed?');
+      expect(screen.getByRole('combobox')).toHaveValue('what changed?');
+    });
+
+    it('says Enter asks its model about any text, sends cmd=consult to Query results and marks it', async () => {
+      const user = userEvent.setup();
+      mount([], [...views, consultView]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to ask Example model “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'consult', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(true);
+    });
+
+    it('says the shorter hint on a tablet', async () => {
+      const user = userEvent.setup();
+      vi.mocked(useLayoutType).mockReturnValue('tablet');
+      mount([], [...views, consultView]);
+      render(<Omnibar />);
+
+      await user.click(screen.getByRole('button', { name: /search this chart/i }));
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      await user.click(await screen.findByRole('button', { name: 'Ask Example model “cd4”' }));
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'consult', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(true);
+    });
+
+    it('treats an `ask` view without the flag as an ordinary command', async () => {
+      const user = userEvent.setup();
+      mount([], [...views, unflaggedAskView]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/ask when did he start ART?');
+      expect(
+        await screen.findByRole('button', { name: 'Enter to see ask for “when did he start ART?”' }),
+      ).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'when did he start ART?' }));
+      expect(takeSubmission(chartPatient, 'when did he start ART?', 'ask')).toBe(false);
     });
   });
 

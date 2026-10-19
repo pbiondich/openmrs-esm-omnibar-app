@@ -32,7 +32,6 @@ import {
   useResultCollector,
 } from './omnibar.resource';
 import {
-  askCommandId,
   commandIdOf,
   type OmnibarCommandEntry,
   omnibarProvidersSlot,
@@ -57,7 +56,7 @@ import {
 } from './types';
 import { looksLikeIdentifier } from '../omnibar-contract';
 import { maxQueryLength, queryResultsUrl } from '../query-results/query-results-url';
-import { useAsksModel } from '../query-results/query-results-views';
+import { modelCommandIds, useAsksModel } from '../query-results/query-results-views';
 import { markSubmitted } from '../query-results/submission';
 import styles from './omnibar.scss';
 
@@ -530,11 +529,13 @@ const Omnibar: React.FC = () => {
     Boolean(submittedQuery) &&
     !chosen &&
     !looksLikeIdentifier(submittedQuery);
-  // Only a plain query and /ask are marked as asked for just now, which is what lets a view call a
-  // model on its own. Query results mounts only the views declaring a command under it, so this is a
-  // second guard: no other command can cause a model call, whichever views declare it.
-  const marksSubmission = !activeCommandId || activeCommandId === askCommandId;
-  // Said in the hint, so the user knows Enter will also ask a model, such as ChartSearch, about the chart.
+  // Only a plain query and a command whose view asks a model are marked as asked for just now, which is
+  // what lets a view call a model on its own. Query results mounts only the views declaring a command
+  // under it, so this is a second guard: no other command can cause a model call, whichever views
+  // declare it.
+  const modelCommands = useMemo(() => modelCommandIds(assignedViews), [assignedViews]);
+  const marksSubmission = !activeCommandId || modelCommands.has(activeCommandId);
+  // Said in the hint, so the user knows Enter will also ask a model about the chart.
   const modelForQuery = useAsksModel(submittedQuery, activeCommandId);
   // A query longer than the page takes is cut, and the page never asks about a cut query on its own.
   const asksModel = marksSubmission && Array.from(submittedQuery).length <= maxQueryLength ? modelForQuery : null;
@@ -690,8 +691,8 @@ const Omnibar: React.FC = () => {
             interpolation: { escapeValue: false },
           })
         : t('commandNeedsChart', 'Open a patient’s chart first');
-  // What Enter will do, said beforehand. Under a command it names the command's label; under /ask, when
-  // Enter asks ChartSearch, it says that plainly instead.
+  // What Enter will do, said beforehand. Under a command it names the command's label; under one whose
+  // Enter asks a model, it says that plainly instead.
   const hintValues = {
     query: submittedQuery,
     command: activeCommand?.label,
@@ -699,7 +700,7 @@ const Omnibar: React.FC = () => {
     interpolation: { escapeValue: false },
   };
   const submitHint =
-    asksModel && activeCommandId === askCommandId
+    asksModel && activeCommandId
       ? desktop
         ? t('enterToAskModel', 'Enter to ask {{model}} “{{query}}”', hintValues)
         : t('askModelAbout', 'Ask {{model}} “{{query}}”', hintValues)
@@ -707,7 +708,7 @@ const Omnibar: React.FC = () => {
         ? desktop
           ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask {{model}}', hintValues)
           : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask {{model}}', hintValues)
-        : activeCommand && activeCommandId !== askCommandId
+        : activeCommand && !modelCommands.has(activeCommandId)
           ? desktop
             ? t('enterToSeeCommand', 'Enter to see {{command}} for “{{query}}”', hintValues)
             : t('seeCommandResults', 'See {{command}} for “{{query}}”', hintValues)
@@ -740,7 +741,7 @@ const Omnibar: React.FC = () => {
     (g) => g.status === 'loading' || (g.status !== 'idle' && g.detail?.state === 'projecting'),
   );
   const hasListResults = selectable.length > 0;
-  // A command only Query results views declare, such as /ask, mounts no providers, so there is nothing
+  // A command only Query results views declare mounts no providers, so there is nothing
   // here to match: the hint says what Enter does instead.
   const searchesHere =
     !activeCommandId ||

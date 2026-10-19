@@ -18,9 +18,6 @@ import { type OmnibarProviderMeta, type OmnibarScope, type OmnibarViewMeta } fro
 /** Where providers, and so their commands, are registered. */
 export const omnibarProvidersSlot = 'omnibar-providers-slot';
 
-/** The command whose Enter asks ChartSearch on Query results, as Enter on a plain question does. */
-export const askCommandId = 'ask';
-
 /** One word in any script, without the slash. */
 const aliasPattern = /^[\p{L}\p{M}\p{N}_-]+$/u;
 const maxAliasLength = 32;

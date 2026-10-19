@@ -299,14 +299,23 @@ export interface OmnibarViewMeta {
   command?: { id: string; aliases?: Array<string> };
   /**
    * New in v1. The view may call a model for a query the user just submitted, and this is the name the
-   * bar's hint uses: "Enter to see all results for '…' and ask ChartSearch". Shown as written, so it
-   * is a product name, not a sentence. The bar says it only while the view is assigned to the user,
+   * bar's hint uses: "Enter to see all results for '…' and ask Example Assistant". Shown as written, so
+   * it is a product name, not a sentence. The bar says it only while the view is assigned to the user,
    * isn't skipped for the query and would mount for it (under a command, only a view declaring it);
    * the query looks like a question by the same test the host passes as `hints.looksLikeQuestion`, or,
-   * under the `ask` command, is any text that isn't ID-shaped; and Enter marks the submission: for
-   * plain text, and under `ask`, never under another command.
+   * under a command whose view sets `commandAsksModel`, is any text that isn't ID-shaped; and Enter
+   * marks the submission: for plain text, and under such a command, never under another command.
    */
   asksModel?: string;
+  /**
+   * New in v1 and optional. Enter under this view's `command` asks the view's model: the host marks the
+   * submission as asked for just now, as for a plain query; under that command any text that isn't
+   * ID-shaped counts as a question; and the hint names the model, "Enter to ask Example Assistant '…'".
+   * It counts only when it is exactly `true` and the view also declares a valid `command` and a
+   * non-empty `asksModel`, for a patient, on a contract the host speaks. Otherwise the command is an
+   * ordinary one, and Enter under it never marks the submission.
+   */
+  commandAsksModel?: boolean;
 }
 
 /** Props every Query results view receives. */
