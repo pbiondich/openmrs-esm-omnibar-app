@@ -4,7 +4,7 @@ import { maxQueryLength, queryResultsPath } from './query-results-url';
 /**
  * Whether the user asked for the query the Query results page is showing, just now: Enter in the bar,
  * its "see all results" line, or an earlier query on the page. The page tells its views, and a view
- * that asks a model, like ChartSearch, asks only then: never when the page is reloaded, reached with
+ * that asks a model asks only then: never when the page is reloaded, reached with
  * back or forward, or opened from a bookmark or the left nav. The bar and the page are in the same
  * module, so this is held in memory: it can't be set from outside the app, and a reload drops it.
  *

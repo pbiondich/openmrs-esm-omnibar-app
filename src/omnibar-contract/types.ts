@@ -63,7 +63,7 @@ export interface OmnibarWorkspaceGroup {
  * Lanes keep fast and slow results from fighting over position.
  * - navigate: apps, pages, actions that open a page or form
  * - record: patients, observations, orders, conditions
- * - answer: free-text answers (e.g. ChartSearch). Rendered in its own region, below the list,
+ * - answer: free-text answers, such as a model's reply. Rendered in its own region, below the list,
  *   so a streaming answer never moves a result the user is arrowing toward.
  */
 export type OmnibarLane = 'navigate' | 'record' | 'answer';

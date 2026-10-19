@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { looksLikeQuestion, type OmnibarViewProps, withViewBoundary } from '../../omnibar-contract';
 
 /**
- * A Query results view that asks a model, as ChartSearch's app registers one, with the contract folder
+ * A Query results view that asks a model, as another app would register one, with the contract folder
  * copied in and nothing else from the omnibar. It asks only about a question the user just submitted,
  * and stops when the host's signal aborts or the view unmounts. `ask` stands in for that app's request.
  */

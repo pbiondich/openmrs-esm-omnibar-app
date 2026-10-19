@@ -3,7 +3,7 @@ import { isCommandId } from '../omnibar/command-id';
 /** The chart dashboard's path, as in /patient/<uuid>/chart/query-results?q=cd4. */
 export const queryResultsPath = 'query-results';
 
-/** The longest query the page takes. ChartSearch's own default limit is the same. */
+/** The longest query the page takes. */
 export const maxQueryLength = 1000;
 
 /** A query as the page takes it: trimmed, and cut to `maxQueryLength` characters. */
