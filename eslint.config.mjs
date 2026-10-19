@@ -1,7 +1,7 @@
 import openmrs from '@openmrs/eslint-config';
 
 export default [
-  { ignores: ['dist/**', 'coverage/**', 'packages/*/dist/**'] },
+  { ignores: ['dist/**', 'coverage/**'] },
   ...openmrs,
   {
     rules: {
