@@ -65,7 +65,7 @@ O3 runs in clinics with poor or no internet, so a change must not add a CDN, web
 
 Several agents often work on this repo at once, from different tools.
 
-- **Give each session its own branch in its own git worktree,** so no two sessions share a checkout: `git worktree add -b <branch> ../openmrs-esm-omnibar-app-<topic> origin/main`. Remove the worktree and its local branch once the PR merges.
+- **Give each session its own branch in its own git worktree,** so no two sessions share a checkout. Worktrees live inside the repo under the gitignored `.worktrees/`, never as siblings in `~/Projects`, which holds only actual GitHub repos: `git worktree add -b <branch> .worktrees/<topic> origin/main`. Remove the worktree and its local branch once the PR merges (`git worktree remove .worktrees/<topic>`).
 - **Bring `main` into a pushed branch with a merge, never a rebase.**
 - **Before starting, read [`docs/decisions.md`](docs/decisions.md) and the [briefs index](docs/briefs/README.md),** so you don't reopen a settled question or duplicate work in flight. When you finish a brief, update its status there.
 
@@ -87,6 +87,7 @@ If plain `yarn` isn't on the PATH (Homebrew's Node ships without corepack), use 
 - [README.md](README.md): the idea, the user experience, the design rules, and how to use and extend the omnibar.
 - [docs/design/omnibar-provider-contract.md](docs/design/omnibar-provider-contract.md): the full provider contract, the order registry and the dedupe key registry.
 - [docs/design/omnibar-context-rules.md](docs/design/omnibar-context-rules.md): how context shapes which suggestions appear.
+- [docs/design/slash-commands.md](docs/design/slash-commands.md): the agreed slash-command design, including the Query results slice.
 - [docs/design/chartsearch-row.md](docs/design/chartsearch-row.md) and [docs/design/patient-row-photos.md](docs/design/patient-row-photos.md): detail on those two features.
 - [docs/design/omnibar-concept.md](docs/design/omnibar-concept.md): the original concept and design rationale.
 - [FIXES.md](FIXES.md): every review round, its findings and fixes.
