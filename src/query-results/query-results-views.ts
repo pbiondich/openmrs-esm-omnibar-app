@@ -22,29 +22,29 @@ export function queryHints(query: string, questionMinWords: number | undefined):
 }
 
 /**
- * The commands under which Enter asks a model, as a plain query does: those of views that set
- * `commandAsksModel` to exactly `true` and name their model in `asksModel`, so the hint can always say
- * which model before anything asks, and that Query results would mount, for a patient on a contract
- * this host speaks. Any other command is ordinary, whatever its id.
+ * The commands under which Enter asks a model, as a plain query does. A command qualifies only when
+ * every view Query results would mount under it, for a patient on a contract this host speaks, sets
+ * `commandAsksModel` to exactly `true` and names its model in `asksModel`, so the hint can always say
+ * which model before anything asks, and one app's flag never hands `submitted: true` to another app's
+ * view under the same id. Any other command is ordinary, whatever its id.
  */
 export function modelCommandIds(views: Array<Pick<AssignedExtension, 'name' | 'meta'>>): Set<string> {
-  const ids = new Set<string>();
+  const asking = new Set<string>();
+  const ordinary = new Set<string>();
   for (const view of views) {
     const meta = view.meta as OmnibarViewMeta | undefined;
     const id = commandIdOf(meta?.command);
-    if (
-      id &&
-      meta?.commandAsksModel === true &&
-      typeof meta.asksModel === 'string' &&
-      meta.asksModel.trim() &&
-      Array.isArray(meta.scopes) &&
-      meta.scopes.includes('patient') &&
-      speaksContractOf(view.name, meta)
-    ) {
-      ids.add(id);
+    if (!id || !meta.scopes?.includes('patient') || !speaksContractOf(view.name, meta)) {
+      continue;
     }
+    const asks =
+      meta.commandAsksModel === true &&
+      Array.isArray(meta.scopes) &&
+      typeof meta.asksModel === 'string' &&
+      meta.asksModel.trim() !== '';
+    (asks ? asking : ordinary).add(id);
   }
-  return ids;
+  return new Set([...asking].filter((id) => !ordinary.has(id)));
 }
 
 /**

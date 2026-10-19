@@ -312,8 +312,9 @@ export interface OmnibarViewMeta {
    * submission as asked for just now, as for a plain query; under that command any text that isn't
    * ID-shaped counts as a question; and the hint names the model, "Enter to ask Example Assistant '…'".
    * It counts only when it is exactly `true` and the view also declares a valid `command` and a
-   * non-empty `asksModel`, for a patient, on a contract the host speaks. Otherwise the command is an
-   * ordinary one, and Enter under it never marks the submission.
+   * non-empty `asksModel`, for a patient, on a contract the host speaks, and every other view the host
+   * would mount under the same command sets it too. Otherwise the command is an ordinary one, and Enter
+   * under it never marks the submission.
    */
   commandAsksModel?: boolean;
 }

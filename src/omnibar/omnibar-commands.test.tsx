@@ -857,6 +857,24 @@ describe('slash commands in the bar', () => {
       expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(true);
     });
 
+    it('keeps the command ordinary when another app’s view under the same id doesn’t set the flag', async () => {
+      const user = userEvent.setup();
+      const otherApp = {
+        name: 'other-consult-view',
+        moduleName: '@openmrs/esm-other-app',
+        meta: { ...consultView.meta, asksModel: 'Other model', commandAsksModel: undefined, order: 50 },
+      };
+      mount([], [...views, consultView, otherApp]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to see consult for “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'consult', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(false);
+    });
+
     it('treats an `ask` view without the flag as an ordinary command', async () => {
       const user = userEvent.setup();
       mount([], [...views, unflaggedAskView]);
