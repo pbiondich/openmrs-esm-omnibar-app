@@ -99,8 +99,15 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   const { query, command } = useUrlRequest();
   const workspaceGroup = useOpenedWorkspaceGroup();
   const { commands: commandConfig, queryResults } = useConfig<OmnibarConfig>();
+  const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   // The bar's alias table, for whether a command is enabled here and for its label.
-  const commandTable = useCommandTable(useAssignedExtensions(omnibarProvidersSlot), commandConfig, i18n.language, true);
+  const commandTable = useCommandTable(
+    useAssignedExtensions(omnibarProvidersSlot),
+    assigned,
+    commandConfig,
+    i18n.language,
+    true,
+  );
 
   const patientName = useMemo(() => {
     const name = patient?.name?.[0];
@@ -113,10 +120,9 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
 
   // With a command, only the views that declare it mount, so `/lab` never brings up a view that asks a
   // model; a view with no command mounts only for plain queries. A command must also be one the bar
-  // offers here (declared by a provider this user has, enabled, for a chart) and declared by a view
+  // offers here (declared by a provider or view this user has, enabled, for a chart) and declared by a view
   // this user can see. Otherwise the page fails closed: it shows nothing but the query, a line saying
   // so, and a link to search the text plainly. It never runs another set of views instead.
-  const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   const eligible = useMemo(
     () =>
       assigned

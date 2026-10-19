@@ -3,13 +3,14 @@ import { type AssignedExtension, translateFrom } from '@openmrs/esm-framework';
 import { type CommandConfig } from '../config-schema';
 import { isCommandId } from './command-id';
 import { speaksContractOf } from './omnibar.resource';
-import { type OmnibarProviderMeta, type OmnibarScope } from './types';
+import { type OmnibarProviderMeta, type OmnibarScope, type OmnibarViewMeta } from './types';
 
 /**
- * Slash commands. A provider declares the command it answers in its meta; the host builds one table
- * from every assigned provider's declaration, the provider modules' translations and the omnibar's own
- * `commands` config, and the bar uses it to turn `/lab cd4` into the `lab` command and the query
- * `cd4`. A command only narrows which providers run. Everything read here is data: ids and aliases
+ * Slash commands. A provider declares the command it answers in its meta, and so may a Query results
+ * view; the host builds one table from every assigned provider's and view's declaration, their
+ * modules' translations and the omnibar's own `commands` config, and the bar uses it to turn
+ * `/lab cd4` into the `lab` command and the query `cd4`. A command only narrows which providers run,
+ * and which views mount. Everything read here is data: ids and aliases
  * must match fixed patterns, labels and descriptions are plain text cut to length, and nothing is
  * ever run or rendered as markup.
  */
@@ -81,7 +82,10 @@ export interface OmnibarCommandEntry {
   description?: string;
   /** The aliases that resolve to this command, as written, the first being the main one. */
   aliases: Array<string>;
-  /** Scopes in which at least one of its providers is mounted. */
+  /**
+   * Scopes in which at least one of its providers is mounted, and `patient` when a Query results view
+   * declares it.
+   */
   scopes: Array<OmnibarScope>;
 }
 
@@ -122,6 +126,13 @@ const scopes: Array<OmnibarScope> = ['global', 'patient'];
 const isProviderMeta = (meta: unknown): meta is OmnibarProviderMeta =>
   typeof meta === 'object' && meta !== null && Boolean((meta as OmnibarProviderMeta).lane);
 
+/** True when a view's meta is for a patient, as Query results mounts it; the contract is checked next. */
+const isPatientViewMeta = (meta: unknown): meta is OmnibarViewMeta =>
+  typeof meta === 'object' &&
+  meta !== null &&
+  Array.isArray((meta as OmnibarViewMeta).scopes) &&
+  (meta as OmnibarViewMeta).scopes.includes('patient');
+
 let conflicts: Array<OmnibarCommandConflict> = [];
 let warnedConflicts = '';
 
@@ -146,33 +157,33 @@ interface Draft {
 
 /**
  * Builds the alias table. Sources, lowest precedence first: each assigned provider's `meta.command`,
- * in slot order; its module's translations (`omnibarCommand.<id>.aliases`, comma-separated, `.label`,
- * `.description`); the `commands` config. Providers sharing an id have their aliases merged, and the
- * label and description come from the first one in slot order whose module has them. Config adds
- * aliases, drops the lower sources' with `replaceAliases`, or removes the command with
- * `enabled: false`; it can't add a command no provider declares.
+ * in slot order, then each Query results view's, in its slot's order; each declaring module's
+ * translations (`omnibarCommand.<id>.aliases`, comma-separated, `.label`, `.description`); the
+ * `commands` config. Declarations sharing an id have their aliases merged, and the label and
+ * description come from the first one whose module has them, providers before views. A view counts
+ * only as Query results would mount it: for a patient, on a contract this host speaks; its command is
+ * available in a chart. Config adds aliases, drops the lower sources' with `replaceAliases`, or removes
+ * the command with `enabled: false`; it can't add a command nothing declares.
  *
- * An alias claimed for two ids is a conflict: one set in config wins over one from a provider, and
- * between providers the first in slot order wins. Conflicts are logged, once for each new set, and
- * kept for `getOmnibarCommandConflicts`. A command left with no alias of its own can't be typed and
- * isn't listed.
+ * An alias claimed for two ids is a conflict: one set in config wins over a declared one, and between
+ * declarations the first, providers before views, wins. Conflicts are logged, once for each new set,
+ * and kept for `getOmnibarCommandConflicts`. A command left with no alias of its own can't be typed
+ * and isn't listed.
  */
 export function buildCommandTable(
   extensions: Array<Pick<AssignedExtension, 'name' | 'moduleName' | 'meta'>>,
   config: Array<Partial<CommandConfig>> | undefined,
   locale: string,
   translate: CommandTranslate = translateCommandText,
+  views: Array<Pick<AssignedExtension, 'name' | 'moduleName' | 'meta'>> = [],
 ): CommandTable {
   const drafts = new Map<string, Draft>();
-  for (const extension of extensions) {
-    const meta: unknown = extension.meta;
-    if (!isProviderMeta(meta) || !speaksContractOf(extension.name, meta)) {
-      continue;
-    }
-    const id = commandIdOf(meta.command);
-    if (!id) {
-      continue;
-    }
+  const declare = (
+    extension: Pick<AssignedExtension, 'moduleName'>,
+    id: string,
+    aliases: unknown,
+    declaredScopes: Array<OmnibarScope>,
+  ) => {
     let draft = drafts.get(id);
     if (!draft) {
       draft = {
@@ -185,8 +196,8 @@ export function buildCommandTable(
       };
       drafts.set(id, draft);
     }
-    draft.providerAliases.push(...cleanAliases(meta.command.aliases));
-    for (const scope of Array.isArray(meta.scopes) ? meta.scopes : []) {
+    draft.providerAliases.push(...cleanAliases(aliases));
+    for (const scope of Array.isArray(declaredScopes) ? declaredScopes : []) {
       if (scopes.includes(scope)) {
         draft.scopes.add(scope);
       }
@@ -198,6 +209,22 @@ export function buildCommandTable(
       draft.providerAliases.push(...cleanAliases(translated?.split(',')));
       draft.label ??= cleanText(translate(moduleName, `omnibarCommand.${id}.label`), maxLabelLength);
       draft.description ??= cleanText(translate(moduleName, `omnibarCommand.${id}.description`), maxDescriptionLength);
+    }
+  };
+
+  for (const extension of extensions) {
+    const meta: unknown = extension.meta;
+    const id = isProviderMeta(meta) && speaksContractOf(extension.name, meta) ? commandIdOf(meta.command) : undefined;
+    if (id) {
+      declare(extension, id, (meta as OmnibarProviderMeta).command.aliases, (meta as OmnibarProviderMeta).scopes);
+    }
+  }
+  // Query results is only in a chart, so a view's command is available there and nowhere else.
+  for (const view of views) {
+    const meta: unknown = view.meta;
+    const id = isPatientViewMeta(meta) && speaksContractOf(view.name, meta) ? commandIdOf(meta.command) : undefined;
+    if (id) {
+      declare(view, id, (meta as OmnibarViewMeta).command.aliases, ['patient']);
     }
   }
 
@@ -314,13 +341,15 @@ export function parseCommandInput(
 }
 
 /**
- * The alias table for the bar, rebuilt when the assigned providers, the config or the language
- * change. Provider modules' translations aren't loaded until a provider mounts, so the first time the
+ * The alias table for the bar, rebuilt when the assigned providers or views, the config or the
+ * language change. `extensions` are the providers in `omnibar-providers-slot`, `views` the Query
+ * results views. Their modules' translations aren't loaded until one mounts, so the first time the
  * command list shows, each declaring module's namespace is asked for, and the table is rebuilt as
  * namespaces arrive. An alias that arrives late only adds: matching is by id.
  */
 export function useCommandTable(
   extensions: Array<AssignedExtension>,
+  views: Array<AssignedExtension>,
   config: Array<CommandConfig> | undefined,
   locale: string,
   listing: boolean,
@@ -344,13 +373,13 @@ export function useCommandTable(
   const modules = useMemo(
     () => [
       ...new Set(
-        extensions
+        [...extensions, ...views]
           .filter((extension) => commandIdOf((extension.meta as OmnibarProviderMeta | undefined)?.command))
           .map((extension) => extension.moduleName)
           .filter((moduleName): moduleName is string => typeof moduleName === 'string'),
       ),
     ],
-    [extensions],
+    [extensions, views],
   );
 
   const asked = useRef(new Set<string>());
@@ -369,9 +398,9 @@ export function useCommandTable(
   }, [listing, modules]);
 
   return useMemo(
-    () => buildCommandTable(extensions, config, locale),
+    () => buildCommandTable(extensions, config, locale, translateCommandText, views),
     // `version` stands for translations that have arrived since.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [extensions, config, locale, version],
+    [extensions, views, config, locale, version],
   );
 }

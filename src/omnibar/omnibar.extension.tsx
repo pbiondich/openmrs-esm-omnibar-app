@@ -124,9 +124,17 @@ const Omnibar: React.FC = () => {
   // in a scope one of its providers declares: choosing it never widens the scope, and a command that
   // stops being available (the patient chip removed, say) is dropped.
   const assigned = useAssignedExtensions(providersSlot);
+  // Query results views may declare commands too; one only views declare mounts no providers here.
+  const assignedViews = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   const [commandId, setCommandId] = useState<string | null>(null);
   const listingCommands = !commandId && query.startsWith('/') && !/\s/u.test(query);
-  const commandTable = useCommandTable(assigned, commandConfig, scopeContext.locale, open && listingCommands);
+  const commandTable = useCommandTable(
+    assigned,
+    assignedViews,
+    commandConfig,
+    scopeContext.locale,
+    open && listingCommands,
+  );
   const isAvailable = useCallback(
     (command: OmnibarCommandEntry) => command.scopes.includes(scopeContext.scope),
     [scopeContext.scope],
@@ -489,7 +497,6 @@ const Omnibar: React.FC = () => {
 
   // Under a command, Enter sends it with the query only when a Query results view shows results for
   // it. Otherwise there would be nothing to show, so Enter opens the highlight, as outside a chart.
-  const assignedViews = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   const commandsWithViews = useMemo(
     () =>
       new Set(
@@ -731,7 +738,16 @@ const Omnibar: React.FC = () => {
     (g) => g.status === 'loading' || (g.status !== 'idle' && g.detail?.state === 'projecting'),
   );
   const hasListResults = selectable.length > 0;
-  const showNoMatches = Boolean(debouncedQuery) && !stillLoading && !hasListResults && !answerGroups.length;
+  // A command only Query results views declare, such as /ask, mounts no providers, so there is nothing
+  // here to match: the hint says what Enter does instead.
+  const searchesHere =
+    !activeCommandId ||
+    assigned.some((extension) => {
+      const meta = extension.meta as OmnibarProviderMeta | undefined;
+      return Boolean(meta?.lane) && commandIdOf(meta.command) === activeCommandId;
+    });
+  const showNoMatches =
+    Boolean(debouncedQuery) && searchesHere && !stillLoading && !hasListResults && !answerGroups.length;
 
   // Closed states. "icon" keeps today's collapsed magnifier everywhere, for implementations that want
   // a minimal header. "field" (the default) shows a field on desktop; on tablet and phone, where a
