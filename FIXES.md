@@ -1066,3 +1066,34 @@ Not fixed, and why:
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 701 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
 - A first `yarn verify`, run while the reviewers were running vitest too, failed once in `chartsearch-answer.view.test.tsx` ("asks at once about a question the user just submitted"), a file this change doesn't touch. That file passed three times on its own, and the rerun of `yarn verify` passed.
 - Not tried live on o3.
+
+## Feature: slash commands, the bar side (PR 1)
+
+Built from [the brief](docs/briefs/2026-10-18-slash-commands.md), items 1 to 7, 9 and the matching tests, on `feat/slash-commands`. Providers declare `meta.command`; the host builds an alias table from `routes.json`, the provider modules' translations and the new `commands` config; `/` opens the command list; a chosen command is a chip that mounts only its providers and passes `context.command`; and inside a chart Enter under a command sends `cmd` and `q` to Query results when a view declares the command. The page doesn't read `cmd` yet; that is PR 2. The choices the design left open are in `docs/decisions.md`, under "Building the bar side of slash commands".
+
+| Change | Commit |
+| --- | --- |
+| Contract: `OmnibarCommand`, `OmnibarProviderMeta.command`, `OmnibarViewMeta.command`, `OmnibarContext.command`, all optional and new in v1 | a51ac1f |
+| `src/omnibar/commands.ts`: the alias table, parsing, `getOmnibarCommandConflicts()` and on-demand namespace loading; the bar's chip, list, keys and hints; `/ask` skipping the suggestion's question heuristic; `queryResultsUrl` taking a command id; `commands` config; built-in declarations in `routes.json`; translations, kept by the extractor | a51ac1f |
+| Docs: contract doc fields and command registry, README, decisions, the brief's status | b2cfa91 |
+
+### Review round 1 (independent code review and security review, Claude): no blockers from either
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, should: the alias table was rebuilt twice per loaded namespace, by i18next's `loaded` event and by `loadNamespaces()` settling | Only the event rebuilds it | 81c2633 |
+| code, nit: the global `/` shortcut didn't ignore IME composition, as Enter does | It does | 81c2633 |
+| code, nit: the set of commands with a view was typed `Set<string \| undefined>` | Narrowed with a type predicate | 81c2633 |
+| security, should: `ask` is the one id that lets a submission be marked, so a provider declaring it receives text bound for ChartSearch, and nothing says so | The contract doc says so where commands are described | 81c2633 |
+
+Not fixed, and why:
+
+- code, should: under `/ask`, the hint says Enter asks only for text the question heuristic accepts, while the design says `/ask` bypasses it. That is deliberate in PR 1: the page ignores `cmd`, so the answer view still applies the heuristic, and the hint must say what Enter will actually do. The bypass belongs with PR 2, where the view learns the command; the test "promises no answer for text the page won't ask about until Query results knows the command" pins today's behaviour and is to be turned around then.
+- security, should: if the Query results views weren't assigned yet, Enter under `/lab` would open the highlight rather than submit. `useAssignedExtensions` reads the extension store synchronously, and the views are registered from the same `routes.json` as the providers, so a bar that has the `/lab` providers has the views. The fallback is the conservative one either way.
+- code and security, nit: the conflict warning's "already warned" memory is module-level, so two tests with the same conflict would see one warning. It's what keeps re-renders from repeating the warning; the tests use different conflicts.
+- security, nit: an alias may be any letters, so a Cyrillic "аsk" is a different alias from "ask". Aliases come from provider modules and implementer config, both trusted, and a look-alike would only fail to match.
+
+- Tests: 702 before, 761 after (the alias table and parser, the bar's commands, `/ask`, config and translations, and the URL builder).
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 761 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- Framework APIs checked in source: the app shell's i18next backend loads a namespace for a module that hasn't mounted (`importDynamic` and `importTranslation`, `esm-app-shell/src/locale.ts`), `translateFrom` is `i18n.t(key, { ns, defaultValue })`, and `useAssignedExtensions` drops extensions the user lacks privileges or feature flags for, with a stable reference.
+- Not tried live on o3, and the header layout with both chips wasn't checked in a browser at 1280, 1600 and 1920 px or narrow: no server or test account in this session.
