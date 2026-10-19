@@ -2,7 +2,7 @@
 
 A contextually-aware “omnibar” for OpenMRS 3: one always-visible field where users simply ask the EMR for what they want. Summon it from anywhere with Ctrl K (⌘K on Mac), or with `/` for a command.
 
-**Status:** prototype, running live on an O3 3.8.0-rc.2 sandbox at [o3.pgb.md](https://o3.pgb.md/openmrs/spa). It type-checks, lints, builds and passes its unit tests.
+**Status:** prototype, running live on an O3 3.8.0-rc.2 sandbox at [o3.pgb.md](https://o3.pgb.md/openmrs/spa), where you can try it yourself: log in as `demo` with the password `omnibar!`. It type-checks, lints, builds and passes its unit tests.
 
 To illustrate how other O3 ESM apps plug in, I've adapted three of them on my own forks and branches, as worked examples of the contract rather than finished features: the [Cohort Builder](https://github.com/pbiondich/openmrs-esm-cohortbuilder-app) answers population questions with a count row, [ChartSearch](https://github.com/pbiondich/openmrs-esm-chartsearchai) answers clinical questions on the Query results page, and a [super simple results viewer leveraging query store](https://github.com/pbiondich/openmrs-esm-querystore-app) looks up chart values from an index. Each registers a provider or a view from its own `routes.json`; none of it is upstream yet, and the omnibar itself is naive to all of them.
 
