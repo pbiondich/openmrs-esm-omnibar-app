@@ -26,3 +26,9 @@ the module has loaded, as the module config already does. No module-side fix
 exists. See
 [esm-config-extension-config-validation.md](esm-config-extension-config-validation.md)
 for the root cause, tests and risks.
+
+## Cohort Builder
+
+`esm-cohortbuilder-url-definition.patch` applies to `openmrs/openmrs-esm-cohortbuilder-app` at `c6d5f1b` (v4.0.7) and merges onto `main` at `1fde640` without conflicts. It is the fork's `feat/url-definition`: "shareable cohort links". The builder opens `?definition=<base64url JSON>` (demographics, enrollment, drug order and encounter criteria), `?cohort=<uuid>` and `?query=<uuid>`, runs it, and describes it in its own words. Any invalid link fails closed with one plain message. It doesn't mention the omnibar. A proposal until Paul says to open it.
+
+For the `v=count` proposal (the cohort counts brief, step 5): `adhocquery` evaluates only cohort definitions on the `rowFilters` path, which reporting gates on Get Patients alone, so a user without Run Reports can call it directly. The proposal should check Run Reports on that path too.
