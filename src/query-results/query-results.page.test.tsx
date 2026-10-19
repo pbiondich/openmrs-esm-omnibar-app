@@ -388,7 +388,13 @@ describe('the Query results page under a slash command', () => {
       },
       {
         name: 'answer',
-        meta: { scopes: ['patient'], order: 100, command: { id: 'ask', aliases: ['ask'] } },
+        meta: {
+          scopes: ['patient'],
+          order: 100,
+          command: { id: 'ask', aliases: ['ask'] },
+          asksModel: 'ChartSearch',
+          commandAsksModel: true,
+        },
         component: reports('ready', 'Answer', asks),
       },
       { name: 'notes', meta: { scopes: ['patient'], order: 50 }, component: reports('ready', 'Notes', plain) },
@@ -568,7 +574,12 @@ describe('the Query results page under a slash command', () => {
     registerViews([
       {
         name: 'answer',
-        meta: { scopes: ['patient'], command: { id: 'ask', aliases: ['ask'] }, asksModel: 'ChartSearch' },
+        meta: {
+          scopes: ['patient'],
+          command: { id: 'ask', aliases: ['ask'] },
+          asksModel: 'ChartSearch',
+          commandAsksModel: true,
+        },
         component: reports('ready', 'Answer', asks),
       },
     ]);
@@ -583,6 +594,71 @@ describe('the Query results page under a slash command', () => {
     expect(item).toHaveTextContent('Ask ChartSearch: cd4');
     // Under /ask any text that isn't ID-shaped is a question, so "cd4" is asked again.
     expect(item).toHaveAttribute('title', 'Run again and ask ChartSearch');
+  });
+
+  describe('a command asks a model because its view says so, not because of its id', () => {
+    const seen: Array<OmnibarViewProps> = [];
+    const exampleView = (id: string, flag: Partial<OmnibarViewMeta>) => ({
+      name: `${id}-view`,
+      meta: {
+        scopes: ['patient'],
+        command: { id, aliases: [id] },
+        asksModel: 'Example model',
+        ...flag,
+      } as OmnibarViewMeta,
+      component: reports('ready', 'Example', seen),
+    });
+    const chooseEarlier = async (cmd: string) => {
+      const user = userEvent.setup();
+      rememberQuery(humprey, 'cd4', cmd);
+      goToRequest({ q: 'weight' });
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+      const item = within(screen.getByRole('navigation', { name: 'Earlier this session' })).getByRole('button');
+      const title = item.getAttribute('title');
+      await user.click(item);
+      goToRequest({ cmd, q: 'cd4' });
+      return title;
+    };
+
+    beforeEach(() => {
+      seen.length = 0;
+    });
+
+    it('tells a made-up command’s view it was asked, and an earlier query under it asks again', async () => {
+      registerViews([exampleView('consult', { commandAsksModel: true })]);
+      markSubmitted(humprey, 'cd4', 'consult');
+      goToRequest({ cmd: 'consult', q: 'cd4' });
+      const { unmount } = render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+      expect(seen.at(-1)).toMatchObject({ query: 'cd4', submitted: true, context: { command: { id: 'consult' } } });
+      unmount();
+      window.sessionStorage.clear();
+
+      const title = await chooseEarlier('consult');
+      expect(title).toBe('Run again and ask Example model');
+      expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=consult&q=cd4`);
+      expect(seen.at(-1)).toMatchObject({ query: 'cd4', submitted: true });
+    });
+
+    it('treats an `ask` view without the flag as an ordinary command', async () => {
+      registerViews([exampleView('ask', {})]);
+
+      const title = await chooseEarlier('ask');
+      expect(title).toBe('Run again');
+      expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=ask&q=cd4`);
+      expect(seen.at(-1)).toMatchObject({ query: 'cd4', submitted: false });
+    });
+
+    it.each(['patient', 'go', 'lab'])(
+      'never asks again under /%s, which a built-in provider declares, though the only view under it sets the flag',
+      async (id) => {
+        registerViews([exampleView(id, { commandAsksModel: true })]);
+
+        const title = await chooseEarlier(id);
+        expect(title).toBe('Run again');
+        expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=${id}&q=cd4`);
+        expect(seen.at(-1)).toMatchObject({ query: 'cd4', submitted: false });
+      },
+    );
   });
 
   it('shows an earlier query under a command the bar no longer knows as its text alone', () => {

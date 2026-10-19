@@ -163,13 +163,13 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 }
 ```
 
-- A Query results view may declare a command the same way, with aliases and its module's translations, as ChartSearch's answer view declares `/ask`. Its command joins the same table, and only in a chart; a command only views declare runs no providers in the bar, and Enter sends it to Query results.
+- A Query results view may declare a command the same way, with aliases and its module's translations, as ChartSearch's answer view declares `/ask`. Its command joins the same table, and only in a chart; a command only views declare runs no providers in the bar, and Enter sends it to Query results. A view that also sets `commandAsksModel: true`, with `asksModel` naming its model, makes Enter under its command ask that model, as `/ask` does; the omnibar treats no command id as special.
 - Aliases come from three places: the declaring provider's or view's `routes.json` (English defaults), its module's translations (`omnibarCommand.<id>.aliases`, `.label` and `.description`, loaded when the command list first opens), and implementer config (custom names, such as `/vl` for viral load). The shell merges them into one table for the user's locale and matches whole aliases, case-insensitively in that locale.
 - Any alias resolves to the id. The chip shows the command's label in the user's language, whichever alias was typed.
 - URLs carry the id, not the alias (`?cmd=lab&q=cd4`), so a bookmarked query works in any language.
-- When a command is given, only the providers that declare it run, and they learn which from `context.command`. More than one provider can declare the same command: chart lookup and the query store provider both answer `/lab`. The default highlight, dedupe and the fail-closed rules are the same as for plain text.
+- When a command is given, only the providers that declare it run, and they learn which from `context.command`. More than one provider can declare the same command: chart lookup and the query store app's provider both answer `/lab`. The default highlight, dedupe and the fail-closed rules are the same as for plain text.
 - Inside a chart, Enter under a command sends it to Query results when a view there declares it, as the chart values view declares `lab`; otherwise Enter opens the highlighted row. An ID-shaped query, or a row the user arrowed to, opens as for plain text.
-- On Query results, under a command only the views that declare it mount, so `/lab` can never bring up the view that asks a model. A command the bar doesn't offer here, or that no view declares, fails closed: the page shows the query, says the command isn't available, and offers a plain search. Only a plain query or `/ask`, from whichever app declares it, lets a view ask a model on its own, and under `/ask` any text that isn't ID-shaped counts as a question; an ID still opens its patient on Enter.
+- On Query results, under a command only the views that declare it mount, so `/lab` never mounts a view that declares no `lab`, and a view that declares `lab` is never told it was asked. A command the bar doesn't offer here, or that no view declares, fails closed: the page shows the query, says the command isn't available, and offers a plain search. Only a plain query or a command whose views set `commandAsksModel` and name one model, and that no provider declares, such as ChartSearch's `/ask`, lets a view ask a model on its own; `/patient`, `/go` and `/lab` never do, and under such a command any text that isn't ID-shaped counts as a question; an ID still opens its patient on Enter.
 - History keeps each query with its command, and shows the command's chip beside the text.
 - If the same alias is claimed for two different commands, one set in config wins, then the first provider in slot order, then the first view, and the conflict is logged and returned by `getOmnibarCommandConflicts()` rather than silently shadowed.
 
@@ -194,9 +194,27 @@ These live in this repo as defaults for now. See [`src/routes.json`](src/routes.
 | Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property; photos from REST `/obs`, once per patient |
 | Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale) on the query without filler words such as "latest" or "show", a concept set standing for its members, then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
-| Query store chart | record | patient | Query store REST: `/querystore/patient/{uuid}/search` (keyword mode, one row per concept) while typing, `/recent` for an empty field. Off unless `chartLookup.source` is `querystore` or `both` |
+Patient search, chart lookup and destinations move to their owning apps later; see [`docs/decisions.md`](docs/decisions.md).
 
-The query store chart provider is built in on purpose, although the light-omnibar rule would normally put it in the query store's own app. The query store has no frontend app, and this provider serves the same chart values as chart lookup, beside it rather than replacing it. It should move if the query store gains other frontend consumers. See [`docs/decisions.md`](docs/decisions.md).
+### The query store app
+
+The query store's provider is its own app, [`@openmrs/esm-querystore-app`](https://github.com/pbiondich/openmrs-esm-querystore-app), in its own repo. It registers the way any other app does: from its own `routes.json`, on its own copy of the contract folder, and the omnibar has no code or config that names it.
+
+| Provider | Lane | Scopes | Data source |
+| --- | --- | --- | --- |
+| Query store chart (`omnibar-querystore-chart-provider`, order 15) | record | patient | Query store REST: `/querystore/patient/{uuid}/search` (keyword mode, one row per concept) while typing, `/recent` for an empty field. Shares `chart-values` dedupe with chart lookup, which keeps the copy |
+
+Installing it turns it on, as for any app; its README covers the install, its config and running it beside the omnibar in development. It needs the `querystore` backend module. To have the query store answer instead of chart lookup, remove chart lookup from the slot:
+
+```json
+{
+  "@openmrs/esm-omnibar-app": {
+    "extensionSlots": { "omnibar-providers-slot": { "remove": ["omnibar-chart-lookup-provider"] } }
+  }
+}
+```
+
+[`slot-config.test.ts`](src/conformance/slot-config.test.ts) checks this through the framework's own route registration, config and extension stores, with a fixture app standing in for the query store: with both installed the slot holds chart lookup and the fixture's provider, and with this config only the fixture's is left of the two. The side-by-side comparison mode of the old `chartLookup.source` setting is gone.
 
 The built-in Query results views, in `omnibar-query-results-slot`:
 
@@ -264,7 +282,7 @@ Inside a chart, Enter opens Query results for what was typed. To compare it with
 
 `queryResults.maxValuesPerConcept` (default 50) sets how many values each chart value shows. `queryResults.questionMinWords` (default 3, a whole number of at least 2) is how many words make a query a question when it has no question word or question mark; the page passes the result to its views as `hints.looksLikeQuestion`, and the bar uses it for the "and ask …" hint.
 
-ChartSearch's answer section is configured in ChartSearch's app (`queryResultsAnswer.enabled`), or removed from the page with slot config: `"omnibar-query-results-slot": { "remove": ["chartsearch-query-results-view"] }`. `chartSearchSuggestion.*` and `queryResults.askChartSearch` are deprecated, with no effect in this release; they stay in the schema for this one release so an existing config still validates, then go.
+ChartSearch's answer section is configured in ChartSearch's app (`queryResultsAnswer.enabled`), or removed from the page with slot config: `"omnibar-query-results-slot": { "remove": ["chartsearch-query-results-view"] }`. The deprecated `chartSearchSuggestion.*` and `queryResults.askChartSearch` settings are gone from the omnibar's schema; a config that still sets them logs the framework's "Unknown config key … Ignoring." error and nothing else changes.
 
 ### Writing a provider
 
@@ -319,6 +337,8 @@ yarn verify                                          # lint, type-check, and tes
 yarn build                                           # production build into dist/
 ```
 
+To work on the omnibar and another app together, give `openmrs develop` both folders, such as `yarn start --sources . --sources ../openmrs-esm-querystore-app`; each gets its own dev server, and both go into the import map the dev server hands the app shell.
+
 Build tooling comes from [openmrs-esm-template-app](https://github.com/openmrs/openmrs-esm-template-app). The Playwright scaffolding in `e2e/` comes from the template too; there are no omnibar end-to-end tests yet.
 
 ## Roadmap and open questions
@@ -331,7 +351,7 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 4. ~~Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.~~ Retired: the bar's ChartSearch row is gone, and ChartSearch answers on Query results instead.
 5. ~~Add the Query results section.~~ A first prototype is built: Enter submits the query, and views in `omnibar-query-results-slot` fill the page, starting with chart values and ChartSearch's answer. Still to do, in the patient chart: a condensed sticky patient banner, and showing the vitals header only where it's relevant. The answer section has moved into ChartSearch's own app.
 6. ~~Add slash commands, starting with English names and designed for localized and custom aliases.~~ Built, in the bar and on Query results; see [`docs/design/slash-commands.md`](docs/design/slash-commands.md). Still to come: the inferred-command chip, and `/cohort` and `/help` from their own apps.
-7. Use the query store for chart lookups. A query store chart provider, with warming on chart open, is built in and off by default: `chartLookup.source` set to `querystore` replaces chart lookup, and `both` shows the two side by side. Next is trying it live.
+7. Use the query store for chart lookups. The query store chart provider, with warming on chart open, is its own app, [`openmrs-esm-querystore-app`](https://github.com/pbiondich/openmrs-esm-querystore-app), on only where it's installed; see [the query store app](#the-query-store-app). Next is trying it live.
 8. Add cohort questions from the Cohort Builder's own app, which needs it to accept a query definition by URL. The first attempt, `feat/cohort-omnibar`, is retired and kept as history; see the [provider registration plan](docs/design/provider-registration.md). The next step is counts: "how many patients under 30?" shows the number in the bar and Enter opens the builder with the same definition; see [the cohort counts brief](docs/briefs/2026-10-18-cohort-counts.md).
 9. Fix `PatientPhoto` in esm-styleguide to load only same-origin photos, then use it in patient rows again.
 10. Move the slot and types into esm-framework through an RFC once the contract settles.
@@ -344,7 +364,7 @@ Open questions:
 - [ ] Can the results viewer accept a deep link to a specific test, so chart lookup lands on the value?
 - [ ] How does CIEL represent drug groupings such as antiretrovirals, and can that seed drug groups for cohort questions?
 - [ ] Does the tablet sheet work on real devices?
-- [x] Where should the Cohort Builder's provider live? In the Cohort Builder's own app, per the [provider registration plan](docs/design/provider-registration.md). (The query store's provider is built in, as a recorded exception.)
+- [x] Where should the Cohort Builder's provider live? In the Cohort Builder's own app, per the [provider registration plan](docs/design/provider-registration.md). The query store's provider is its own app too, [`openmrs-esm-querystore-app`](https://github.com/pbiondich/openmrs-esm-querystore-app).
 
 ## Contributing
 

@@ -56,39 +56,6 @@ export const configSchema = {
       _default: '${openmrsSpaBase}/patient/${patientUuid}/chart/Results',
       _description: 'Where choosing a chart value goes.',
     },
-    source: {
-      _type: Type.String,
-      _default: 'rest',
-      _description:
-        '"rest" uses the existing chart lookup via FHIR (default, no change). "querystore" replaces it with the querystore index, whose rows take the default highlight inside a chart as chart lookup rows do, a matching destination waiting up to 1.5 seconds for them, or 10 while the chart is still being indexed. "both" shows both panels side by side for comparison, and leaves the query store rows out of dedupe so a value both find shows twice.',
-      _validators: [validators.oneOf(['rest', 'querystore', 'both'])],
-    },
-  },
-  chartSearchSuggestion: {
-    enabled: {
-      _type: Type.Boolean,
-      _default: true,
-      _description:
-        "Deprecated, no effect in this release: the bar's Ask ChartSearch row was removed (ChartSearch step 3). Removed in the next release.",
-    },
-    minWords: {
-      _type: Type.Number,
-      _default: 3,
-      _description:
-        'Deprecated, no effect in this release (ChartSearch step 3). Use queryResults.questionMinWords. Removed in the next release.',
-    },
-    workspaceName: {
-      _type: Type.String,
-      _default: 'ai-chat-workspace',
-      _description:
-        "Deprecated, no effect in this release: the bar's Ask ChartSearch row was removed (ChartSearch step 3). Removed in the next release.",
-    },
-    workspaceGroupName: {
-      _type: Type.String,
-      _default: 'patient-chart',
-      _description:
-        "Deprecated, no effect in this release: the bar's Ask ChartSearch row was removed (ChartSearch step 3). Removed in the next release.",
-    },
   },
   queryResults: {
     enterBehavior: {
@@ -97,12 +64,6 @@ export const configSchema = {
       _description:
         'What Enter does inside a chart. "submit" (default) opens the chart\'s Query results section for what was typed, unless the user arrowed or pointed to a row since their last keystroke, in which case Enter opens that row. "open-highlight" keeps the earlier behaviour: Enter opens the highlighted row. Outside a chart, Enter always opens the highlighted row.',
       _validators: [validators.oneOf(['submit', 'open-highlight'])],
-    },
-    askChartSearch: {
-      _type: Type.Boolean,
-      _default: true,
-      _description:
-        "Deprecated, no effect in this release: the answer section moved into ChartSearch's own app (ChartSearch step 3). Turn it off there with queryResultsAnswer.enabled, or remove chartsearch-query-results-view from omnibar-query-results-slot. Removed in the next release.",
     },
     maxValuesPerConcept: {
       _type: Type.Number,
@@ -237,7 +198,6 @@ export interface OmnibarConfig {
     maxConcepts: number;
     maxCandidates: number;
     resultsUrl: string;
-    source: 'rest' | 'querystore' | 'both';
   };
   queryResults: {
     enterBehavior: 'submit' | 'open-highlight';

@@ -462,6 +462,70 @@ describe('a Query results view that asks a model, from another app', () => {
     await new Promise((resolve) => setTimeout(resolve));
     expect(seen.at(-1).signal.aborted).toBe(false);
   });
+
+  describe('declaring its own slash command that asks it, as ChartSearch declares /ask', () => {
+    const consult: OmnibarViewMeta = {
+      ...meta,
+      skipIdentifierQueries: true,
+      command: { id: 'consult', aliases: ['consult'] },
+      commandAsksModel: true,
+    };
+    const registerAsking = (viewMeta: OmnibarViewMeta) => {
+      const ask = vi.fn(async (_query: string, _signal: AbortSignal) => 'An answer');
+      const View = askModelView(ask, 'consult');
+      providerComponents.clear();
+      providerComponents.set(askModelViewName, View as unknown as React.ComponentType<OmnibarProviderProps>);
+      vi.mocked(useAssignedExtensions).mockImplementation((slot: string) =>
+        slot === OMNIBAR_QUERY_RESULTS_SLOT
+          ? [
+              {
+                id: askModelViewName,
+                name: askModelViewName,
+                moduleName: '@openmrs/esm-ask-app',
+                meta: viewMeta,
+                config: null,
+              },
+            ]
+          : [],
+      );
+      return ask;
+    };
+    // Enter in the bar, then the page the bar navigated to, as the app shell would mount it.
+    const enterInBar = async (typed: string) => {
+      const user = userEvent.setup();
+      window.history.pushState({}, '', `/openmrs/spa/patient/${humprey}/chart/Results`);
+      const { unmount } = renderOmnibar();
+      await user.type(screen.getByRole('combobox'), typed);
+      const hint = (await screen.findByRole('button', { name: /^Enter to / })).textContent;
+      await user.keyboard('{Enter}');
+      const landed = interpolateUrl(vi.mocked(navigate).mock.calls.at(-1)[0].to);
+      unmount();
+      window.history.pushState({}, '', landed);
+      render(<QueryResultsPage patientUuid={humprey} />);
+      return { hint, landed };
+    };
+
+    it('gets the /ask behaviour from the flag: the hint names it, Enter sends cmd=consult, and it asks about any text', async () => {
+      const ask = registerAsking(consult);
+      const { hint, landed } = await enterInBar('/consult cd4');
+
+      expect(hint).toBe('Enter to ask Clinic Assistant “cd4”');
+      expect(landed).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=consult&q=cd4`);
+      await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+      expect(ask.mock.calls[0][0]).toBe('cd4');
+    });
+
+    it('is an ordinary command without the flag: the hint promises no answer and nothing asks', async () => {
+      const { commandAsksModel: _, ...unflagged } = consult;
+      const ask = registerAsking(unflagged);
+      const { hint, landed } = await enterInBar('/consult cd4');
+
+      expect(hint).toBe('Enter to see consult for “cd4”');
+      expect(landed).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=consult&q=cd4`);
+      await new Promise((resolve) => setTimeout(resolve));
+      expect(ask).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('the Query results page with no model-asking view installed', () => {

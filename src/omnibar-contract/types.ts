@@ -63,7 +63,7 @@ export interface OmnibarWorkspaceGroup {
  * Lanes keep fast and slow results from fighting over position.
  * - navigate: apps, pages, actions that open a page or form
  * - record: patients, observations, orders, conditions
- * - answer: free-text answers (e.g. ChartSearch). Rendered in its own region, below the list,
+ * - answer: free-text answers, such as a model's reply. Rendered in its own region, below the list,
  *   so a streaming answer never moves a result the user is arrowing toward.
  */
 export type OmnibarLane = 'navigate' | 'record' | 'answer';
@@ -299,14 +299,26 @@ export interface OmnibarViewMeta {
   command?: { id: string; aliases?: Array<string> };
   /**
    * New in v1. The view may call a model for a query the user just submitted, and this is the name the
-   * bar's hint uses: "Enter to see all results for '…' and ask ChartSearch". Shown as written, so it
-   * is a product name, not a sentence. The bar says it only while the view is assigned to the user,
-   * isn't skipped for the query and would mount for it (under a command, only a view declaring it);
+   * bar's hint uses: "Enter to see all results for '…' and ask Example Assistant". Shown on one line,
+   * without direction controls and cut to 40 characters, so it is a product name, not a sentence. The
+   * bar says it only while the view is assigned to the user, isn't skipped for the query and would
+   * mount for it (under a command, only a view declaring it);
    * the query looks like a question by the same test the host passes as `hints.looksLikeQuestion`, or,
-   * under the `ask` command, is any text that isn't ID-shaped; and Enter marks the submission: for
-   * plain text, and under `ask`, never under another command.
+   * under a command whose view sets `commandAsksModel`, is any text that isn't ID-shaped; and Enter
+   * marks the submission: for plain text, and under such a command, never under another command.
    */
   asksModel?: string;
+  /**
+   * New in v1 and optional. Enter under this view's `command` asks the view's model: the host marks the
+   * submission as asked for just now, as for a plain query; under that command any text that isn't
+   * ID-shaped counts as a question; and the hint names the model, "Enter to ask Example Assistant '…'".
+   * It counts only when it is exactly `true` and the view also declares a valid `command` and a
+   * non-empty `asksModel`, for a patient, on a contract the host speaks; every other view the host
+   * would mount under the same command sets it too and names the same model; and no provider declares
+   * the command, so a view can't turn `/patient` or `/lab` into a model ask. Otherwise the command is an
+   * ordinary one, and Enter under it never marks the submission.
+   */
+  commandAsksModel?: boolean;
 }
 
 /** Props every Query results view receives. */

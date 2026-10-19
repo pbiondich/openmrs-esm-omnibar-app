@@ -18,9 +18,6 @@ import { type OmnibarProviderMeta, type OmnibarScope, type OmnibarViewMeta } fro
 /** Where providers, and so their commands, are registered. */
 export const omnibarProvidersSlot = 'omnibar-providers-slot';
 
-/** The command whose Enter asks ChartSearch on Query results, as Enter on a plain question does. */
-export const askCommandId = 'ask';
-
 /** One word in any script, without the slash. */
 const aliasPattern = /^[\p{L}\p{M}\p{N}_-]+$/u;
 const maxAliasLength = 32;
@@ -63,7 +60,7 @@ const cleanAliases = (aliases: unknown): Array<string> =>
         .filter((alias): alias is string => Boolean(alias))
     : [];
 
-function cleanText(text: unknown, maxLength: number): string | undefined {
+export function cleanText(text: unknown, maxLength: number): string | undefined {
   if (typeof text !== 'string') {
     return undefined;
   }

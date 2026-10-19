@@ -1337,6 +1337,99 @@ Not run: the second-user check on one tab, since no users may be created on o3.
 
 Seen, cosmetic: the invalid-link notification stretches into a full-height left column and pushes the builder's panels right.
 
+## Feature: make the omnibar truly thin (PR #31)
+
+Built from [the thin-pass brief](docs/briefs/2026-10-19-thin-pass.md) on `feat/thin-pass`, with one commit in ChartSearch's app (`openmrs-esm-chartsearchai`, local branch `feat/ask-flag`). Nothing is pushed. The choices are in `docs/decisions.md`, under "Making the omnibar thin".
+
+| Change | Commit |
+| --- | --- |
+| The bar's ask hints name the model from the view's `asksModel` ("Enter to ask {{model}} '…'") | 25c349f |
+| `commandAsksModel`, an optional view `meta` flag, decides which commands mark the submission and ask a model; the id `ask` means nothing to the omnibar | ffeb327, 8949eb1 |
+| ChartSearch's answer view sets `commandAsksModel: true`, so `/ask` works as before | csai a14e073 |
+| The deprecated ChartSearch settings are deleted, and contract and code comments use neutral examples | e86878d |
+| The wristband scan on Enter stays with the built-in patient search, recorded as a safety exception | 2f08c15 |
+| A view from another app, built only on the contract folder, declares `/consult` with the flag and gets `/ask`'s behaviour; without the flag the command stays ordinary | f4c3cca |
+| The query store provider and its warm-up on chart open move into their own app, `packages/esm-querystore-app/`, with a boundary test; `chartLookup.source` and its comparison mode go | d04e638, 3b14cf7 |
+| Docs: the contract, slash-command design, README, AGENTS.md and decisions.md | 69b5c57, e3cc811 |
+
+### Review round 1 (independent code review, Claude Opus, and security review, Claude Sonnet, on e3cc811): no blockers from either
+
+Grok wasn't available in this harness, so the two reviews ran on different Claude models.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should, and code, nit: the flag was decided per command id, while views mount per id. One app's flagged view under `lab` would make Enter under `/lab` hand `submitted: true` to every other view declaring `lab`, and the hint could name an unflagged view's model | A command asks a model only when every view Query results would mount under it is flagged with a usable `asksModel`; a mixed command fails closed to ordinary. Tested both ways round, and in the bar | b529b73 |
+| security, nit: `asksModel` was shown as written, so direction controls or a long name could spoof or stretch the hint | Cleaned as command labels are: one line, no direction controls, at most 40 characters | b0dbb80 |
+| code, should: the CI artifact got a second path, which moved its root to the repo, so the release job's `dist/` would have held `dist/dist/…` | The query store app's dist is its own artifact, `querystore-dist` | 3783e7b |
+| code, should: nothing in ChartSearch's repo pinned the flag, so deleting the line would quietly make `/ask` ordinary | A test pins `asksModel` and `commandAsksModel: true` on the view; it fails with the line removed | csai 09ba410 |
+| code, nit: the conformance fixtures' "Model", "Saved lists" and "Unavailable right now" shipped in `translations/en.json` | `extract-translations` skips `src/conformance/**` | 00df3ac |
+
+Not fixed, and why:
+
+- code, should: a new omnibar with an old ChartSearch build (no flag) makes `/ask` ordinary. It fails closed: the hint stops promising an answer and nothing asks. Deploy ChartSearch's flag first or in the same window; decisions.md says so.
+- code, nit: a view could set the flag on a command only providers declare, such as `go`. The hint says Enter will ask before it does, and a view that declares a command gets Enter sent to Query results anyway, so this is within the contract.
+- security, nit: `runAgain` on Query results marks without checking the command is still offered. Unchanged from before (`ask` did the same); the page fails closed and the mark expires.
+- code, nit: the first half of the page test for a made-up command calls `markSubmitted` directly, so it doesn't prove the flag. Its second half and f4c3cca's conformance test do.
+- code, nit: `modelCommandIds` wants `scopes` to be a list, while the page also mounts a view whose `scopes` is the string `"patient"`. Such a view's command is ordinary, which fails closed.
+- code, nit: with chart lookup removed by slot config, the query store's heading reads "In this chart (query store)" where the old `querystore` mode said "In this chart". The provider can't tell what else is mounted; decisions.md records it.
+- code, nit: `yarn start` serves the omnibar only. Serving the query store app in development isn't scripted yet; nothing was tried.
+- security, nit: installing the query store app turns warm-up on by default, where `chartLookup.source` used to default to off. Recorded in decisions.md; `warmOnChartOpen: false` turns it off.
+
+### Review round 2 (re-check of round 1's fixes, code and security, Claude Opus, on 00df3ac): no blockers
+
+All five fixes hold. `modelCommandIds` uses the same "would mount" test as the page and the bar, a malformed `meta` makes the command ordinary, and a model name that cleans to nothing does too, so the bar never marks without naming a model.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| nit: the release job downloaded every artifact, so `querystore-dist/` would have been packed into the omnibar's npm package (`yarn pack --dry-run` packs gitignored folders, since `.npmignore` lists only `node_modules`) | The release job downloads only `dist`, into `dist/` | d390892 |
+
+Not fixed, and why:
+
+- nit: a zero-width character (U+200B) survives `cleanText`, so a view could name its model with nothing visible: "Enter to ask  '…'". The hint still says Enter asks, and command labels behave the same; strip zero-width characters in `cleanText` if it's ever seen.
+- nit: two flagged views under one command with different `asksModel` names get one name in the hint, the first in page order, though both are asked. Both apps opted in; the same holds for a plain question today.
+
+- Tests: 770 in 24 files (`yarn verify`: `Tasks: 3 successful, 3 total`). csai: 527 in 20 files, lint and type check clean.
+- No new dependency or origin: `package.json`'s dependencies and `yarn.lock` are unchanged, and the query store app has only peer dependencies and calls the OpenMRS server through `openmrsFetch`.
+- Not tried live on o3.
+
+### Follow-ups (Paul, 2026-10-19)
+
+| Change | Commit |
+| --- | --- |
+| The asksModel comment b0dbb80 left as one long line is rewrapped, and the query store app's copy matches | 7ba5078 |
+| ChartSearch's contract copy refreshed from 7ba5078: it gains `commandAsksModel` and the neutral comments. Its lint, type check and 527 tests pass | csai 9c389e1 |
+| `yarn start:querystore` runs `openmrs develop --sources . --sources packages/esm-querystore-app`. Tried with `--backend` pointed at a closed port: both dev servers came up (ports 8092 and 8093), each served its bundle, and the dev import map listed `@openmrs/esm-omnibar-app` and `@openmrs/esm-querystore-app` at those local URLs. The app shell's own import map fell back to dev3.openmrs.org, as `yarn start` does; nothing was tried in a browser | 39dc44c |
+| The "query store only" setup checked through the real framework: `@openmrs/esm-routes` registers both apps' `routes.json`, the omnibar registers the slot, and `@openmrs/esm-config` takes `{"@openmrs/esm-omnibar-app": {"extensionSlots": {"omnibar-providers-slot": {"remove": ["omnibar-chart-lookup-provider"]}}}}`. The slot then holds patient search, destinations and the query store provider, against all four without it; a user without Get Observations gets neither chart-values provider. With the config line taken out, the test fails. This framework version merges `extensionSlots` from any module's config by slot name (`getExtensionSlotConfigs` in esm-config), so the key could sit under either app. The bar's behaviour with chart lookup absent is covered by `omnibar-integration.test.tsx` | this commit |
+
+### The query store app moves to its own repo (Paul, 2026-10-19)
+
+The package in `packages/esm-querystore-app/` becomes the standalone repo `pbiondich/openmrs-esm-querystore-app`, built locally at `~/projects/omnibar/thin-pass/querystore` (branch `main`, no remote; Paul creates and pushes it). This supersedes `start:querystore` and the package's own `query-store-only.test.ts` in the follow-ups above.
+
+The standalone repo keeps the provider's history: `git filter-repo` on a clone of 4ab87d8, with the provider's earlier paths renamed to where the package had them, kept 60 commits from "Add a query store chart provider and warm charts on open" on, and its tree at the tip equals the package's at 4ab87d8. Nine commits on top give it the template's tooling (rspack and vitest, as the template uses today, not webpack and jest), CI with no publish job, a README, and tests that no longer reach into the omnibar: a fake host built on its contract copy, the copy pinned by SHA-256 to the omnibar's folder at 4ab87d8, the path parser against a fixed table of the omnibar's answers, and its `routes.json` through the framework's own stores. In that repo, `yarn install --immutable`, `verify` (7 files, 165 tests), `build` and `extract-translations` pass on a fresh clone.
+
+In this repo:
+
+| Change | Commit |
+| --- | --- |
+| The host behaviour the app's integration tests checked with the real omnibar is checked here against a fixture second chart-values provider, `external-app/chart-index.provider.tsx`, in `chart-values-source.test.tsx` (18 tests); the slot config that removes chart lookup in `slot-config.test.ts` (3 tests, through the framework's own stores). Each went red under at least one deliberate break of the host or the registrations | 565a7e2 |
+| The package is deleted, and the build, lint, prettier and extract-translations scripts and the eslint ignores go back to the omnibar alone, keeping 00df3ac's conformance exclusion | 6839e80 |
+| `start:querystore` removed (package.json part of 39dc44c) | 2c79f9c |
+| 3b14cf7, 3783e7b and d390892 reverted; `.github` and `.turbo.json` match 32ca7d6 again | 1f60e01, 0ec6e9b, fbfc3a2 |
+| README, AGENTS.md, decisions.md, the contract's registries and the briefs index point at the new repo | this commit |
+
+Not ported, because they test the provider rather than the host: no index request for a scanned ID, the group title, and the query store's response shapes. They stay in the new repo's own tests.
+
+The wristband case already had host coverage in `omnibar.test.tsx` (a second chart-values provider that skips identifier queries), so it wasn't ported again.
+
+### Review round 1 (Grok, code, on ff188bb and the query store repo): CHANGES REQUESTED
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| blocker: `modelCommandIds` looked only at views, so another app's flagged view could be the only view under `patient` or `go`, or under `lab` once the chart values view was removed from the slot, and Enter would tell it the user asked its model | A command any provider assigned here declares is ordinary, in the bar, on the page and in the hint. Tests first, red then green: `/patient`, `/go` and `/lab` (with only the flagged view in the slot) in the bar, the same three for an earlier query on the page, and the unit case. An ID-shaped query under `/patient` still opens the highlighted patient; that test passes before and after, as a guard | 93120a0 |
+| minor: two flagged views under one command could name different models; the hint named the first, and both were asked | The command is ordinary when the cleaned names differ; one shared name keeps the hint. Red then green in the bar and the unit test | 8382bda |
+| nit: the README said `/lab` can never bring up a view that asks a model | It now says a view declaring `lab` is never told it was asked, and that `/patient`, `/go` and `/lab` never ask. The contract comment, the contract doc and AGENTS.md say the provider rule too | b89ca30 |
+
+The contract comment changed, so the copies follow: the query store repo's copy and its pinned hash (querystore 3c4fdcf; its hash test went red on the old hash first), and ChartSearch's (csai 52cb38c; lint, type check and 527 tests pass).
 ## Feature: cohort phrases, a phrase table and the server's vocabulary (in the Cohort Builder's app)
 
 Paul asked for layers 1 and 2 of the plan for the variety of ways people ask for a cohort: a large phrase table for the words, and the server's own names for programs and encounter types (CIEL synonyms before any model). Built on the Cohort Builder fork's local branch `feat/cohort-phrases`, from `feat/omnibar-providers` at `fd8b2a4`. Nothing is pushed. Round 4's fixes at `0f2daad` (hermes) came later by git bundle and are merged in; see the end of this section. The choices are in `docs/decisions.md`, under "Cohort phrases: a phrase table and the server's vocabulary".
