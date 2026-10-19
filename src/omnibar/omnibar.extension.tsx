@@ -701,8 +701,8 @@ const Omnibar: React.FC = () => {
   const submitHint =
     asksModel && activeCommandId === askCommandId
       ? desktop
-        ? t('enterToAskChartSearch', 'Enter to ask ChartSearch “{{query}}”', hintValues)
-        : t('askChartSearchAbout', 'Ask ChartSearch “{{query}}”', hintValues)
+        ? t('enterToAskModel', 'Enter to ask {{model}} “{{query}}”', hintValues)
+        : t('askModelAbout', 'Ask {{model}} “{{query}}”', hintValues)
       : asksModel
         ? desktop
           ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask {{model}}', hintValues)
