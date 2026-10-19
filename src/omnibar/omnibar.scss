@@ -85,11 +85,23 @@ $omnibar-min-width: 18rem;
   fill: currentColor;
 }
 
-.input {
-  @include type.type-style(body-compact-01);
+// Wrapper for the input and ghost-text overlay.
+.inputWrapper {
+  position: relative;
   flex: 1;
   min-width: 0;
   height: 100%;
+  overflow: hidden;
+}
+
+.input {
+  @include type.type-style(body-compact-01);
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  // No inner padding, so the ghost text behind the input starts where the typed text does.
+  padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -99,6 +111,28 @@ $omnibar-min-width: 18rem;
     color: currentColor;
     opacity: 0.72;
   }
+}
+
+// Overlay behind the input showing ghost-text completion.
+.ghostOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  white-space: pre;
+  overflow: hidden;
+  @include type.type-style(body-compact-01);
+}
+
+// The typed part of the overlay: invisible, just occupies the same width as the input text.
+.ghostPrefix {
+  visibility: hidden;
+}
+
+// The ghost part: the completion text not yet typed.
+.ghostSuffix {
+  color: themes.$text-placeholder;
 }
 
 .shortcut {
@@ -206,6 +240,59 @@ $omnibar-min-width: 18rem;
   background-color: $ui-02;
   color: themes.$text-primary;
   box-shadow: 0 layout.$spacing-03 layout.$spacing-05 rgba(0, 0, 0, 0.24);
+}
+
+// The completions strip: a row of completion chips just below the field, inside the panel.
+.completionStrip {
+  display: flex;
+  align-items: center;
+  gap: layout.$spacing-02;
+  padding: layout.$spacing-02 layout.$spacing-05;
+  border-bottom: 1px solid themes.$border-subtle-01;
+  overflow-x: auto;
+}
+
+// Visually hidden live region that announces the marked completion to screen readers.
+.completionAnnounce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+// Each completion chip.
+.completionItem {
+  @include type.type-style(label-01);
+  display: inline-flex;
+  align-items: center;
+  gap: layout.$spacing-02;
+  padding: layout.$spacing-01 layout.$spacing-03;
+  border: 1px solid themes.$border-subtle-01;
+  border-radius: 4px;
+  background: themes.$layer-01;
+  color: themes.$text-primary;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+
+  &:hover {
+    background: themes.$layer-hover-01;
+  }
+}
+
+// The first completion is marked as the Tab target with a distinct border.
+.completionItemTab {
+  border-color: themes.$focus;
+}
+
+// Muted detail text shown after the label inside a chip.
+.completionDetail {
+  color: themes.$text-secondary;
 }
 
 .listbox,

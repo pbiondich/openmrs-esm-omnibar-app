@@ -1521,3 +1521,36 @@ Not fixed, and why:
 - Tests: 1,174 on `feat/cohort-phrases`; 1,326 at `0290d48`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
 - REST and reporting read in source: concept search passes no datatype filter (so the row filters to numeric itself); `numericObsSearchAdvanced` applies the window before choosing the latest, earliest, lowest, highest or average, as the descriptions say.
 - Not tried on o3 or in a browser.
+
+## Feature: completions taken with Tab (contract 1, additive)
+
+Step 4 of [the test results brief](docs/briefs/2026-10-19-cohort-test-results.md), on `feat/report-completions`. A provider's report may carry `completions: [{ insert, replace, label?, detail? }]`. The host checks each one, shows those of the first provider (by lane, then order) as a strip under the field, and as ghost text when one extends what was typed. Tab takes the first, a click or tap any; Escape dismisses them for the query; Enter keeps its meaning; Tab moves focus as usual when there's nothing to take, and the slash-command list keeps its own Tab. A completion only replaces text: it never navigates, writes or calls a model. `OMNIBAR_CONTRACT_VERSION` stays 1.
+
+| Change | Commit |
+| --- | --- |
+| Tests: validation, the strip and ghost text, Tab, Escape, click, Enter unchanged, focus, the command list, first provider wins, stale completions; and a conformance fixture built only on the contract folder | 776410b |
+| The contract type and its docs, the host's validation (`cleanCompletion`) and `firstCompletions`, the strip, ghost text and keys, the README's keyboard section | 10bde73 |
+
+### Review round 1 (independent code review and security review, Claude): one blocker, from code
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, blocker, and security, should: Tab applied `replace` to the live field, which can be up to 200 ms ahead of the query the provider answered, so "virall" became "vviral load"; and a completion checked against the provider's query could, applied to shorter live text, begin with "/" and pick a command | Completions show and apply only while the field holds exactly the query they answer (`commandSettled && providerText === debouncedText`); Tab applies to that query; a result starting with "/" is refused again on apply. Tested with a debounce lag set by hand, since the framework's test mock doesn't debounce | afc1ff8, c6bd2a2 |
+| code, should: the ghost text could sit a pixel or two off the typed text, from the input's default padding | `.input` has no padding | c6bd2a2 |
+| code, should: the screen-reader line announced on every debounce | The live region stays mounted and changes only when the first completion's label does; Escape and closing clear it | c6bd2a2 |
+| security, nit: invisible format characters (zero-width spaces, joiners) passed in `insert`, `label` and `detail` | Stripped, with direction controls | afc1ff8, c6bd2a2 |
+| code, nits: the docs said C0 and DEL where C1 is refused too, and didn't say `replace` counts UTF-16 code units | Both said, in the type and the contract doc | c6bd2a2 |
+| security, nit: `escapeValue: false` in the announcement looked surprising | A comment says why: React escapes the text, and i18next's escaping would show "&amp;" | c6bd2a2 |
+
+### Review round 2 (re-check, code and security, Claude): no blockers, no should-fixes
+
+Both confirmed the gate and the apply use the same text, the "/" guard holds through whitespace, a command chip and Escape, and the announcement settles in one render.
+
+Not fixed, and why:
+
+- A field with leading or trailing spaces loses them when a completion is taken, since providers see the trimmed text. Harmless.
+- Ghost text isn't drawn once the typed text scrolls inside the field; the strip still shows the completion.
+
+- Tests: 667 at 10bde73, 669 at c6bd2a2. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- No new origin; no new request.
+- Not tried in a browser or on o3.
