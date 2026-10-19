@@ -113,7 +113,7 @@ A provider may declare the command it answers in `meta.command`. `id` is stable 
 - Several providers may declare the same id. Their aliases are merged; the label and description come from the first in slot order whose module has them.
 - A command is listed, greyed out, but can't be chosen in a scope none of its providers declares. Commands never widen the scope.
 - The default highlight, dedupe and the fail-closed rules are the same as for plain text.
-- Inside a chart, Enter sends the command to Query results (`?cmd=<id>&q=<query>`) only when a [view](#query-results-views-new-in-v1) declares it; otherwise Enter opens the highlighted row. Only a plain query or `ask` marks the submission, so no other command lets a view call a model on its own.
+- Inside a chart, Enter sends the command to Query results (`?cmd=<id>&q=<query>`) only when a [view](#query-results-views-new-in-v1) declares it; otherwise Enter opens the highlighted row. Only a plain query or `ask` marks the submission, so no other command lets a view call a model on its own. That makes `ask` special: a provider that declares it receives text the user is about to send to ChartSearch, an AI, so declare it only for a provider that is part of asking a model.
 - Implementers add, replace or disable aliases by id in the omnibar's `commands` config. An alias claimed for two ids goes to the one set in config, then to the first provider in slot order; the conflict is logged and listed by `getOmnibarCommandConflicts()`.
 
 ### `hints` (`OmnibarQueryHints`)

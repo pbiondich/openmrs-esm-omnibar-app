@@ -493,7 +493,7 @@ const Omnibar: React.FC = () => {
               ? commandIdOf(meta.command)
               : undefined;
           })
-          .filter(Boolean),
+          .filter((id): id is string => Boolean(id)),
       ),
     [assignedViews],
   );

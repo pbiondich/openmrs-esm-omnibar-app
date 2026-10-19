@@ -360,11 +360,9 @@ export function useCommandTable(
       return;
     }
     missing.forEach((moduleName) => asked.current.add(moduleName));
+    // The table is rebuilt on i18next's `loaded` event, above, so nothing more is done when it settles.
     try {
-      Promise.resolve(window.i18next.loadNamespaces(missing)).then(
-        () => setVersion((current) => current + 1),
-        () => undefined,
-      );
+      Promise.resolve(window.i18next.loadNamespaces(missing)).catch(() => undefined);
     } catch {
       // A namespace that can't be loaded leaves the English aliases from routes.json.
     }

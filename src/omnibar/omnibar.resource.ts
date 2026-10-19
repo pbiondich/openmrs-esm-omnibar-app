@@ -668,7 +668,7 @@ export function useOmnibarShortcut(
 ) {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
+      if (event.defaultPrevented || event.isComposing) {
         return;
       }
       const inOtherField = event.target !== ownInput.current && isTypingInField(event.target);
