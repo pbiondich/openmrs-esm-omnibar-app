@@ -29,8 +29,8 @@ export function queryHints(query: string, questionMinWords: number | undefined):
  * The commands under which Enter asks a model, as a plain query does. A command qualifies only when
  * no provider assigned here declares it, so `/patient`, `/go` or `/lab` can never send what was typed
  * to a model, and every view Query results would mount under it, for a patient on a contract this
- * host speaks, sets `commandAsksModel` to exactly `true` and names its model in `asksModel`. So the
- * hint can always say which model before anything asks, and one app's flag never hands
+ * host speaks, sets `commandAsksModel` to exactly `true` and names the same model in `asksModel`. So
+ * the hint always names the one model that will be asked, and one app's flag never hands
  * `submitted: true` to another app's view under the same id. Any other command is ordinary, whatever
  * its id.
  */
@@ -49,7 +49,7 @@ export function modelCommandIds(
       continue;
     }
     const model = meta.commandAsksModel === true && Array.isArray(meta.scopes) ? modelNameOf(meta) : undefined;
-    if (!model) {
+    if (!model || (modelOf.has(id) && modelOf.get(id) !== model)) {
       ordinary.add(id);
     } else {
       modelOf.set(id, model);

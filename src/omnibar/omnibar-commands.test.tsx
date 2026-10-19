@@ -986,6 +986,18 @@ describe('slash commands in the bar', () => {
       expect(landedOn()).toBe(`/openmrs/spa/patient/${scanned}/chart`);
       expect(takeSubmission(chartPatient, '100GEJ', 'patient')).toBe(false);
     });
+
+    it('keeps a view-only command ordinary when its flagged views name different models', async () => {
+      const user = userEvent.setup();
+      builtIns([...views, flagging('consult', 'Model A'), { ...flagging('consult', 'Model B'), name: 'third-view' }]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to see consult for “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(false);
+    });
   });
 
   describe('config and translations', () => {

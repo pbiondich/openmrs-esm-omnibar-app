@@ -63,6 +63,18 @@ describe('modelCommandIds', () => {
     expect(modelCommandIds([flagged('consult')], [provider('patient'), { meta: {} }])).toEqual(new Set(['consult']));
   });
 
+  it('leaves a command ordinary when its flagged views name different models, so the hint never names the wrong one', () => {
+    expect(
+      modelCommandIds([view('consult', asking), view('second-consult', { ...asking, asksModel: 'Other model' })], []),
+    ).toEqual(new Set());
+    expect(
+      modelCommandIds(
+        [view('consult', asking), view('second-consult', { ...asking, asksModel: ' Example\n model ' })],
+        [],
+      ),
+    ).toEqual(new Set(['consult']));
+  });
+
   it('doesn’t treat the id ask as special', () => {
     const { commandAsksModel: _, ...unflagged } = asking;
     expect(modelCommandIds([view('ask', { ...unflagged, command: { id: 'ask', aliases: ['ask'] } })], [])).toEqual(
