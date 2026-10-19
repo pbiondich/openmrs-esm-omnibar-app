@@ -1,4 +1,4 @@
-import { defineConfigSchema, getAsyncLifecycle } from '@openmrs/esm-framework';
+import { defineConfigSchema, getAsyncLifecycle, getSyncLifecycle } from '@openmrs/esm-framework';
 import { configSchema } from './config-schema';
 import { withProviderBoundary, withViewBoundary } from './omnibar-contract';
 import { setupQueryHistoryClearing } from './query-results/query-history';
@@ -22,6 +22,11 @@ export function startupApp() {
   // Query results history belongs to one login: cleared at logout or when another user logs in.
   setupQueryHistoryClearing();
 }
+
+// Renders nothing. The login and logout pages show no header, so without this page the module isn't
+// loaded there, and a logout by full page load (a typed URL, a bookmark) would leave the query
+// history behind. Loading the module runs `startupApp`, which watches the session store.
+export const sessionChangePage = getSyncLifecycle(() => null, options);
 
 export const omnibar = getAsyncLifecycle(() => import('./omnibar/omnibar.extension'), options);
 
