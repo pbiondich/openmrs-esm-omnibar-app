@@ -27,34 +27,34 @@
       "component": "patientSearchProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Patients"],
-      "meta": { "lane": "record", "scopes": ["global", "patient"], "order": 10, "patientScopeOrder": 30, "contract": 1 }
+      "meta": { "lane": "record", "scopes": ["global", "patient"], "order": 10, "patientScopeOrder": 30, "contract": 1, "command": { "id": "patient", "aliases": ["patient", "pt", "find"] } }
     },
     {
       "name": "omnibar-chart-lookup-provider",
       "component": "chartLookupProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Observations"],
-      "meta": { "lane": "record", "scopes": ["patient"], "order": 10, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values" }
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 10, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "command": { "id": "lab", "aliases": ["lab", "labs", "results", "obs", "value"] } }
     },
     {
       "name": "omnibar-chartsearch-suggestion-provider",
       "component": "chartSearchSuggestionProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["AI Query Patient Data"],
-      "meta": { "lane": "navigate", "scopes": ["patient"], "order": 100, "contract": 1, "skipIdentifierQueries": true }
+      "meta": { "lane": "navigate", "scopes": ["patient"], "order": 100, "contract": 1, "skipIdentifierQueries": true, "command": { "id": "ask", "aliases": ["ask", "question"] } }
     },
     {
       "name": "omnibar-destinations-provider",
       "component": "destinationsProvider",
       "slot": "omnibar-providers-slot",
-      "meta": { "lane": "navigate", "scopes": ["global", "patient"], "order": 10, "defaultInChart": true, "contract": 1 }
+      "meta": { "lane": "navigate", "scopes": ["global", "patient"], "order": 10, "defaultInChart": true, "contract": 1, "command": { "id": "go", "aliases": ["go", "open", "page"] } }
     },
     {
       "name": "omnibar-querystore-chart-provider",
       "component": "querystoreChartProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Observations"],
-      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true }
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true, "command": { "id": "lab", "aliases": ["lab", "labs", "results", "obs", "value"] } }
     },
     {
       "name": "omnibar-query-results-dashboard",
@@ -74,14 +74,14 @@
       "component": "chartValuesView",
       "slot": "omnibar-query-results-slot",
       "privileges": ["Get Observations"],
-      "meta": { "scopes": ["patient"], "order": 10, "contract": 1 }
+      "meta": { "scopes": ["patient"], "order": 10, "contract": 1, "command": { "id": "lab" } }
     },
     {
       "name": "omnibar-chartsearch-answer-view",
       "component": "chartSearchAnswerView",
       "slot": "omnibar-query-results-slot",
       "privileges": ["AI Query Patient Data"],
-      "meta": { "scopes": ["patient"], "order": 100, "contract": 1, "skipIdentifierQueries": true }
+      "meta": { "scopes": ["patient"], "order": 100, "contract": 1, "skipIdentifierQueries": true, "command": { "id": "ask" } }
     }
   ]
 }

@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { getRegisteredWorkspace2Names, useConfig, usePatient, useSession, userHasAccess } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
+import { askCommandId } from '../omnibar/commands';
+import { looksLikeIdentifier } from '../omnibar-contract';
 import {
   defaultMaxQuestionLength,
   looksLikeChartSearchQuestion,
@@ -37,6 +39,9 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
   const chartGroupIsOpen = Boolean(
     patientUuid && chartGroupName && openGroup?.groupName === chartGroupName && openGroup.patientUuid === patientUuid,
   );
+  // Under /ask the clinician has said it's a question, so any text is offered, skipping the heuristic.
+  // An ID-shaped query never is: the host doesn't mount this provider for one, and this says so again.
+  const asked = context.command?.id === askCommandId;
   const offered =
     chartSearchSuggestion.enabled &&
     Boolean(patientUuid) &&
@@ -44,7 +49,9 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
     Boolean(user && userHasAccess(privilege, user)) &&
     workspaceRegistered &&
     chartGroupIsOpen &&
-    looksLikeChartSearchQuestion(query, chartSearchSuggestion.minWords);
+    (asked
+      ? Boolean(query.trim()) && !looksLikeIdentifier(query)
+      : looksLikeChartSearchQuestion(query, chartSearchSuggestion.minWords));
 
   useEffect(() => {
     const title = t('suggestions', 'Suggestions');

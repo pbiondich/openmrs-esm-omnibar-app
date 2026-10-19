@@ -138,6 +138,27 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **Providers learn the command from `context.command`.** An optional `{ id }`, new in v1.
 *Why:* the ChartSearch suggestion needs it to skip its heuristic under `/ask`, and the query store can show recent values for an empty `/lab`. A provider must still work without it.
 
+### Building the bar side of slash commands
+
+Choices the design left open, or where it met an earlier decision, made while building PR 1 (`feat/slash-commands`). Each is easy to change if Paul disagrees.
+
+**Backspace takes off the command chip, but never the patient chip.** Backspace in the empty field removes the command chip, and not on key repeat, so holding it to clear the text stops there. The patient chip is still removed only by its own button.
+*Why:* the design says Backspace then removes the patient chip, but [FIXES.md round 1b](../FIXES.md) made the pill's button the only way out of the chart's scope, after holding Backspace dropped the scope by accident. Widening the scope is the riskier of the two, so the earlier rule stands until Paul says otherwise.
+
+**Under a command, Enter submits to Query results only when a view declares the command.** Inside a chart, `/lab cd4` + Enter opens Query results with `cmd=lab`; `/go ward` and `/patient mary` + Enter open the highlighted row, as outside a chart, because no view shows those commands. The built-in views declare theirs (`lab`, `ask`) already, so the bar can tell.
+*Why:* the design sends every command to Query results, where an id no view declares fails closed. For `/go` and `/patient` that would make Enter always land on "That command isn't available here".
+
+**Until Query results reads the command, only a plain query or `/ask` marks the submission.** `/lab` + Enter opens Query results without the mark, so the Ask ChartSearch view, which the page still mounts under any command, never asks on its own; the hint doesn't promise it either.
+*Why:* the brief's constraint that the only model call is `/ask` + Enter (or a plain question) has to hold between the two PRs, not only after the second.
+
+**An alias set in config wins over the same alias from a provider; among providers, slot order decides.** Translations count as the provider's. "Slot order" is the order the slot assigns, not `meta.order`, which differs by scope.
+*Why:* the implementer is the authority on what `/open` means at their site, and a table that changed between global and patient scope would make the same alias mean two things.
+
+**While the list shows, no provider runs, and Enter or Tab chooses the highlighted command.** The highlight starts on an exact alias match, else the first command available here. Choosing a command never acts, so this is a convenience on top of "Enter, Tab or a space on an exact alias". A command typed in full that isn't available here (`/lab ` outside a chart) stays plain text, with a quiet line saying why.
+*Why:* `/la` sent to patient search would only show noise, and an extra keystroke to finish an alias the list already shows is friction for nothing.
+
+**Built-in labels.** Patients, Lab results, Pages and Ask ChartSearch, with English aliases in `en.json` too so translators see them. The hint under a command reads "Enter to see Lab results for 'cd4'", and under `/ask` "Enter to ask ChartSearch '…'" when Enter will ask.
+
 ## Open
 
 These came up but aren't decided yet.

@@ -657,14 +657,18 @@ function isTypingInField(target: EventTarget | null): boolean {
 }
 
 /**
- * Ctrl/Cmd+K, or "/", unless the user is typing in some other field, where Ctrl/Cmd+K often means
- * "insert link". A keystroke already handled elsewhere is left alone, which also means that when
+ * Ctrl/Cmd+K opens the bar for plain text and "/" opens it for a slash command, unless the user is
+ * typing in some other field, where Ctrl/Cmd+K often means "insert link". "/" in the bar's own field
+ * is typed as usual. A keystroke already handled elsewhere is left alone, which also means that when
  * two omnibars are mounted only the first one responds.
  */
-export function useOmnibarShortcut(onTrigger: () => void, ownInput: RefObject<HTMLInputElement>) {
+export function useOmnibarShortcut(
+  onTrigger: (kind: 'text' | 'command') => void,
+  ownInput: RefObject<HTMLInputElement>,
+) {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
+      if (event.defaultPrevented || event.isComposing) {
         return;
       }
       const inOtherField = event.target !== ownInput.current && isTypingInField(event.target);
@@ -672,7 +676,7 @@ export function useOmnibarShortcut(onTrigger: () => void, ownInput: RefObject<HT
       const isSlash = event.key === '/' && !event.metaKey && !event.ctrlKey && !isTypingInField(event.target);
       if (isModK || isSlash) {
         event.preventDefault();
-        onTrigger();
+        onTrigger(isSlash ? 'command' : 'text');
       }
     };
     window.addEventListener('keydown', handler);

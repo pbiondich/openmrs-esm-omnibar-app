@@ -113,6 +113,39 @@ export const configSchema = {
       _description: 'Values shown for each matching concept on the Query results page, newest first.',
     },
   },
+  commands: {
+    _type: Type.Array,
+    _description:
+      'Changes to the slash commands the providers declare, by command id. "aliases" adds names people can type after the slash; "replaceAliases" drops the names from the providers and their translations first; "enabled": false removes the command, so its providers run for plain text only. An alias set here wins over the same alias declared for another command. Labels are translated with translation overrides for the provider\'s module, not here.',
+    _elements: {
+      _type: Type.Object,
+      id: { _type: Type.String, _description: 'The command id, such as "lab". Never shown.' },
+      aliases: {
+        _type: Type.Array,
+        _elements: { _type: Type.String },
+        _default: [],
+        _description: 'More names for the command, typed after the slash, one word each.',
+      },
+      replaceAliases: {
+        _type: Type.Boolean,
+        _default: false,
+        _description: 'Use only the aliases given here.',
+      },
+      enabled: {
+        _type: Type.Boolean,
+        _default: true,
+        _description: 'False removes the command from the bar.',
+      },
+    },
+    _default: [],
+    _validators: [
+      validator(
+        (commands: Array<{ id?: unknown }>) =>
+          commands.every((command) => typeof command.id === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(command.id)),
+        'Every command needs an id: lower-case letters, digits and hyphens, starting with a letter.',
+      ),
+    ],
+  },
   destinations: {
     _type: Type.Array,
     _description: 'Pages and apps the omnibar can open. Adjust to match the apps in your distribution.',
@@ -181,6 +214,13 @@ export interface ChartSearchSuggestionConfig {
   workspaceGroupName: string;
 }
 
+export interface CommandConfig {
+  id: string;
+  aliases: Array<string>;
+  replaceAliases: boolean;
+  enabled: boolean;
+}
+
 export interface OmnibarConfig {
   appearance: 'field' | 'icon';
   patientSearch: {
@@ -203,5 +243,6 @@ export interface OmnibarConfig {
     askChartSearch: boolean;
     maxValuesPerConcept: number;
   };
+  commands: Array<CommandConfig>;
   destinations: Array<Destination>;
 }
