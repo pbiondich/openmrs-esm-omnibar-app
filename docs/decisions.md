@@ -204,6 +204,9 @@ Choices made while building [the cohort counts brief](briefs/2026-10-18-cohort-c
 **The count row is a navigate-lane row under the ordinary default rules (Paul, 2026-10-18).** Not the answer lane, and no host opt-out from the default highlight. This supersedes the brief's "meta.lane 'answer'" and "a count row never takes the default highlight".
 *Why:* the host draws only answer text in the answer lane: no row, nothing arrow keys or Enter reach, and no "Unavailable right now". The brief's "never the default" was a reflex from the in-chart fail-closed rule; the provider is global-scope only, where any navigate row may be the default, and if "how many patients under 30" puts the count row first, Enter opening the builder with that definition is the right outcome. So the omnibar needs no code change for it.
 
+**The count row keeps the default highlight now that it's live (Paul, 2026-10-19).** No opt-out flag in the contract. Outside a chart, Enter on a count question opens the builder with that definition.
+*Why:* tried on o3 with cohort-builder-0f2daad; Enter opening the count is what someone asking "how many" wants.
+
 **The count row replaces the "Build cohort" row (Paul, 2026-10-18).** `omnibar-cohort-criteria-provider` leaves the builder's `routes.json`; `omnibar-cohort-count-provider` takes its order, 20. The builder-by-name, saved cohorts and saved queries rows stay.
 *Why:* both rows parse the same text into the same link, so the bar would show two rows for one definition.
 
@@ -234,7 +237,6 @@ These came up but aren't decided yet.
 - **Two values on the same date.** When a patient has two results for the same concept on the same date, should the dropdown show the most recently entered one, or say "2 results on this date"?
 - **Query results layout.** One merged page with a section per provider, or tabs by kind (values, notes, orders, answer)?
 - **Privileges for the query store's patient endpoints.** Is Get Patients enough, or Get Observations too? The provider's `routes.json` must match what the server requires (plan question 10).
-- **The count row takes the default Enter highlight.** Outside a chart it's often the first row, so Enter opens the builder, which runs the full member list. That's against the brief's "never the default", as decided above, because contract 1 has no flag for a row to opt out. Keep it now that it's live, or add an opt-out to the contract? Paul to decide.
 - **"How many HIV patients?"** The parser still reads a program only after "enrolled in" or before "program", so "HIV patients", "in HIV" and "patients with HIV" give no count row. Reading a bare program alias as enrollment would answer the brief's own example, saying in the subtitle that it counted enrollment, but it's a wider grammar than the archived parser allowed. Paul to decide.
 - **Do "under" and "over" include the endpoint?** Today "under 30" is 29 and younger and "over 40" is 41 and older, which the builder's form then shows. The brief doesn't say. Paul to decide.
 - **"cohort" in Patient lists' keywords.** The brief drops it from the Patient lists destination so "cohort" gives one row. Not built. Paul to decide whether it's still wanted with `/cohort` in place.
