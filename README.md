@@ -64,11 +64,11 @@ Pressing Enter on a query, rather than choosing a suggestion, opens a new sectio
 
 ### Slash commands
 
-Typing `/` starts a command, which states the type of query up front instead of leaving the omnibar to infer it. Pressing `/` anywhere opens the omnibar already in command mode; Ctrl K opens it for plain text. Commands are optional, and plain text always works. *Status: built for `/patient`, `/lab` and `/go`, in the bar and on Query results. `/ask` was declared only by the bar's ChartSearch row, which ChartSearch step 3 removed, so it isn't a command until Paul decides who declares it (see [`docs/decisions.md`](docs/decisions.md), Open).*
+Typing `/` starts a command, which states the type of query up front instead of leaving the omnibar to infer it. Pressing `/` anywhere opens the omnibar already in command mode; Ctrl K opens it for plain text. Commands are optional, and plain text always works. *Status: built for `/patient`, `/lab`, `/go` and `/ask`, in the bar and on Query results. `/ask` is declared by ChartSearch's answer view from ChartSearch's own app, so it's there only when that app is installed and the user may use it (see [`docs/decisions.md`](docs/decisions.md)).*
 
 | The user types | What it means |
 | --- | --- |
-| `/ask when did he start ART?` | A question for ChartSearch, rather than something to look up. Enter asks it on Query results. *Not available for now: no installed provider declares `ask`.* |
+| `/ask when did he start ART?` | A question for ChartSearch, rather than something to look up. Enter asks it on Query results. Declared by ChartSearch's app, so only there when it's installed and the user may use it. |
 | `/lab cd4` | CD4 as a lab result, never a patient whose name matches. |
 | `/cohort over 40 on ART` | A population question, even when typed inside a chart. |
 | `/go ward` | Open a page. |
@@ -162,14 +162,15 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 }
 ```
 
-- Aliases come from three places: the provider's `routes.json` (English defaults), the provider module's translations (`omnibarCommand.<id>.aliases`, `.label` and `.description`, loaded when the command list first opens), and implementer config (custom names, such as `/vl` for viral load). The shell merges them into one table for the user's locale and matches whole aliases, case-insensitively in that locale.
+- A Query results view may declare a command the same way, with aliases and its module's translations, as ChartSearch's answer view declares `/ask`. Its command joins the same table, and only in a chart; a command only views declare runs no providers in the bar, and Enter sends it to Query results.
+- Aliases come from three places: the declaring provider's or view's `routes.json` (English defaults), its module's translations (`omnibarCommand.<id>.aliases`, `.label` and `.description`, loaded when the command list first opens), and implementer config (custom names, such as `/vl` for viral load). The shell merges them into one table for the user's locale and matches whole aliases, case-insensitively in that locale.
 - Any alias resolves to the id. The chip shows the command's label in the user's language, whichever alias was typed.
 - URLs carry the id, not the alias (`?cmd=lab&q=cd4`), so a bookmarked query works in any language.
 - When a command is given, only the providers that declare it run, and they learn which from `context.command`. More than one provider can declare the same command: chart lookup and the query store provider both answer `/lab`. The default highlight, dedupe and the fail-closed rules are the same as for plain text.
 - Inside a chart, Enter under a command sends it to Query results when a view there declares it, as the chart values view declares `lab`; otherwise Enter opens the highlighted row. An ID-shaped query, or a row the user arrowed to, opens as for plain text.
 - On Query results, under a command only the views that declare it mount, so `/lab` can never bring up the view that asks a model. A command the bar doesn't offer here, or that no view declares, fails closed: the page shows the query, says the command isn't available, and offers a plain search. Only a plain query or `/ask`, from whichever app declares it, lets a view ask a model on its own, and under `/ask` any text counts as a question.
 - History keeps each query with its command, and shows the command's chip beside the text.
-- If the same alias is claimed for two different commands, one set in config wins, then the first provider in slot order, and the conflict is logged and returned by `getOmnibarCommandConflicts()` rather than silently shadowed.
+- If the same alias is claimed for two different commands, one set in config wins, then the first provider in slot order, then the first view, and the conflict is logged and returned by `getOmnibarCommandConflicts()` rather than silently shadowed.
 
 The `commands` config adds, replaces or disables aliases by id:
 
@@ -202,7 +203,7 @@ The built-in Query results views, in `omnibar-query-results-slot`:
 | --- | --- | --- |
 | Chart values | 10 | Chart lookup's concept search and `$lastn`, then FHIR `Observation?code=<concept>&_sort=-date` for each concept the query names |
 
-ChartSearch's answer section is a view in the same slot at order 100, registered from ChartSearch's own app (`chartsearch-query-results-view`, with `asksModel: "ChartSearch"`). Without that app, or without its privilege, the page simply has no answer section. See [`docs/decisions.md`](docs/decisions.md).
+ChartSearch's answer section is a view in the same slot at order 100, registered from ChartSearch's own app (`chartsearch-query-results-view`, with `asksModel: "ChartSearch"`, and declaring `/ask`). Without that app, or without its privilege, the page simply has no answer section. See [`docs/decisions.md`](docs/decisions.md).
 
 Inside a chart, chart lookup comes first and patient search drops to "Other patients". When a server can't be reached, a group shrinks to its heading and "Unavailable right now"; any other failure shows "Couldn't load results".
 
