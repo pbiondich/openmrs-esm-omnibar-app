@@ -1294,4 +1294,45 @@ Not fixed, and why:
 - reportingrest and reporting APIs read in source (`master`, 2026-10-18): `EvaluatedResource.getEvaluationContextWithParameters`, `EvaluatedCohortResource`, `AdHocQueryResource`, `BuiltInCohortDefinitionLibrary`, `MappedParametersQuery`, the services' `@Authorized`. Assumed, not run: the GET converts a program uuid to a `Program`, and `v=rowFilters` answers `{ result: { memberIds } }`. Step 1 checks both on o3.
 - No new origin: every request goes through `openmrsFetch` to the OpenMRS server.
 - `feat/url-definition` merges onto the builder's `main` without conflicts; it is in [`docs/upstream/`](docs/upstream/) as a proposal, not opened upstream.
-- Not tried live on o3, and not looked at in a browser. Deploying is the brief's step 3 deploy note: the builder's `dist` as a new versioned directory and one importmap override line.
+- Tried live on o3 on 2026-10-19 at 0f2daad, after the round below; see "Deploy" at the end of this section.
+
+### Review round 4 (Grok 4.7 Fast xhigh, code and security, on fd8b2a4): REQUEST CHANGES
+
+The branches came from Paul's machine as a git bundle, as `m5/feat/url-definition` (6b31bfc) and `m5/feat/omnibar-providers` (fd8b2a4) on hermes. The fixes are new commits on `m5/feat/omnibar-providers`, by Opus. Nothing was rewritten and nothing is pushed.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| blocking: a count already on screen stayed there when the logged-in user changed. Round 2 covered only an answer still in flight; the hook never followed the session, and the key didn't change | The hook follows the session user. On a change the row shows "Counting…", the user's counts are cleared, the request is aborted and the count is asked again for the new user, without waiting out the debounce again. Tested on one mounted row: user A's settled "7 patients" is never shown to user B | 0bb747d, bce4a53 |
+| should: `yarn extract-translations` deleted `omnibarCommand.cohort.aliases`, `.label` and `.description` from `en.json`, since nothing calls `t()` with them and `keepRemoved` didn't match, and added `viewFailed` from the vendored contract folder | `keepRemoved` also matches `/^translations:omnibarCommand(\.\|$)/` (the reviewer's regex without `$` never matched the bare parent key), and the extract no longer scans `src/omnibar/omnibar-contract/`. A test runs the real extract on a copy of `en.json` and expects it unchanged | 41e22f2, d553208 |
+| should: a 4xx or 5xx reply was a plain error, not "Unavailable right now" as the brief says | A failed `openmrsFetch` reports `status: 'error'` with `detail.state: 'unavailable'`, never the server's text. An answer that can't be read, and the give-up after three re-asks, stay plain errors | aef0d64, 0f2daad |
+
+Not fixed, and why (nits, left for later or for Paul):
+
+- nit: `countDebounceMs` accepts 0, which would count per keystroke.
+- nit: the day in the cache key doesn't change at midnight while the row stays mounted.
+- nit: `CohortCriteriaFallbackParser` is exported and unused. Kept as the slot the brief asks the design to leave for a model fallback.
+- open, for Paul: the default highlight, a bare program word, and the under/over endpoints. See Open in `docs/decisions.md`.
+
+Re-check of fd8b2a4..0f2daad (Grok): APPROVE WITH NITS. One nit: the new user-change test settles the timers after the switch, so it would still pass if the re-ask waited the full 600 ms.
+
+- Tests: 592 at 0f2daad (39 files). `yarn test`, `lint`, `typescript`, `build` and `extract-translations` pass, and the tree stays clean after the extract.
+- The contract folder is byte-identical to omnibar `main` at 014c01c.
+- The built bundle's absolute URLs are library doc strings only, the same set as 6168e3b. No new origin.
+
+### Deploy: cohort-builder-0f2daad live on o3
+
+Paul approved the deploy at 10:59 PM PT on 2026-10-18. Homelab switched o3 over at 8:36 AM ET on 2026-10-19, from cohort-builder-6168e3b, which is the rollback point. One versioned directory and the importmap and routes overrides changed. There was no restart and no config change, and the omnibar (014c01c) and chartsearchai (1982021) are unchanged. In the routes entry, only `omnibar-cohort-criteria-provider` became `omnibar-cohort-count-provider`, with `meta.command` `{ id: 'cohort', aliases: ['cohort', 'count'] }`.
+
+Smoke tests as admin, with Playwright:
+
+1. Pass. "how many women aged 15-49 enrolled in HIV?" shows one row: "Counting…", then "0 patients". The subtitle reads "Female Patients with ages between 15 and 49 years that are alive AND Patients enrolled in HIV Care and Treatment". There was one `adhocquery?v=rowFilters` 0.77 s after the last keystroke, and no request per keystroke. The demo data has no HIV enrollments. "how many women aged 15-49" gives 1,296, also through `rowFilters`, as decided for demographics.
+2. Pass. "/" lists Cohorts, `/cohort` `/count`, first. Either alias picks the chip, and under it "women aged 15-49" shows only the count row.
+3. Pass. Enter opens `cohort-builder?definition=…`, and the builder shows the same totals (1,296 and 0).
+4. Pass. `?definition=garbage` shows "This link isn't a valid cohort query" once, without quoting the link.
+5. Pass. In a chart there's no count row and no reportingrest call. `/cohort` is listed greyed, "Not available inside a chart", and can't be chosen. The step 3 checks (`hb`, a question to ChartSearch, `/ask`) still pass.
+6. Saved cohorts pass. Saved queries weren't tested: o3 has none, and saving one is a database write.
+7. Pass. No origin other than o3.pgb.md, no page errors, and only the known console lines.
+
+Not run: the second-user check on one tab, since no users may be created on o3.
+
+Seen, cosmetic: the invalid-link notification stretches into a full-height left column and pushes the builder's panels right.
