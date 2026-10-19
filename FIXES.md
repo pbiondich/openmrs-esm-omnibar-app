@@ -1482,6 +1482,46 @@ Round 4's branch came from hermes as a git bundle (`m5/feat/omnibar-providers`, 
 - Tests: 1,174 at `91e5e25`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
 - Still local: nothing is pushed.
 
+## Feature: counting by test results (in the Cohort Builder's app)
+
+Built from [the test results brief](docs/briefs/2026-10-19-cohort-test-results.md), steps 1 to 3 and 5, on the Cohort Builder fork's local branch `feat/cohort-tests`, from `feat/cohort-phrases` (which has round 4's `0f2daad`). Nothing is pushed. Step 4, completions in the host, is the omnibar's `feat/report-completions`, logged in its own branch's FIXES.md; this branch carries a copy of that contract folder and must be recopied from `main` once it merges. Step 6, the benchmark, is in [docs/results/](docs/results/2026-10-19-cohort-test-benchmark/README.md). Paul's decisions are in `docs/decisions.md`, "Counting by test results".
+
+| Change | Commit |
+| --- | --- |
+| The Concepts tab's search moves into `search-by-concepts.utils.ts`; its description now gives the comparison and units ("Patients with most recent HIV viral load > 1000 copies/mL"), and "within the last" searches from that day on, where it used to search until it | 586aa03, 21d7406 |
+| Links accept `numericObs`: concept, `lt`/`le`/`eq`/`ge`/`gt`, a value in the concept's units, which result (latest by default) and a window; the builder checks the concept is numeric on the server before running, and refuses the link otherwise | eeff685, b22e525 |
+| The parser reads "<which> <test> <comparison> <value> [units] [window]", with its words in the phrase table; a unit typed must be the concept's; thousands and decimals read; and it names the words a lookup should search for | 02d2750, cad0f81, 7749628, d4ae6cd |
+| The count row looks each test up by name among the server's numeric concepts, debounced, remembered per user, by every name and synonym the concept has in any language and each without a trailing bracketed unit, and counts it through `adhocquery?v=rowFilters`; `omnibar.testResults` turns it off | ca06224, 5848888, e0300ef, cf80f34, 3915e54, 2253242, 2a847f6, 4efbe86 |
+| The count row reports completions: the test name being typed, from the lookup, and a program after "enrolled in", from the known programs | be94064, cc6a967, e1e5e09, b85df2a, 9436a55, 86db44d |
+| The builder README | 040fc6d |
+
+### Review round 1 (independent code review and security review, Claude): no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should: "patients with Mary Achieng" sent "mary achieng" to concept search, since stopwords counted as words before it | Words still being typed are looked up only after a real criterion or a result word, never after stopwords alone | c76eff2, ec910bc |
+| code, should: "in the last 1000 days" couldn't be read, since the window took at most three digits | Up to four digits, bounded by the link's 3,650 days | e3a0719, 2f03b1e |
+| code, should: the label said "latest" where the builder says "most recent" | The builder's words | e3a0719, 2f03b1e |
+| code, nit: `toTests` took a locale it no longer used | Dropped | 2f03b1e |
+
+Paul's decision during the round (2026-10-19): tests are known only by the dictionary's names and synonyms, every one in every language; no list in code or config (4efbe86, 2253242).
+
+### Review round 2 (re-check, and the count row's completions, code and security, Claude): no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, should, and security, nit: a 120-character name made a 121-character insert, which the host drops | Such names are skipped, never cut | 695fac0, 0290d48 |
+| code, nit: no comment on why `typedLength` gives up when NFKC changes the text's length | A comment | 0290d48 |
+
+Not fixed, and why:
+
+- security, accepted: after a real criterion, words still being typed are looked up, so "women with Mary…" sends "mary" to concept search on the OpenMRS server itself. The row can't tell a name from the start of a test's name there; text after stopwords alone never goes. For Paul to weigh.
+- On o3 HIV viral load (CIEL 856) has no results, and its only name is "HIV viral load", so "VL" and "viral load" need adding as synonyms before they read (decided: dictionary, not code).
+
+- Tests: 1,174 on `feat/cohort-phrases`; 1,326 at `0290d48`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
+- REST and reporting read in source: concept search passes no datatype filter (so the row filters to numeric itself); `numericObsSearchAdvanced` applies the window before choosing the latest, earliest, lowest, highest or average, as the descriptions say.
+- Not tried on o3 or in a browser.
+
 ## Feature: completions taken with Tab (contract 1, additive)
 
 Step 4 of [the test results brief](docs/briefs/2026-10-19-cohort-test-results.md), on `feat/report-completions`. A provider's report may carry `completions: [{ insert, replace, label?, detail? }]`. The host checks each one, shows those of the first provider (by lane, then order) as a strip under the field, and as ghost text when one extends what was typed. Tab takes the first, a click or tap any; Escape dismisses them for the query; Enter keeps its meaning; Tab moves focus as usual when there's nothing to take, and the slash-command list keeps its own Tab. A completion only replaces text: it never navigates, writes or calls a model. `OMNIBAR_CONTRACT_VERSION` stays 1.
