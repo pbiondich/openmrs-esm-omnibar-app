@@ -1430,3 +1430,54 @@ The wristband case already had host coverage in `omnibar.test.tsx` (a second cha
 | nit: the README said `/lab` can never bring up a view that asks a model | It now says a view declaring `lab` is never told it was asked, and that `/patient`, `/go` and `/lab` never ask. The contract comment, the contract doc and AGENTS.md say the provider rule too | b89ca30 |
 
 The contract comment changed, so the copies follow: the query store repo's copy and its pinned hash (querystore 3c4fdcf; its hash test went red on the old hash first), and ChartSearch's (csai 52cb38c; lint, type check and 527 tests pass).
+## Feature: cohort phrases, a phrase table and the server's vocabulary (in the Cohort Builder's app)
+
+Paul asked for layers 1 and 2 of the plan for the variety of ways people ask for a cohort: a large phrase table for the words, and the server's own names for programs and encounter types (CIEL synonyms before any model). Built on the Cohort Builder fork's local branch `feat/cohort-phrases`, from `feat/omnibar-providers` at `fd8b2a4`. Nothing is pushed. Round 4's fixes at `0f2daad` (hermes) came later by git bundle and are merged in; see the end of this section. The choices are in `docs/decisions.md`, under "Cohort phrases: a phrase table and the server's vocabulary".
+
+| Change | Commit |
+| --- | --- |
+| Layer 1. `src/omnibar/phrases/en.json` holds every word the parser knows: stopwords, `never` (negations and alternatives, which can't be stopwords), gender words, comparators named after FHIR's search prefixes (`under` lt, `atMost` le, `over` gt, `atLeast` ge, `aged` eq; `orUnder` and `orOver` after the number), range words, number words, year and month units, ten named age groups each with its source, and the enrolment, program, drug and encounter words. `phrase-table.ts` tokenizes (NFKC, symbols such as `≤` as their own tokens, digits apart from letters) and compiles the table with a site's `omnibar.phrases` additions. The parser takes the reading that covers the most words, reads months only in whole years, lets numbers narrow a named group, and matches a program, drug group or encounter type name with one slip in a long word when only one name matches. `src/omnibar/paraphrases.test.ts`: about 180 phrasings with the criteria each gives, 50 that must give nothing, a generated case for every phrase in the table and every number from 1 to 99 in words, and checks that the table holds together | 355d1d8, 74a9b9c |
+| Layer 2. `src/omnibar/vocabulary.resource.ts` asks once per user and language, when the row may first answer, for programs (with their concept's names) and encounter types, the first 100 of each, and merges them with config: config's label wins, the server's names become aliases, and a program is also known without a trailing "program" or "clinic". `omnibar.serverVocabulary` turns it off. A refused or failed request leaves config alone, quietly | 1769203, f16bd7c |
+| The builder README | 6b2a376 |
+
+### Review round 1 (independent code review and security review, Claude): one blocker, from security
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, blocker: only stopwords were checked against `never`, so a site adding "not" to `programLinkers` (or "except" to `enrolled`, "not" to `drugVerbs`, "or" to `encounterNouns`) would make "patients not HIV program" count HIV enrolment | An added phrase, or added age group phrase, holding any `never` word is dropped from every list. The shipped table keeps its reviewed phrases, such as "not older than". Tested list by list | 9ddb298, 45f7803 |
+| security, should: the vocabulary stayed in memory after a logout until another user's bar replaced it | A one-time subscription to the session store forgets it as soon as the user changes or logs out, bar open or not | 34a9a06, a7e3000 |
+| security, should: the program words were rebuilt for every program | Worked out once per answer | a7e3000 |
+| security, nit: `omnibar.phrases` was cast without a check | Read only when it is an object | a7e3000 |
+| code, should: two named groups intersected silently ("adolescent adults" was 18 to 19) | Two named groups give no row; one group with a gender or numbers still reads | 86c1aef, 69b8575 |
+| code, should: every name was tokenized at every position on every keystroke | Each item's names are tokenized once, cached per item | 69b8575 |
+| code, nits: why "under 1" gives nothing, and why "from age" is in two lists | Comments in the parser and the table | 69b8575 |
+
+Not fixed, and why:
+
+- security, nit: a concept's voided names become aliases, since REST doesn't say which names are voided. Documented; a voided name is still a name the concept once had.
+- code, nit: a site can add phrases in another script, which then match text in that script. That's how a table for another language would start.
+
+A reviewer's throwaway probe test was swept into 9ddb298 by `git add -A`; ad65803 removes it.
+
+### Review round 2 (re-check of round 1's fixes, code and security, Claude): no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should: the tokenizer drops apostrophes, so a site adding "isn't" or "don't" as a program linker got "isnt" past `never` | `never` lists contracted negations as the tokenizer writes them ("isnt", "dont", "cant", "wont" and the rest), plus "excl" and "neither". Tested for each in an added list | 11bc5e0, cce5fe1 |
+| code, nit: `following` is set for the page's life while `forgetServerVocabulary` resets only the vocabulary | A comment says so | 12c8355 |
+
+Not fixed, and why:
+
+- security, nit: a lookalike from another script (Cyrillic "о" in "nоt") in a site's added phrase isn't a `never` word after NFKC. It needs a site to add it on purpose and users to type the same characters.
+
+- Tests: 589 on `feat/omnibar-providers` at `fd8b2a4`; 1,171 at `12c8355`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- REST checked in source (`openmrs-module-webservices.rest` `master`): a concept name's representation has no voided flag, and pages default to 50, hence `limit=100`. Assumed, not run: that `concept:(names:(name,locale))` is accepted in a program's custom representation on o3.
+- No new origin: the two new requests go to the OpenMRS server through `openmrsFetch`.
+- Not tried on o3 or in a browser.
+
+### Round 4's fixes merged in
+
+Round 4's branch came from hermes as a git bundle (`m5/feat/omnibar-providers`, head `0f2daad`, verified with `git bundle verify`), fetched as the local branch `round4`, and merged into `feat/cohort-phrases` at `91e5e25`, with a merge, not a rebase. It builds on `fd8b2a4`, as this branch does, and merged without conflicts: its count-hook, extract and unavailable fixes don't touch the parser, the phrase table or the vocabulary.
+
+- Tests: 1,174 at `91e5e25`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
+- Still local: nothing is pushed.
