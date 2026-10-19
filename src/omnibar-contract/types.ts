@@ -295,9 +295,9 @@ export interface OmnibarViewMeta {
    * New in v1. The view may call a model for a query the user just submitted, and this is the name the
    * bar's hint uses: "Enter to see all results for '…' and ask ChartSearch". Shown as written, so it
    * is a product name, not a sentence. The bar says it only while the view is assigned to the user and
-   * would be mounted for what was typed (not skipped for the query, and declaring the command when one
-   * is chosen), and the query looks like a question by the same test the host passes as
-   * `hints.looksLikeQuestion`.
+   * isn't skipped for the query, the query looks like a question by the same test the host passes as
+   * `hints.looksLikeQuestion`, and Enter marks the submission: for plain text, and under the `ask`
+   * command, never under another.
    */
   asksModel?: string;
 }
