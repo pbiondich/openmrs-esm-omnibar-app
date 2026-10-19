@@ -288,16 +288,23 @@ export interface OmnibarViewMeta {
   /**
    * The slash command this view shows results for, new in v1 and optional. A query sent with a
    * command mounts only the views declaring its id; a view without one mounts only for plain queries.
-   * Aliases are the bar's business, so a view gives only the id.
+   * `id` is as for a provider's `OmnibarCommand`. `aliases`, also new in v1 and optional, are as for a
+   * provider: the English names typed after the slash. A view that declares a command adds it to the
+   * bar's command list as a provider does, merged with any provider's declaration of the same id, while
+   * the view is assigned to the user, for a patient, on a contract the host speaks. Translated aliases,
+   * the label and the description come from the view module's translations,
+   * `omnibarCommand.<id>.aliases` (comma-separated), `.label` and `.description`, as for providers. A
+   * command only views declare mounts no providers in the bar.
    */
-  command?: { id: string };
+  command?: { id: string; aliases?: Array<string> };
   /**
    * New in v1. The view may call a model for a query the user just submitted, and this is the name the
    * bar's hint uses: "Enter to see all results for '…' and ask ChartSearch". Shown as written, so it
-   * is a product name, not a sentence. The bar says it only while the view is assigned to the user and
-   * isn't skipped for the query, the query looks like a question by the same test the host passes as
-   * `hints.looksLikeQuestion`, and Enter marks the submission: for plain text, and under the `ask`
-   * command, never under another.
+   * is a product name, not a sentence. The bar says it only while the view is assigned to the user,
+   * isn't skipped for the query and would mount for it (under a command, only a view declaring it);
+   * the query looks like a question by the same test the host passes as `hints.looksLikeQuestion`, or,
+   * under the `ask` command, is any text that isn't ID-shaped; and Enter marks the submission: for
+   * plain text, and under `ask`, never under another command.
    */
   asksModel?: string;
 }
