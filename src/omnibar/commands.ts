@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { type AssignedExtension, translateFrom } from '@openmrs/esm-framework';
 import { type CommandConfig } from '../config-schema';
+import { isCommandId } from './command-id';
 import { speaksContractOf } from './omnibar.resource';
 import { type OmnibarProviderMeta, type OmnibarScope } from './types';
 
@@ -13,10 +14,12 @@ import { type OmnibarProviderMeta, type OmnibarScope } from './types';
  * ever run or rendered as markup.
  */
 
+/** Where providers, and so their commands, are registered. */
+export const omnibarProvidersSlot = 'omnibar-providers-slot';
+
 /** The command whose Enter asks ChartSearch on Query results, as Enter on a plain question does. */
 export const askCommandId = 'ask';
 
-const commandIdPattern = /^[a-z][a-z0-9-]{0,31}$/;
 /** One word in any script, without the slash. */
 const aliasPattern = /^[\p{L}\p{M}\p{N}_-]+$/u;
 const maxAliasLength = 32;
@@ -25,10 +28,7 @@ const maxLabelLength = 40;
 const maxDescriptionLength = 120;
 const directionControls = /[‪-‮⁦-⁩‎‏]/g;
 
-/** A command id: lower-case ASCII letters, digits and hyphens, starting with a letter. */
-export function isCommandId(id: unknown): id is string {
-  return typeof id === 'string' && commandIdPattern.test(id);
-}
+export { isCommandId };
 
 /** The id of a declared command, `{ id }`, if it is a valid one. */
 export function commandIdOf(command: unknown): string | undefined {

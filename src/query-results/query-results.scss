@@ -1,3 +1,4 @@
+@use '@carbon/colors';
 @use '@carbon/layout';
 @use '@carbon/type';
 @use '@carbon/themes';
@@ -69,6 +70,46 @@
   &:focus-visible {
     outline: 2px solid themes.$focus;
     outline-offset: 1px;
+  }
+}
+
+// A slash command's label, before the query, as the bar's chip shows it.
+.commandChip {
+  @include type.type-style(label-01);
+  display: inline-block;
+  max-width: 12rem;
+  padding: 0 layout.$spacing-03;
+  border-radius: 1rem;
+  // The bar's command chip colours.
+  background-color: colors.$blue-10;
+  color: colors.$blue-80;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.refused {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: layout.$spacing-03;
+}
+
+.plainLink {
+  @include type.type-style(body-01);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: themes.$link-primary;
+  cursor: pointer;
+  text-align: start;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+
+  &:focus-visible {
+    outline: 2px solid themes.$focus;
+    outline-offset: 2px;
   }
 }
 

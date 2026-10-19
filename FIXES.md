@@ -1097,3 +1097,32 @@ Not fixed, and why:
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 761 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
 - Framework APIs checked in source: the app shell's i18next backend loads a namespace for a module that hasn't mounted (`importDynamic` and `importTranslation`, `esm-app-shell/src/locale.ts`), `translateFrom` is `i18n.t(key, { ns, defaultValue })`, and `useAssignedExtensions` drops extensions the user lacks privileges or feature flags for, with a stable reference.
 - Not tried live on o3, and the header layout with both chips wasn't checked in a browser at 1280, 1600 and 1920 px or narrow: no server or test account in this session.
+
+## Feature: slash commands, the Query results slice (PR 2)
+
+Built from [the brief](docs/briefs/2026-10-18-slash-commands.md), item 8, its translations and tests, on `feat/slash-commands-query-results`, branched from `main` after PR #21 merged. The page reads `cmd` and `q`; under a command only the views declaring it mount, with `context.command`; a command the bar doesn't offer here, or that no visible view declares, fails closed with a plain-search link; `/ask` asks about any text that isn't ID-shaped; the "just asked" mark carries its command; and history keeps `{ cmd, q }`, with the command's chip in the header and the history list. The choices are in `docs/decisions.md`, under "Building the Query results slice of slash commands".
+
+| Change | Commit |
+| --- | --- |
+| The page, `submission.ts`, `query-history.ts`, the `/ask` bypass in `chartsearch-offer.ts`, the answer view and the bar's hint, `command-id.ts`, styles, translations and tests | 472b480 |
+| Docs: README, the contract doc, the design doc, decisions, AGENTS.md, the brief's status | 80d7d47 |
+
+### Review round 1 (independent code review and security review, Claude): no blockers from either
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code and security, should: a page refused only because the command's app hadn't registered its extensions yet dropped the mark and settled `submitted: false` for its generation, so once the command became available the view didn't ask on Enter | While refused, the page takes nothing and keeps a mark for its own command; it drops only marks it could never take (another command's or a plain one), or every mark for junk such as `cmd=`. Tested by a page that becomes available after rendering | b32e29a |
+| code, nit: the heading's accessible name read "Lab results Results for 'cd4'" | A visually hidden ": " after the chip, in the heading and the history items | b32e29a |
+| code, nit: the history button lost its `dir="auto"` | Restored | b32e29a |
+| code, nit: no page-level test of `cmd=ask` with an ID-shaped query | Added: no view mounts and the page says nothing can show results, as for a plain ID query with no views | b32e29a |
+| security, nit: nothing says a view declaring `ask` is bound by the model rules | The contract doc says so | b32e29a |
+
+Not fixed, and why:
+
+- security, nit: `escapeValue: false` in the new `t()` calls is unneeded because React escapes text. It's how every other interpolated string in this repo is written, and with escaping on, a query such as `a & b` would show as `a &amp; b`.
+- code, nit: an ID-shaped query under `/ask` says "There's nothing installed that can show results here", which is the plain page's wording for the same case. Better wording for both is a separate change.
+
+- Tests: 761 on `main`, 784 after.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 784 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- Framework API checked in source: attaching an extension from `routes.json` creates its slot's entry, and assigned extensions are worked out for every slot, rendered or not (`esm-extensions/src/extensions.ts`), so the page can read the providers' slot and the bar the views' slot.
+- Not tried live on o3, and the chips on the page weren't checked in a browser.

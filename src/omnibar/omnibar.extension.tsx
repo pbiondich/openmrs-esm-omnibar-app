@@ -31,7 +31,14 @@ import {
   useOmnibarShortcut,
   useResultCollector,
 } from './omnibar.resource';
-import { askCommandId, commandIdOf, type OmnibarCommandEntry, parseCommandInput, useCommandTable } from './commands';
+import {
+  askCommandId,
+  commandIdOf,
+  type OmnibarCommandEntry,
+  omnibarProvidersSlot,
+  parseCommandInput,
+  useCommandTable,
+} from './commands';
 import { PatientRow } from './patient-row';
 import { useOmnibarContext } from './use-omnibar-context';
 import { useOpenedWorkspaceGroup } from './workspace-group';
@@ -53,7 +60,7 @@ import { markSubmitted } from '../query-results/submission';
 import { useChartSearchOffer } from '../views/chartsearch-offer';
 import styles from './omnibar.scss';
 
-export const providersSlot = 'omnibar-providers-slot';
+export const providersSlot = omnibarProvidersSlot;
 
 const maxNoteLength = 200;
 
@@ -515,17 +522,18 @@ const Omnibar: React.FC = () => {
     !chosen &&
     !looksLikeIdentifier(submittedQuery);
   // Only a plain query and /ask are marked as asked for just now, which is what lets a view call a
-  // model on its own, so no other command can cause one.
+  // model on its own. Query results mounts only the views declaring a command under it, so this is a
+  // second guard: no other command can cause a model call, whichever views declare it.
   const marksSubmission = !activeCommandId || activeCommandId === askCommandId;
   // Said in the hint, so the user knows Enter will also ask ChartSearch, an AI, about the chart.
-  const offersChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid);
+  const offersChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid, activeCommandId === askCommandId);
   // A query longer than the page takes is cut, and the page never asks about a cut query on its own.
   const asksChartSearch = marksSubmission && offersChartSearch && Array.from(submittedQuery).length <= maxQueryLength;
   const submitQuery = () => {
     if (!scopePatientUuid || !submittedQuery) return;
     const to = queryResultsUrl(scopePatientUuid, submittedQuery, activeCommandId);
     if (marksSubmission) {
-      markSubmitted(scopePatientUuid, submittedQuery);
+      markSubmitted(scopePatientUuid, submittedQuery, activeCommandId);
     }
     closeBar();
     navigate({ to });

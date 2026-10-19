@@ -4,6 +4,7 @@ import { Button, InlineLoading } from '@carbon/react';
 import { formatDate } from '@openmrs/esm-framework';
 import { isServerUnreachable, type OmnibarViewProps, type OmnibarViewState } from '../omnibar-contract';
 import { useChartSearchOffer } from './chartsearch-offer';
+import { askCommandId } from '../omnibar/commands';
 import {
   type ChartSearchReference,
   type ChartSearchStatements,
@@ -145,7 +146,8 @@ const ChartSearchAnswerView: React.FC<OmnibarViewProps> = ({ query, context, rep
   const { t } = useTranslation();
   const patientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
   const question = query.trim();
-  const offered = useChartSearchOffer(question, patientUuid);
+  // Mounted under /ask, or for a plain query. Under /ask any text is a question.
+  const offered = useChartSearchOffer(question, patientUuid, context.command?.id === askCommandId);
 
   const [state, dispatch] = useReducer(reducer, initialState);
   const controller = useRef<AbortController | null>(null);
