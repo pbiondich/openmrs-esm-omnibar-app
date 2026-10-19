@@ -997,3 +997,36 @@ Not fixed, and why:
 - Failed with the flag put back on the query store: the exact-meta test, the stub test and both shipped-meta tests (`Tests  4 failed | 376 passed (380)` across `omnibar.test.tsx` and the provider test).
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 703 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
 - Not tried live on o3.
+
+## Fix: query store rows take the default highlight in a chart again
+
+Paul decided at 9:03 PM ET, after query store benchmark round 3, to put `defaultInChart` back on the query store chart provider, accepting the CD4 count-first order (see `docs/decisions.md`). With query store a558163 its first row matched the REST dropdown's in 21 of 26 queries, up from 17. `hb` matches everywhere, and all five misses are `cd4`, where the query store puts CD4 count first and REST puts CD4%. Variant A's p50 was about 167–210 ms, against 334–831 ms for REST and FHIR, and every latest value was right (31 of 31).
+
+| Change | Commit |
+| --- | --- |
+| `src/routes.json`: `omnibar-querystore-chart-provider` sets `defaultInChart` again, in the same place as before c4f88fe. The file is byte for byte what PR #5 shipped | this commit |
+| The exact-meta test expects `defaultInChart: true` again | this commit |
+| The `with the query store as the chart-values source` tests mount the meta as shipped again. `queryStoreTakingDefault()` and the two "as routes.json ships it" tests are gone, because the shipped meta now covers what they checked. The side-by-side test is back to its pre-c4f88fe name | this commit |
+| The stub test with both shipped metas is kept and turned around: inside a chart, a query store row chart lookup didn't find is the default, and chart lookup's copy of a shared `obs:` is shown and takes the highlight | this commit |
+| The `chartLookup.source` description says query store rows take the default highlight as chart lookup's do, with a matching destination waiting up to 1.5 s, or 10 s while indexing. AGENTS.md and the contract doc (the default highlight, Dedupe, the key registry) are back to their pre-c4f88fe text. `decisions.md` marks the round 2 decision superseded and records the new one, which settles plan question 11. The registration plan's status note and its 'both' rule 3 say the same | this commit |
+
+### Review round 1 (independent code review and security review, Claude): both APPROVE WITH NITS, no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, should: this round isn't in FIXES.md | This section | this commit |
+| code, nit: "takes the default only for rows chart lookup didn't find" leaves out rows chart lookup hasn't returned when the bounded wait runs out. Under `'both'`, chart lookup's copy wins by rank, not dedupe, since query store rows carry no `dedupeId` there | Reworded in `decisions.md` and the registration plan's rule 3 | this commit |
+
+Not fixed, and why:
+
+- The contract doc's Dedupe bullet keeps its pre-c4f88fe "takes the default only for rows chart lookup didn't find". The bullet is about which copy dedupe keeps, and the bounded wait is described under the default highlight just above it.
+- code and security, nit: with an empty field in `querystore` mode, the first "Recent in this chart" row takes the default, and the `chartLookup.source` description doesn't say so. PR #5 shipped the same behaviour, and the row always opens this patient's own page.
+- security, should (was already there before this change, and the default makes it more visible): the provider doesn't check that the server's hits belong to `context.patientUuid`, because the search response doesn't send the patient back. A server-side index bug could show another patient's value as this chart's default row, though Enter still opens this patient's own page. The fix belongs in the query store, which should echo the patient, so the provider can drop a mismatched response. It's left for the query store fork.
+- security, nit: with `enterBehavior: 'open-highlight'`, while a chart is being indexed and nothing has been found yet, Enter does nothing for up to 10 s per query. That cap is bounded and documented in the contract, and under the default `'submit'` Enter goes to Query results.
+- security, nit: "no test pins the shipped flag". Not so: the exact-meta test pins it, and 13 tests fail with it removed.
+
+- Tests: 703 before, 701 after (the two "as routes.json ships it" tests are gone).
+- Failed with the flag removed from `routes.json`: `Tests  13 failed | 365 passed (378)` across `omnibar.test.tsx` and the provider test, including the exact-meta test, the stub test and the wait-for-chart-values tests.
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 701 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- A first `yarn verify`, run while the reviewers were running vitest too, failed once in `chartsearch-answer.view.test.tsx` ("asks at once about a question the user just submitted"), a file this change doesn't touch. That file passed three times on its own, and the rerun of `yarn verify` passed.
+- Not tried live on o3.

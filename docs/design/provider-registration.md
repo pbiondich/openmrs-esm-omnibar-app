@@ -3,7 +3,7 @@
 > **Read this as a dated plan, not current truth.** It's the plan as of 2026-10-17, 11:41 PM PT. Its seven decisions (§7A) are recorded in [`docs/decisions.md`](../decisions.md), which is the place to check what's current. Since then:
 >
 > - **The query store provider landed in the omnibar** (PR #5) and, by Paul's decision of 2026-10-18, stays there as a built-in default. That supersedes "never lands in the omnibar" in §2.1 and the new esm-querystore-app in §4A.1, unless the query store gains other frontend consumers. §4A.2's framing still stands: the query store complements the REST lookup rather than replacing it.
-> - **Querystore questions 8, 9, 13 and 14 are answered.** The provider stays built in (8, 9); the empty field shows "recent in this chart" (13); and the backend endpoints are on the `prototype/omnibar-endpoints` branch of Paul's fork, reviewed through FIXES.md rounds (14). Questions 10 and 12 (privileges, warming policy) are open in `decisions.md`, and 11 (default highlight) is decided there: not for now.
+> - **Querystore questions 8, 9, 13 and 14 are answered.** The provider stays built in (8, 9); the empty field shows "recent in this chart" (13); and the backend endpoints are on the `prototype/omnibar-endpoints` branch of Paul's fork, reviewed through FIXES.md rounds (14). Questions 10 and 12 (privileges, warming policy) are open in `decisions.md`, and 11 (default highlight) is decided there: yes, after benchmark round 3.
 > - **The contract lives in `src/omnibar-contract/`**, not `src/omnibar/types.ts` as step 1 describes.
 > - **The first cohort attempt is retired** as decision 7 says: `feat/cohort-omnibar` is kept as history with the tag `archive/cohort-omnibar-2417fe2`.
 
@@ -309,7 +309,7 @@ It gets:
    - "Found in the record" (querystore)
 2. **Dedupe:** both declare `dedupeKey:'chart-values'`. Each reports `dedupeId = <obs uuid>` (or `concept:<uuid>:latest` when a querystore hit is the newest value of a concept REST already showed). The host drops the querystore copy.
    - Until hosts support `dedupeKey`, the querystore provider dedupes against nothing, and the cost is visible duplicates. For that reason, step QS3 should follow host N+2 (QS2).
-3. **Default highlight:** only REST has `defaultInChart`, so Enter goes to the exact value. Querystore results are chosen by arrow or pointer until o3 measurements justify more (Q11).
+3. **Default highlight:** REST and querystore both have `defaultInChart`. REST ranks first and keeps the copy of a shared value, so Enter goes to the exact value, and querystore takes the default for rows REST didn't find or hasn't returned within the host's bounded wait. Decided after the o3 measurements of benchmark round 3 (Q11; see `decisions.md`).
 4. **Latency:** querystore reports `loading` and then `ready`. The host's existing rule ("pin the highlight to the first result it lands on", `omnibar.extension.tsx` l.103-111) keeps a slower querystore group from stealing Enter.
 5. **Projection state:** querystore's `/status` maps to `report.detail.state`:
    - `projecting`: shows partial hits with "Indexing this chart…"
