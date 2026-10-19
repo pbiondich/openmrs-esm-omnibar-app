@@ -155,6 +155,16 @@ describe('cleanReport: completion validation', () => {
     expect(result?.completions?.[0].insert).toBe(insert);
   });
 
+  it('strips invisible format characters, such as zero-width spaces, from insert, label and detail', () => {
+    const report = cleanReport({
+      query: 'cd',
+      title: 'Tests',
+      status: 'ready',
+      completions: [{ insert: 'C\u200bD4 count', replace: 2, label: '\ufeffCD4', detail: 'cells\u200d/µL' }],
+    });
+    expect(report.completions).toEqual([{ insert: 'CD4 count', replace: 2, label: 'CD4', detail: 'cells/µL' }]);
+  });
+
   it('drops a completion whose insert contains \\n', () => {
     const result = report([valid({ insert: 'CD4\ncount' })]);
     expect(result?.completions).toEqual([]);
@@ -429,6 +439,28 @@ describe('Omnibar: Tab takes the first completion', () => {
     await user.tab();
     // Field now shows 'CD4 count'.
     expect(screen.getByRole('combobox')).toHaveValue('CD4 count');
+  });
+
+  it('hides completions as soon as the field is ahead of the query they answer, so Tab never lands on other text', async () => {
+    const user = userEvent.setup();
+    mountProviders([
+      {
+        name: 'test-provider',
+        meta: completionMeta,
+        component: completionsProvider('cd', [{ insert: 'CD4 count', replace: 2 }]),
+      },
+    ]);
+    renderOmnibar();
+    const field = screen.getByRole('combobox');
+
+    await user.type(field, 'cd');
+    expect(await screen.findByText(/Tab to complete/i)).toBeInTheDocument();
+
+    // Within the debounce, the field holds "cdx" while the completion answers "cd".
+    await user.type(field, 'x');
+    expect(screen.queryByRole('button', { name: /CD4 count/ })).not.toBeInTheDocument();
+    await user.tab();
+    expect(field).toHaveValue('cdx');
   });
 
   it('Escape dismisses completions for the current query without closing the bar', async () => {
