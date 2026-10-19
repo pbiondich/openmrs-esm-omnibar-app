@@ -94,8 +94,9 @@ export function rememberQuery(patientUuid: string, query: string): Array<string>
 /**
  * Clears the history when the session store changes hands: a logout (the framework's `logout()`
  * calls `clearCurrentUser`, which leaves an unauthenticated session) or another login. Called once
- * from `startupApp`. A history from an earlier login is also never read, so a missed change still
- * can't show one user's queries to the next.
+ * from `startupApp`, which also runs on the login and logout pages (see `sessionChangePage`). A
+ * history from an earlier login is also never read, so a missed change still can't show one user's
+ * queries to the next.
  */
 export function setupQueryHistoryClearing(): () => void {
   const store = getSessionStore();

@@ -997,3 +997,28 @@ Not fixed, and why:
 - Failed with the flag put back on the query store: the exact-meta test, the stub test and both shipped-meta tests (`Tests  4 failed | 376 passed (380)` across `omnibar.test.tsx` and the provider test).
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 703 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
 - Not tried live on o3.
+
+## Fix: Query results history is cleared by a logout by full page load
+
+A logout by full page load (a typed `/openmrs/spa/logout`, a bookmark) left `openmrs:omnibar:query-history` in `sessionStorage`. The same user logging back in read it again; another user never could, as the owner check already held.
+
+Root cause, from the framework source (esm-core 11.0.0, as installed and as the local O3 stack serves it): `startupApp` runs only when the app shell first loads one of the module's components (`esm-routes/src/loaders/load-lifecycles.ts`, `loadLifeCycles` → `initializeApp`). The omnibar's only component outside the chart is its header extension, in `top-nav-actions-slot`, and the primary navigation renders nothing on `login/*` and `logout/*` (its `root.component.tsx`). So on a fresh load of `/spa/logout` the module never loads, nobody is subscribed when the login app's `RedirectLogout` calls `logout()` → `clearCurrentUser()`, and the user goes on to `/login`, which doesn't load it either. After the next login the header loads the module, and `setupQueryHistoryClearing`'s first check sees a logged-in user with no earlier owner, so it keeps the history. The in-app Logout button navigates without a reload, while the module is loaded, which is why it worked.
+
+| Change | Commit |
+| --- | --- |
+| `src/routes.json`: a page, `sessionChangePage`, on `^log(?:in|out)(?:/|$)`. `src/index.ts`: `sessionChangePage = getSyncLifecycle(() => null, options)`. Loading it runs `startupApp`, whose session store listener then clears the history at the logout, or at once when nobody is logged in | this commit |
+| Test: the page is active on `logout`, `login` and `login/location` and on nothing else tried (`home`, a Query results path, `loginx`, `change-password`), and `index.ts` exports it. The clearing itself was already covered: at logout, and at start with nobody logged in | this commit |
+| `docs/decisions.md` (query history is kept for the logged-in user) and the `setupQueryHistoryClearing` comment say the module also loads on the login and logout pages, and why | this commit |
+
+The "just asked" mark (`submission.ts`) needs no change: it is held in memory, so a full page load drops it, and on in-app paths it is cleared with the history as before.
+
+- Failed first: the new test (`TypeError: Cannot read properties of undefined (reading 'filter')`, no `pages` in `routes.json`).
+- Tests: 703 before, 704 after. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- Live, logged out, in headless Chromium against the local O3 stack: seed the key, then load `/openmrs/spa/logout` in full. The stack's deployed omnibar (`6fa826f`) never fetches its bundle and leaves the key. The dev server with this branch fetches `openmrs-esm-omnibar-app.js` and the key is gone. The same dev server with the page taken out of `routes.json` leaves it again.
+- Not tried logged in: the local stack's admin password isn't the default, and no test account was to hand. Not tried on o3.
+
+Not fixed, and why:
+
+- A logout in another tab, or an external login provider whose logout leaves the SPA before the module has loaded, still isn't seen by this tab. The owner check means only the same user could read what's left.
+- The module (its entry bundle and `startupApp`) now also loads on the login and logout pages. It is served by the OpenMRS server like the rest, so nothing new goes to another origin.
+- Reviews are still to come.

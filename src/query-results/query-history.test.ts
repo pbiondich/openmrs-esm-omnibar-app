@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSessionStore } from '@openmrs/esm-framework';
 // The framework mock re-exports this module, so this is the store getSessionStore returns.
@@ -10,6 +13,7 @@ import {
   rememberQuery,
   setupQueryHistoryClearing,
 } from './query-history';
+import routes from '../routes.json';
 
 const humprey = '8673ee4f-e2ab-4077-ba55-4980f408773e';
 const other = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
@@ -106,6 +110,23 @@ describe('query history', () => {
       logOut();
       stop = setupQueryHistoryClearing();
       expect(window.sessionStorage.getItem(queryHistoryKey)).toBeNull();
+    });
+
+    it('is loaded on the login and logout pages, which show no header, so a logout by full page load clears it', () => {
+      // The app shell strips the spa base and tests each page's routeRegex against the rest of the path.
+      const active = (path: string) =>
+        routes.pages.filter((page) => new RegExp(page.routeRegex).test(path)).map((page) => page.component);
+
+      for (const path of ['logout', 'login', 'login/location']) {
+        expect(active(path), path).toEqual(['sessionChangePage']);
+      }
+      for (const path of ['home', 'patient/abc/chart/query-results', 'loginx', 'change-password']) {
+        expect(active(path), path).toEqual([]);
+      }
+      // index.ts can't be imported under vitest (require.context), so check the export by its source.
+      expect(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../index.ts'), 'utf8')).toMatch(
+        /export const sessionChangePage = /,
+      );
     });
 
     it('can be cleared by hand', () => {

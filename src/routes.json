@@ -7,6 +7,14 @@
   "optionalBackendDependencies": {
     "querystore": ">=1.0.0-SNAPSHOT"
   },
+  "pages": [
+    {
+      "component": "sessionChangePage",
+      "routeRegex": "^log(?:in|out)(?:/|$)",
+      "online": true,
+      "offline": true
+    }
+  ],
   "extensions": [
     {
       "name": "omnibar",
