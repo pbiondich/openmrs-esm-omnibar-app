@@ -128,13 +128,13 @@ chartsearchai is an openmrs-org repo. Its branch, the vendored folder and the bu
 
 Offline-first: the section calls only same-origin `/ws/rest/v1/chartsearchai/search/stream`. No CDN, font or other origin is added by either build.
 
-## 9. Open questions for Paul
+## 9. Decisions (Paul, 2026-10-18)
 
-1. The hint after the move: `asksModel: "ChartSearch"` with the host's own question heuristic, as proposed, or a plain "Enter to see all results" with no promise? The first keeps design rule 6's wording and costs the host about 20 lines and one config key.
-2. Port the omnibar's view as it stands (one review-hardened renderer, a second one in ChartSearch's app), or render with ChartSearch's `AiResponsePanel` (one renderer, citation links to chart pages, feedback, but its error and logging rules differ, section 10)? Recommended: port first, converge later in ChartSearch's own time.
-3. Delete the bar's row in this omnibar release, as "drop the row" says, or keep it one more release behind `chartSearchSuggestion.enabled: false`? Deleting also retires the initial-question patch.
-4. Keep 7162b91 (initial question) in the chartsearchai branch, now that nothing uses it?
-5. May the ported section call the model on `submitted` as the built-in one does, or should it start with an Ask button only until you've tried it on o3?
+1. Hint: keep `asksModel: "ChartSearch"` with the host's own question heuristic, so the bar still says "and ask ChartSearch".
+2. Renderer: port the omnibar's review-hardened view as it stands. Converge with ChartSearch's `AiResponsePanel` later.
+3. Delete the bar's ChartSearch row in this omnibar release. This also retires the initial-question patch.
+4. Drop 7162b91 (initial question) from the chartsearchai branch.
+5. The ported section calls the model on `submitted`, as the built-in one does today.
 
 ## 10. Findings from the code
 
