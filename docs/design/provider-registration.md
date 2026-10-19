@@ -3,7 +3,7 @@
 > **Read this as a dated plan, not current truth.** It's the plan as of 2026-10-17, 11:41 PM PT. Its seven decisions (§7A) are recorded in [`docs/decisions.md`](../decisions.md), which is the place to check what's current. Since then:
 >
 > - **The query store provider landed in the omnibar** (PR #5) and, by Paul's decision of 2026-10-18, stays there as a built-in default. That supersedes "never lands in the omnibar" in §2.1 and the new esm-querystore-app in §4A.1, unless the query store gains other frontend consumers. §4A.2's framing still stands: the query store complements the REST lookup rather than replacing it.
-> - **Querystore questions 8, 9, 13 and 14 are answered.** The provider stays built in (8, 9); the empty field shows "recent in this chart" (13); and the backend endpoints are on the `prototype/omnibar-endpoints` branch of Paul's fork, reviewed through FIXES.md rounds (14). Questions 10 to 12 (privileges, default highlight, warming policy) are open in `decisions.md`.
+> - **Querystore questions 8, 9, 13 and 14 are answered.** The provider stays built in (8, 9); the empty field shows "recent in this chart" (13); and the backend endpoints are on the `prototype/omnibar-endpoints` branch of Paul's fork, reviewed through FIXES.md rounds (14). Questions 10 and 12 (privileges, warming policy) are open in `decisions.md`, and 11 (default highlight) is decided there: not for now.
 > - **The contract lives in `src/omnibar-contract/`**, not `src/omnibar/types.ts` as step 1 describes.
 > - **The first cohort attempt is retired** as decision 7 says: `feat/cohort-omnibar` is kept as history with the tag `archive/cohort-omnibar-2417fe2`.
 

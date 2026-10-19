@@ -10,4 +10,4 @@ The briefs given to agents, kept as given so the reasoning behind each piece of 
 | 2026-10-18 | [Query store fixes after verification](2026-10-18-querystore-fixes.md) | Given to the endpoints session; see FIXES.md for what landed |
 | 2026-10-18 | [Slash commands](2026-10-18-slash-commands.md) | Not started |
 | 2026-10-18 | [Query store benchmark, round 2](2026-10-18-querystore-benchmark-round-2.md), with [the script](2026-10-18-querystore-benchmark-round-2/omnibar_bench_r2.py) | Done; see [the results](../results/2026-10-18-querystore-benchmark-round-2/README.md) |
-| 2026-10-18 | [Query results, first prototype](2026-10-18-query-results.md) | Not started |
+| 2026-10-18 | [Query results, first prototype](2026-10-18-query-results.md) | Done. Merged as PR #12; see FIXES.md for the review rounds. 4c, "Found in the record", wasn't built |

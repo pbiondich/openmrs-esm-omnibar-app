@@ -8,6 +8,7 @@ import {
   Extension,
   ExtensionSlot,
   isDesktop,
+  navigate,
   showSnackbar,
   useAssignedExtensions,
   useConfig,
@@ -43,6 +44,9 @@ import {
   type OmnibarTarget,
 } from './types';
 import { looksLikeIdentifier } from '../omnibar-contract';
+import { maxQueryLength, queryResultsUrl } from '../query-results/query-results-url';
+import { markSubmitted } from '../query-results/submission';
+import { useChartSearchOffer } from '../views/chartsearch-offer';
 import styles from './omnibar.scss';
 
 export const providersSlot = 'omnibar-providers-slot';
@@ -89,7 +93,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 const Omnibar: React.FC = () => {
   const { t } = useTranslation();
   const desktop = isDesktop(useLayoutType());
-  const { appearance } = useConfig<OmnibarConfig>();
+  const { appearance, queryResults } = useConfig<OmnibarConfig>();
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -377,6 +381,32 @@ const Omnibar: React.FC = () => {
     }
   };
 
+  // Inside a chart, Enter on what was typed opens the chart's Query results section, unless the user
+  // has arrowed or pointed to a row since their last keystroke: every keystroke clears the selection,
+  // so `chosen` is only ever true for a row picked since. The default highlight stays as a cue. The
+  // shell's own patient is used, never one a provider named, and the typed text, not the debounced
+  // one, so Enter works before any results arrive.
+  const submittedQuery = query.trim();
+  // An ID-shaped query never does: a scanner types a wristband's ID and its own Enter at once, and that
+  // Enter, or the next, opens the patient the ID finds, as before (the scanned-ID default).
+  const submitsOnEnter =
+    queryResults?.enterBehavior !== 'open-highlight' &&
+    Boolean(scopePatientUuid) &&
+    Boolean(submittedQuery) &&
+    !chosen &&
+    !looksLikeIdentifier(submittedQuery);
+  // Said in the hint, so the user knows Enter will also ask ChartSearch, an AI, about the chart.
+  const offersChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid);
+  // A query longer than the page takes is cut, and the page never asks about a cut query on its own.
+  const asksChartSearch = offersChartSearch && Array.from(submittedQuery).length <= maxQueryLength;
+  const submitQuery = () => {
+    if (!scopePatientUuid || !submittedQuery) return;
+    const to = queryResultsUrl(scopePatientUuid, submittedQuery);
+    markSubmitted(scopePatientUuid, submittedQuery);
+    closeBar();
+    navigate({ to });
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const count = selectable.length;
     switch (event.key) {
@@ -395,6 +425,13 @@ const Omnibar: React.FC = () => {
         return;
       }
       case 'Enter':
+        // Enter that confirms an input method's composition isn't a submission.
+        if (event.nativeEvent.isComposing) return;
+        if (submitsOnEnter) {
+          event.preventDefault();
+          submitQuery();
+          return;
+        }
         if (selected) {
           event.preventDefault();
           choose(selected);
@@ -752,8 +789,47 @@ const Omnibar: React.FC = () => {
             </p>
           )}
 
+          {submitsOnEnter && (
+            <button
+              type="button"
+              className={styles.submitHint}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={submitQuery}
+              dir="auto"
+            >
+              {asksChartSearch
+                ? desktop
+                  ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask ChartSearch', {
+                      query: submittedQuery,
+                      interpolation: { escapeValue: false },
+                    })
+                  : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask ChartSearch', {
+                      query: submittedQuery,
+                      interpolation: { escapeValue: false },
+                    })
+                : desktop
+                  ? t('enterToSeeAll', 'Enter to see all results for “{{query}}”', {
+                      query: submittedQuery,
+                      interpolation: { escapeValue: false },
+                    })
+                  : t('seeAllResults', 'See all results for “{{query}}”', {
+                      query: submittedQuery,
+                      interpolation: { escapeValue: false },
+                    })}
+            </button>
+          )}
+
           {desktop && (
-            <div className={styles.footer}>{t('keyboardHints', '↑ ↓ to move, Enter to open, Esc to close')}</div>
+            <div className={styles.footer}>
+              {submitsOnEnter
+                ? asksChartSearch
+                  ? t(
+                      'keyboardHintsSubmitAndAsk',
+                      '↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close',
+                    )
+                  : t('keyboardHintsSubmit', '↑ ↓ to choose a result, Enter to see all, Esc to close')
+                : t('keyboardHints', '↑ ↓ to move, Enter to open, Esc to close')}
+            </div>
           )}
         </div>
       )}

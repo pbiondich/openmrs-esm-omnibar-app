@@ -42,6 +42,11 @@ describe('the contract folder', () => {
     expect(contract.OMNIBAR_SELECTED_EVENT).toBe('openmrs:omnibar-selected');
   });
 
+  it('exports the Query results slot and the view boundary', () => {
+    expect(contract.OMNIBAR_QUERY_RESULTS_SLOT).toBe('omnibar-query-results-slot');
+    expect(contract.withViewBoundary).toEqual(expect.any(Function));
+  });
+
   it('is contract version 1', () => {
     expect(contract.OMNIBAR_CONTRACT_VERSION).toBe(1);
   });
@@ -78,6 +83,45 @@ describe('the built-in providers', () => {
         file,
         readsUrl: /\blocation\b|\buseParams\b|\bgetPatientUuidFromPath\b|\bpatient-path\b/.test(source),
       }).toEqual({ file, readsUrl: false });
+    }
+  });
+});
+
+describe('the built-in Query results views', () => {
+  const views = join(dirname(fileURLToPath(import.meta.url)), '../views');
+  const files = readdirSync(views).filter((file) => /\.view\.tsx?$/.test(file));
+
+  it('never read or subscribe to the private workspace2 store', () => {
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const source = readFileSync(join(views, file), 'utf8');
+      expect({
+        file,
+        subscribes: /\buseStore\b|\bgetState\b|\bgetWorkspace2Store\b|\bworkspaceGroupIsOpen\b/.test(source),
+      }).toEqual({ file, subscribes: false });
+    }
+  });
+
+  it('never read the URL to find the patient or the query', () => {
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const source = readFileSync(join(views, file), 'utf8');
+      expect({
+        file,
+        readsUrl: /\blocation\b|\buseParams\b|\bgetPatientUuidFromPath\b|\bpatient-path\b/.test(source),
+      }).toEqual({ file, readsUrl: false });
+    }
+  });
+
+  // Views navigate or open workspaces; nothing on the page writes to the record. The one request
+  // that isn't a read is ChartSearch's question, which is a POST that only reads and is sent only
+  // when the clinician presses Ask.
+  it('never write to the record', () => {
+    for (const file of readdirSync(views).filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name))) {
+      const source = readFileSync(join(views, file), 'utf8');
+      const methods = [...source.matchAll(/method:\s*['"](\w+)['"]/g)].map(([, method]) => method);
+      const allowed = file === 'chartsearch-stream.ts' ? ['POST'] : [];
+      expect({ file, methods }).toEqual({ file, methods: methods.filter((method) => allowed.includes(method)) });
     }
   });
 });

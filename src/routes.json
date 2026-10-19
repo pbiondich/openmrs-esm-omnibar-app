@@ -46,7 +46,34 @@
       "component": "querystoreChartProvider",
       "slot": "omnibar-providers-slot",
       "privileges": ["Get Observations"],
-      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true }
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true }
+    },
+    {
+      "name": "omnibar-query-results-dashboard",
+      "component": "queryResultsDashboardLink",
+      "slot": "patient-chart-dashboard-slot",
+      "order": 100,
+      "meta": { "slot": "omnibar-query-results-dashboard-slot", "path": "query-results", "title": "Query results" }
+    },
+    {
+      "name": "omnibar-query-results-page",
+      "component": "queryResultsPage",
+      "slot": "omnibar-query-results-dashboard-slot",
+      "meta": { "fullWidth": true }
+    },
+    {
+      "name": "omnibar-chart-values-view",
+      "component": "chartValuesView",
+      "slot": "omnibar-query-results-slot",
+      "privileges": ["Get Observations"],
+      "meta": { "scopes": ["patient"], "order": 10, "contract": 1 }
+    },
+    {
+      "name": "omnibar-chartsearch-answer-view",
+      "component": "chartSearchAnswerView",
+      "slot": "omnibar-query-results-slot",
+      "privileges": ["AI Query Patient Data"],
+      "meta": { "scopes": ["patient"], "order": 100, "contract": 1, "skipIdentifierQueries": true }
     }
   ]
 }

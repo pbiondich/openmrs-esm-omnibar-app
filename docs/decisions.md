@@ -84,12 +84,39 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **Query store work stays on Paul's fork, on two branches with different jobs.** `prototype/omnibar-endpoints` holds the endpoint work, and is the candidate to propose upstream once round 2 of the benchmark is in. `prototype/omnibar-endpoints-o3` is the same work plus benchmark-only commits, and is what o3.pgb.md runs; it must never be merged into any `main`.
 *Why:* the query store belongs to other maintainers, so changes stay as local variants until Paul proposes them. The benchmark endpoint is a measuring instrument, not product.
 
+### From building the first Query results prototype
+
+**ChartSearch answers on the Query results page, asked by Enter.** Pressing Enter on a question inside a chart opens Query results and asks ChartSearch there, and the answer streams into the page. The bar's hint says so beforehand ("Enter to see all results for '…' and ask ChartSearch"). Choosing an earlier query on the page asks again. A page reloaded, reached with back or forward, or opened from a bookmark or the left nav doesn't ask by itself; it shows an Ask button.
+*Why:* Paul didn't want the page to depend on the side panel, and Enter is the clinician affirming the question, so making them ask a second time is friction. Design rule 6 changes with it: typing still never calls a model, but Enter on a question now does, and the README and AGENTS.md say so. Reopening a page isn't an affirmation, so it doesn't spend another model call or resend the question on its own. Views learn which case they're in from `submitted`, held in memory by the omnibar, so a link can't set it.
+
+**For now the Ask ChartSearch view lives in this repo.** It is a recorded exception to the light-omnibar rule, like the query store provider, and should move into ChartSearch's own app as a view registered from its `routes.json`.
+*Why:* there's no fork of `openmrs-esm-chartsearchai` to put a local variant in yet. The cost is that it repeats part of ChartSearch's own display of an answer: citations unverified until the stream ends, reference material apart from chart records, safety findings whole, each caveat as a caveat. It follows that module's README for each, but ChartSearch's own app is the better home for that display.
+
+**Chart values on Query results show only what the query names.** Only the concepts the query matched directly that have values for this patient; a matched set's members only when none of those do (so `vitals` shows the vitals, while `cd4` doesn't bring in the rest of its panel); word-by-word matches only when the whole phrase matched nothing. No Results viewer link, panels, filters or date controls.
+*Why:* Paul wants the answer to the query, not a general results viewer. The Results viewer is a click away in the left nav.
+
+**Views report how their section stands, and the page decides what that means.** `reportState` takes `loading`, `empty`, `ready`, `error` or `unavailable`. The page hides empty sections and says "Nothing in … matches" only when every view says `empty`; a view that hasn't reported counts as loading.
+*Why:* the page needs one honest empty state across apps, and a view that says nothing mustn't be read as having found nothing.
+
+**Query history is kept for the logged-in user, never with the session id.** Each entry is the query text under the patient's uuid, in `sessionStorage`, owned by the user's uuid. It clears when the framework's session store goes unauthenticated (its `logout()` calls `clearCurrentUser`) or another user logs in, and a history owned by someone else is never read.
+*Why:* there's no logout event in the framework, but the session store is the signal every logout path goes through. The session id would also separate two logins by the same user, but it is as good as the session cookie, which script can't read, so it mustn't be copied where script can. The gap that leaves: a user who logs out and back in without the page seeing the logged-out state in between (another tab, for instance) keeps their own history, never anyone else's.
+
+**An ID-shaped query keeps Enter opening the highlight, even with Enter submitting.** Inside a chart, a query that looks like an identifier is never sent to Query results; Enter opens the patient the scanned-ID default picked, or does nothing yet, as on main.
+*Why:* a scanner types the ID and its own Enter at once, before anything has answered. Submitting would take the clinician to a Query results page for a wristband number instead of to the patient.
+
+**The left-nav link to Query results drops the query.** Following it shows this session's earlier queries and how to search, not the last result.
+*Why:* the link is a dashboard link like any other, and a page whose contents change with each query shouldn't silently replay one.
+
+### From query store benchmark round 2, 3:33 PM PT
+
+**Query store rows don't take the default highlight inside a chart, for now.** The query store chart provider no longer sets `defaultInChart`, so its rows are chosen by arrow or pointer. Chart lookup keeps the default. The contract still allows the query store to set it, so this is a choice in `routes.json`, not a rule. Revisit after the synonym and short-word fix and benchmark round 3. This settles plan question 11.
+*Why:* in [round 2](briefs/2026-10-18-querystore-benchmark-round-2.md) on o3, the query store's keyword path was fast (p50 about 165–245 ms, against 340–820 ms for REST and FHIR) and every latest value was correct (27 of 27). But its first row matched the REST dropdown's in only 17 of 26 queries, because keyword search misses synonyms and two-letter queries such as "hb".
+
 ## Open
 
 These came up but aren't decided yet.
 
 - **Two values on the same date.** When a patient has two results for the same concept on the same date, should the dropdown show the most recently entered one, or say "2 results on this date"?
 - **Query results layout.** One merged page with a section per provider, or tabs by kind (values, notes, orders, answer)?
-- **Should query store rows take the default highlight inside a chart?** PR #5 gave the provider `defaultInChart`, but the plan said not until measured on o3, and round 1 found older values ranked first. Waiting on [round 2](briefs/2026-10-18-querystore-benchmark-round-2.md) (plan question 11).
 - **Privileges for the query store's patient endpoints.** Is Get Patients enough, or Get Observations too? The provider's `routes.json` must match what the server requires (plan question 10).
 - **When to warm a chart.** On every chart open, as built, or on the first omnibar open, as the plan recommended? Round 1's slow cold starts argue for indexing ahead of time either way (plan question 12).

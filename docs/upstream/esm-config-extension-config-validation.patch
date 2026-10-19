@@ -1,0 +1,158 @@
+From cc371144cebb7520c3dea4d96ae250084609879a Mon Sep 17 00:00:00 2001
+From: Paul Biondich <73554205+pbiondich@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 18:08:25 -0400
+Subject: [PATCH] (fix) Don't validate an extension's config structure before
+ its module has loaded
+
+renderExtension registers an extension before awaiting its bundle, so the
+config system derives that extension's config while the module still has
+only the implicit schema. Every key the module declares at top level was
+then logged as "Unknown config key ... Ignoring." even though the value is
+read correctly once the module defines its schema. Hold back
+validateStructure for an extension without its own schema until its module
+has loaded, as computeModuleConfig already does, and key the extension
+config cache on whether the module has loaded so that a module without a
+schema is still validated once it loads.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../src/module-config/module-config.test.ts   | 58 +++++++++++++++++++
+ .../src/module-config/module-config.ts        | 18 +++++-
+ 2 files changed, 73 insertions(+), 3 deletions(-)
+
+diff --git a/packages/framework/esm-config/src/module-config/module-config.test.ts b/packages/framework/esm-config/src/module-config/module-config.test.ts
+index 6c013235..17cc55a3 100644
+--- a/packages/framework/esm-config/src/module-config/module-config.test.ts
++++ b/packages/framework/esm-config/src/module-config/module-config.test.ts
+@@ -1590,6 +1590,64 @@ describe('extension config', () => {
+   });
+ });
+ 
++// `renderExtension` registers an extension before awaiting its bundle, so its config is derived
++// while the module is known to the config system only by the implicit schema.
++describe('extension config of a module that has not loaded yet', () => {
++  beforeEach(() => {
++    console.error = vi.fn();
++  });
++
++  afterEach(resetAll);
++
++  const mount = (extensionModuleName: string, extensionId: string) =>
++    configExtensionStore.setState({
++      mountedExtensions: [{ slotModuleName: 'slot-mod', extensionModuleName, slotName: 'early-slot', extensionId }],
++    });
++
++  it('does not call a key unknown before the module defines its schema', () => {
++    Config.provide({ 'early-mod': { thud: 'provided' } });
++    Config.registerModuleWithConfigSystem('early-mod');
++    mount('early-mod', 'earlyExt');
++
++    expect(console.error).not.toHaveBeenCalled();
++
++    Config.defineConfigSchema('early-mod', { thud: { _default: 'default' } });
++    Config.registerModuleLoad('early-mod');
++
++    expect(console.error).not.toHaveBeenCalled();
++    expect(currentExtensionConfig('early-slot', 'earlyExt').config.thud).toBe('provided');
++  });
++
++  it('still calls a key unknown once the module has defined a schema without it', () => {
++    Config.provide({ 'late-mod': { thud: 'provided', plugh: 'unknown' } });
++    Config.registerModuleWithConfigSystem('late-mod');
++    mount('late-mod', 'lateExt');
++
++    expect(console.error).not.toHaveBeenCalled();
++
++    Config.defineConfigSchema('late-mod', { thud: { _default: 'default' } });
++    Config.registerModuleLoad('late-mod');
++
++    expect(console.error).toHaveBeenCalledTimes(1);
++    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/unknown config key 'late-mod.plugh' provided/i));
++  });
++
++  it('still calls a key unknown once a module without a schema has loaded', () => {
++    // Configured through the slot so that only the extension config, not the module config, sees it.
++    Config.provide({
++      'slot-mod': { extensionSlots: { 'early-slot': { configure: { bareExt: { xyzzy: 'unknown' } } } } },
++    });
++    Config.registerModuleWithConfigSystem('bare-mod');
++    mount('bare-mod', 'bareExt');
++
++    expect(console.error).not.toHaveBeenCalled();
++
++    Config.registerModuleLoad('bare-mod');
++
++    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/unknown config key 'bare-mod.xyzzy' provided/i));
++  });
++});
++
+ describe('translation overrides', () => {
+   it('allows obtaining translation overrides before schema is registered', async () => {
+     console.error = vi.fn();
+diff --git a/packages/framework/esm-config/src/module-config/module-config.ts b/packages/framework/esm-config/src/module-config/module-config.ts
+index 10ad762c..feb7fa6b 100644
+--- a/packages/framework/esm-config/src/module-config/module-config.ts
++++ b/packages/framework/esm-config/src/module-config/module-config.ts
+@@ -275,8 +275,8 @@ function computeExtensionConfigs(
+   let changed = false;
+   let entryCount = 0;
+ 
+-  // We assume that the module schema has already been defined, since the extension
+-  // it contains is mounted.
++  // An extension is mounted before its module loads, so the module schema may still be the
++  // implicit one; `computeExtensionConfig` holds back structural validation until it has loaded.
+   for (let extension of extensionState.mountedExtensions) {
+     const previous = oldConfigs[extension.slotName]?.[extension.extensionId];
+     let entry: ConfigStore | { config: ConfigObject; loaded: true };
+@@ -602,6 +602,8 @@ export function processConfig(schema: ConfigSchema, providedConfig: ConfigObject
+ interface ExtensionConfigCacheEntry {
+   extensionSchema: ConfigSchema | undefined;
+   extensionModuleSchema: ConfigSchema | undefined;
++  /** Part of the key: a module without a schema of its own only gets validated once it has loaded. */
++  extensionModuleLoaded: boolean;
+   providedConfigs: ConfigInternalStore['providedConfigs'];
+   temporaryConfig: Config;
+   config: ConfigObject;
+@@ -634,6 +636,7 @@ function computeExtensionConfig(
+ ) {
+   const extensionName = getExtensionNameFromId(extensionId);
+   const extensionConfigSchema = configState.schemas[extensionName];
++  const extensionModuleLoaded = Boolean(configState.moduleLoaded[extensionModuleName]);
+   // JSON string of these elements should be unique-per-extension
+   const cacheKey = JSON.stringify([slotName, extensionId, slotModuleName, extensionModuleName]);
+   const cached = extensionConfigCache.get(cacheKey);
+@@ -642,6 +645,7 @@ function computeExtensionConfig(
+     cached &&
+     cached.extensionSchema === extensionConfigSchema &&
+     cached.extensionModuleSchema === configState.schemas[extensionModuleName] &&
++    cached.extensionModuleLoaded === extensionModuleLoaded &&
+     cached.providedConfigs === configState.providedConfigs &&
+     cached.temporaryConfig === tempConfigState.config
+   ) {
+@@ -656,7 +660,14 @@ function computeExtensionConfig(
+   const extensionConfig = mergeConfigsFor(nameOfSchemaSource, providedConfigs);
+   const combinedConfig = mergeConfigs([extensionConfig, sharedOverride, configOverride]);
+   const schema = extensionConfigSchema ?? configState.schemas[extensionModuleName];
+-  validateStructure(schema, combinedConfig, nameOfSchemaSource);
++
++  // `renderExtension` registers an extension before its bundle loads, so until the module runs it
++  // has only the implicit schema, against which every key it declares would look unknown. As with
++  // the module config, the structure is left unchecked until the module has loaded.
++  if (extensionConfigSchema || extensionModuleLoaded) {
++    validateStructure(schema, combinedConfig, nameOfSchemaSource);
++  }
++
+   const config = setDefaults(schema, combinedConfig);
+   runAllValidatorsInConfigTree(schema, config, nameOfSchemaSource);
+   delete config.extensionSlots;
+@@ -664,6 +675,7 @@ function computeExtensionConfig(
+   extensionConfigCache.set(cacheKey, {
+     extensionSchema: extensionConfigSchema,
+     extensionModuleSchema: configState.schemas[extensionModuleName],
++    extensionModuleLoaded,
+     providedConfigs: configState.providedConfigs,
+     temporaryConfig: tempConfigState.config,
+     config,
+-- 
+2.48.0
+

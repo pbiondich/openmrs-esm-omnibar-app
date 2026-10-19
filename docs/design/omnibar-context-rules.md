@@ -3,6 +3,7 @@
 Principles
 - The bar is a launcher, not a decision-maker. Show early, act late.
 - No automatic LLM calls. Choosing Ask ChartSearch opens the workspace. The model runs only after the clinician presses Send.
+  - *Changed 2026-10-18:* Enter on a question inside a chart now asks ChartSearch on the Query results page, and the bar's hint says so first. Typing still never calls a model. See [decisions](../decisions.md).
 - The bar harvests the context it is queried in, and context shapes which suggestion rows appear under the results.
 
 Outside a patient context (global scope)

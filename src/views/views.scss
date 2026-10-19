@@ -1,0 +1,105 @@
+@use '@carbon/layout';
+@use '@carbon/type';
+@use '@carbon/themes';
+
+.heading {
+  @include type.type-style(heading-03);
+  margin-bottom: layout.$spacing-04;
+  color: themes.$text-primary;
+}
+
+.note {
+  @include type.type-style(body-compact-01);
+  color: themes.$text-secondary;
+}
+
+.concepts {
+  display: flex;
+  flex-direction: column;
+  gap: layout.$spacing-05;
+}
+
+.concept {
+  display: flex;
+  flex-direction: column;
+  gap: layout.$spacing-03;
+  padding: layout.$spacing-05;
+  background: themes.$layer-01;
+  border: 1px solid themes.$border-subtle-01;
+  min-width: 0;
+}
+
+.conceptName {
+  @include type.type-style(heading-compact-02);
+  color: themes.$text-primary;
+}
+
+.latest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: layout.$spacing-03 layout.$spacing-04;
+}
+
+.latestValue {
+  @include type.type-style(heading-05);
+  color: themes.$text-primary;
+  overflow-wrap: anywhere;
+}
+
+.latestDate {
+  @include type.type-style(body-compact-01);
+  color: themes.$text-secondary;
+}
+
+.flag,
+.flagCritical {
+  @include type.type-style(label-01);
+  margin-inline-start: layout.$spacing-03;
+  padding: 0 layout.$spacing-02;
+  border: 1px solid themes.$support-warning;
+  color: themes.$text-primary;
+}
+
+.flagCritical {
+  border-color: themes.$support-error;
+  font-weight: 600;
+}
+
+.trend {
+  display: block;
+  width: 100%;
+  max-width: 20rem;
+  height: auto;
+}
+
+.trendLine {
+  fill: none;
+  stroke: themes.$interactive;
+  stroke-width: 1.5;
+}
+
+.trendPoint {
+  fill: themes.$interactive;
+}
+
+.values {
+  @include type.type-style(body-compact-01);
+  width: 100%;
+  max-width: 32rem;
+  border-collapse: collapse;
+
+  th {
+    @include type.type-style(label-01);
+    color: themes.$text-secondary;
+    text-align: start;
+    padding: layout.$spacing-02 layout.$spacing-03;
+    border-bottom: 1px solid themes.$border-subtle-01;
+  }
+
+  td {
+    padding: layout.$spacing-02 layout.$spacing-03;
+    border-bottom: 1px solid themes.$border-subtle-01;
+    overflow-wrap: anywhere;
+  }
+}

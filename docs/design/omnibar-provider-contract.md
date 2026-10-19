@@ -160,7 +160,7 @@ With nothing arrowed or pointed to, the host highlights the first row, by lane t
 
 Inside a chart, chart values come first:
 
-- A row isn't chosen as the default while a `record`-lane provider with `defaultInChart` that ranks before it hasn't answered the current query. Enter does nothing meanwhile. So a destination waits for the chart values, and in the side-by-side mode the query store's row waits for chart lookup's.
+- A row isn't chosen as the default while a `record`-lane provider with `defaultInChart` that ranks before it hasn't answered the current query. Enter does nothing meanwhile. So a destination waits for the chart values.
 - Not answered means: no report for the query yet, `loading` with no rows, or `detail.state: 'projecting'` with no rows and no `note`. A provider still indexing with nothing found hasn't answered, because its next re-check may find rows. Once it has given up re-checking it says so in a `note`, and that is an answer.
 - Rows, `idle`, an `error`, `unavailable`, `failed`, or `ready` with no rows and no `projecting` detail are answers. The waiting row may then take the default.
 - The wait is bounded per query: 1.5 seconds for a provider with no report or still `loading`, so one stuck loading can't leave Enter doing nothing, and 10 seconds for one still indexing with nothing found, long enough for its first re-checks. Each new query, including one the user comes back to, starts the waits again.
@@ -189,11 +189,58 @@ After a pick, the host fires `openmrs:omnibar-selected` (`OMNIBAR_SELECTED_EVENT
 When two mounted providers share a `dedupeKey` and both report a result with the same `dedupeId`:
 
 - the host ranks the copies by lane, then order, and keeps the first one that may take the default highlight. Failing that, it keeps the first that names no other patient than the chart's, and failing that, the first of all. When the copies arrive doesn't matter, except between two providers with the same lane and order. So inside a chart a provider without `defaultInChart` can't push out the chart's own row by ranking above it, and a row that names another patient never pushes out one that stays on this patient
-- the kept copy's target is what Enter and a click run. So among `chart-values` providers, chart lookup keeps the copy. Another provider with that key may set `defaultInChart` only if it ranks after chart lookup (the same lane, a higher order) and every target it reports stays on the open chart. Then chart lookup's copy still wins whenever both found the record, since a copy with the same preference never replaces one ranked before it, and the other provider takes the default only for rows chart lookup didn't find. The query store chart search (order 15) is that case. Otherwise leave `defaultInChart` unset
+- the kept copy's target is what Enter and a click run. So among `chart-values` providers, chart lookup keeps the copy. Another provider with that key may set `defaultInChart` only if it ranks after chart lookup (the same lane, a higher order) and every target it reports stays on the open chart. Then chart lookup's copy still wins whenever both found the record, since a copy with the same preference never replaces one ranked before it, and the other provider takes the default only for rows chart lookup didn't find. The query store chart search (order 15) is that case. It may set the flag but doesn't for now, so its rows are chosen by arrow or pointer. Revisit after benchmark round 3 (see [decisions](../decisions.md)). Otherwise leave `defaultInChart` unset
 - the other copy is dropped, and a group left with nothing isn't drawn
 - results without a `dedupeId`, and providers with another key or none, are never touched
 - the highlight follows the record: if the highlighted row is dropped, the highlight moves to the copy that is kept. If no copy is left on screen, or the only one names another patient, nothing is highlighted and Enter does nothing until the user picks a row. A default highlight (one the user didn't arrow or point to) moves only onto a copy that may itself be the default
 - the arrows and Enter skip the dropped row
+
+## Query results views (*new in v1*)
+
+Pressing Enter on a query inside a chart opens the chart's **Query results** section, `/patient/<uuid>/chart/query-results?q=<query>`, unless the user has arrowed or pointed to a row since their last keystroke (`queryResults.enterBehavior`, see the README). That page is a second host: it shows the query, this session's earlier queries about the patient, then one section per **view**. A view is an extension in `omnibar-query-results-slot` (`OMNIBAR_QUERY_RESULTS_SLOT`), registered from its own app's `routes.json`. Unlike a provider it renders: its own section, with its own heading. Everything here is optional and additive, so it keeps the contract at version 1.
+
+```json
+{
+  "name": "saved-lists-query-results-view",
+  "component": "savedListsView",
+  "slot": "omnibar-query-results-slot",
+  "privileges": ["Get Patient Cohorts"],
+  "meta": { "scopes": ["patient"], "order": 40, "contract": 1 }
+}
+```
+
+**`meta` (`OmnibarViewMeta`)**
+
+| Field | Meaning |
+| --- | --- |
+| `scopes` | `["patient"]`. There is no Query results page outside a chart yet. A view without `patient` isn't mounted |
+| `order` | Lower comes first. Defaults to 100. The built-in views use the provider numbers: chart values 10, Ask ChartSearch 100 |
+| `contract` | As for providers: missing means 1, and a host mounts only versions it speaks |
+| `skipIdentifierQueries` | As for providers: not mounted while the query looks like a patient identifier |
+
+**Props (`OmnibarViewProps`)**
+
+| Prop | Meaning |
+| --- | --- |
+| `query` | The query from the page's URL, trimmed and cut to 1000 characters |
+| `context` | `scope: 'patient'`, the chart's own `patientUuid`, `locale`, and `workspaceGroup` as for providers. Never read the patient from the URL |
+| `contractVersion` | The contract version the host speaks |
+| `reportState(state)` | How the section stands: `loading`, `empty`, `ready`, `error` or `unavailable` |
+| `hints` | `looksLikeIdentifier`, as for providers |
+| `submitted` | `true` when this user asked for this query just now; `false` on a page reloaded, reached with back or forward, or opened from a link, after a logout or another login, and for a query the page had to cut. Submitting the query already on screen runs it again with `true`. Held in memory by the omnibar, so nothing outside the app can set it |
+
+**What the host does with `reportState`**
+
+- `empty` hides the section. When every view says `empty`, the page says plainly "Nothing in Humprey's chart matches 'xyz'".
+- `error` and `unavailable` are the view's to show, in its own section, with the host's words: "Couldn't load results" or "Unavailable right now". Never a server's message.
+- A view that hasn't reported counts as still loading, so the page never claims nothing matched while it waits.
+- Each query on each chart is a new mount. A report from a view mounted for an earlier query or another chart is dropped.
+
+**The rules are the providers' rules.** A view navigates or opens a workspace and never writes to the record. It uses `context.patientUuid` only. It calls a model only when the user asked: when `submitted` is true (Enter in the bar, its "see all results" line, or an earlier query chosen on the page), or when the clinician presses a button in the view. A page reloaded, reached with back or forward, or opened from a bookmark or the left nav has `submitted: false`, and a view must not call a model there by itself. Answers it draws must cite records, as design rule 5 says.
+
+**Errors.** Wrap each view in `withViewBoundary(View, extensionName)`. A view that throws then shows "This section couldn't be shown." in its own section and counts as `error`; the page and the other views carry on.
+
+**History.** The page, not the views, keeps this session's queries for each patient, in `sessionStorage`, and only their text. Choosing one runs it again; nothing a view showed is stored.
 
 ## Errors
 
@@ -221,7 +268,7 @@ The host ranks by lane, then by `order`. Now that several apps pick numbers, thi
 
 | Key | `dedupeId` | Providers |
 | --- | --- | --- |
-| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search (order 15, `defaultInChart`, allowed because it ranks after chart lookup and stays on the open chart) |
+| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search (order 15; may set `defaultInChart` because it ranks after chart lookup and stays on the open chart, but for now doesn't) |
 
 ## Copying the contract folder
 
@@ -229,8 +276,9 @@ The folder holds everything another app needs:
 
 | File | What |
 | --- | --- |
-| `types.ts` | The types on this page, `OMNIBAR_CONTRACT_VERSION` and `OMNIBAR_SELECTED_EVENT` |
+| `types.ts` | The types on this page, `OMNIBAR_CONTRACT_VERSION`, `OMNIBAR_SELECTED_EVENT` and `OMNIBAR_QUERY_RESULTS_SLOT` |
 | `provider-boundary.tsx` | `withProviderBoundary` |
+| `view-boundary.tsx` | `withViewBoundary`, for Query results views |
 | `query-hints.ts` | `looksLikeIdentifier` |
 | `server-unreachable.ts` | `isServerUnreachable` |
 | `index.ts` | Exports all of it |
@@ -241,6 +289,8 @@ The folder holds everything another app needs:
 3. Don't edit the copy. Fix the original and copy it again.
 4. Declare `"contract": 1` in the provider's meta.
 
-The omnibar keeps two guards on the folder: `src/conformance/contract-folder.test.ts` fails if the folder imports anything else, and `src/conformance/conformance.test.tsx` mounts a provider built only on the folder, the way another app would, through the slot. It checks the navigate result, `contractVersion`, `hints`, dedupe against the built-in chart lookup, the unavailable line, `skipIdentifierQueries` and the version check. Providers in other apps should keep a test of their own against their copy.
+The omnibar keeps two guards on the folder: `src/conformance/contract-folder.test.ts` fails if the folder imports anything else, and `src/conformance/conformance.test.tsx` mounts a provider built only on the folder, the way another app would, through the slot. It checks the navigate result, `contractVersion`, `hints`, dedupe against the built-in chart lookup, the unavailable line, `skipIdentifierQueries` and the version check. It also mounts a Query results view built only on the folder on the Query results page, and checks its props, the page's empty state, the view boundary and the version check. Providers and views in other apps should keep a test of their own against their copy.
+
+The view types and `view-boundary.tsx` were added to the folder on `feat/query-results`. Apps that copied the folder before then need to copy it again to write a view; their providers keep working without it.
 
 A published package (`@openmrs/esm-omnibar-contract`) can replace the copy later, with the same contents.
