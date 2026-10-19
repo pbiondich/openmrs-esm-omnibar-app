@@ -35,6 +35,7 @@ A few scenarios, to make the idea concrete. **Built** means the code exists, and
 | nothing yet | Recently viewed patients. | Built |
 | `Mary Achieng`, or an ID | Matching patients, plus a link to the full search page. | Built |
 | `how many women aged 15-49 enrolled in HIV?` | A count row: "Counting…", then "1,204 patients", with what was counted in the Cohort Builder's own words underneath. Enter opens the Cohort Builder with the same definition, ready to refine. It reads a phrase table (age groups like "women of reproductive age", comparators, number words) and the server's own program and encounter-type names, so "enrolled in HIV care" works without config. A question it can't fully read gives no row rather than a wrong number. | Built, in the Cohort Builder's app |
+| `women with latest weight > 70` | A count row for patients by a numeric test result, alone or with gender and age, using the latest value. | Built, in the Cohort Builder's app |
 | `patients over 40 on ART` | The same, once the Cohort Builder's drug-order criterion is live on the server. | Building |
 | `how do I print labels?` | An answer from a knowledge base. | Planned |
 
@@ -76,7 +77,7 @@ Typing `/` states the kind of query up front instead of leaving the omnibar to i
 
 ### Everywhere
 
-The field is visible in the header on desktop. On tablet and phone it's a field-shaped button that opens a full-screen search (this still feels too buried to me atm tbh!). Implementations that prefer today's collapsed magnifier can keep it with one line of config. Arrow keys move through results, Enter opens one, Escape closes.
+The field is visible in the header on desktop. On tablet and phone it's a field-shaped button that opens a full-screen search (this still feels too buried to me atm tbh!). Implementations that prefer today's collapsed magnifier can keep it with one line of config. Arrow keys move through results, Enter opens one, Escape closes. When a provider offers completions, they show as a strip under the field, with the first one as grey text after what you've typed: Tab takes it, Escape hides the strip, and a click or tap takes any of them. A completion only fills in the field; it never opens anything or asks a model.
 
 ## How it's built
 

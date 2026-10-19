@@ -35,6 +35,7 @@ import {
   withViewBoundary,
 } from '../omnibar-contract';
 import { extensionName, type SavedList, savedListsProvider } from './external-app/saved-lists.provider';
+import { extensionName as completionsExtensionName, completionsFixtureProvider } from './external-app/completions.provider';
 import { savedListsView, viewExtensionName } from './external-app/saved-lists.view';
 import { askModelView, askModelViewName } from './external-app/ask-model.view';
 import QueryResultsPage from '../query-results/query-results.page';
@@ -525,6 +526,48 @@ describe('a Query results view that asks a model, from another app', () => {
       await new Promise((resolve) => setTimeout(resolve));
       expect(ask).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('a provider from another app that reports completions, built only on the contract folder', () => {
+  beforeEach(() => {
+    vi.mocked(useLayoutType).mockReturnValue('small-desktop');
+    vi.mocked(useConfig<OmnibarConfig>).mockReturnValue(getDefaultsFromConfigSchema(configSchema) as OmnibarConfig);
+  });
+
+  afterEach(() => window.history.pushState({}, '', '/'));
+
+  it('imports nothing from the omnibar but the contract folder', () => {
+    const file = join(
+      dirname(fileURLToPath(import.meta.url)),
+      'external-app/completions.provider.tsx',
+    );
+    const imports = [...readFileSync(file, 'utf8').matchAll(/from\s+['"]([^'"]+)['"]/g)].map(
+      ([, from]) => from,
+    );
+    expect(imports.sort()).toEqual(['../../omnibar-contract', 'react', 'react-i18next']);
+  });
+
+  it('shows the completions strip from a provider built outside this repo', async () => {
+    const user = userEvent.setup();
+    const Provider = completionsFixtureProvider(async (query) => [
+      { insert: `${query} completed`, replace: query.length, label: 'A completion' },
+    ]);
+    register([
+      {
+        name: completionsExtensionName,
+        moduleName: '@openmrs/esm-completions-fixture-app',
+        meta: { lane: 'navigate', scopes: ['global', 'patient'], order: 10, contract: 1 },
+        component: Provider,
+      },
+    ]);
+    renderOmnibar();
+
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    expect(await screen.findByText('A completion')).toBeInTheDocument();
+    // Tab applies the completion.
+    await user.tab();
+    expect(screen.getByRole('combobox')).toHaveValue('cd4 completed');
   });
 });
 
