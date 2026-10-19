@@ -1236,3 +1236,103 @@ The reviewer checked the merge against 5de0d24 (`submission.ts`, `query-history.
 - `src/omnibar-contract/` unchanged in this round.
 - chartsearchai head after the fixes: 1982021, 526 tests (525 at review), as its builder reports; not rerun from this session.
 - Tests: 722 in 20 files, unchanged. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+
+## Feature: cohort counts, steps 2 and 3 (the URL door and the count row, in the Cohort Builder's app)
+
+Built from [the cohort counts brief](docs/briefs/2026-10-18-cohort-counts.md), steps 2 and 3, in the Cohort Builder repo (`~/Projects/openmrs-esm-cohortbuilder-app`), on local branches of Paul's fork, `pbiondich/openmrs-esm-cohortbuilder-app` (remote `fork`). Nothing is pushed. Step 1, the benchmark, is being run separately. The choices are in `docs/decisions.md`, under "Building cohort counts, steps 2 and 3". The omnibar's code doesn't change: this repo gets only docs.
+
+The fork already existed, and its `feat/omnibar-providers` already held `b8b1440` (the URL door) and the four archived providers ported onto contract 1, so, by Paul's choice, the work builds on them. By Paul's later message, the count row is a navigate-lane row under the ordinary default rules, not the answer lane, and the host gets no opt-out from the default highlight. The host already accepts a second report for an unchanged query (`useResultCollector` keeps the newer report unless it is the same), so "Counting…" then the number needed no host fix.
+
+`feat/url-definition`, from `b8b1440`:
+
+| Change | Commit |
+| --- | --- |
+| Any invalid link shows "This link isn't a valid cohort query" and never the reason, which can quote the link. The decoder's 20 reason keys leave `en.json` | 77ca89f, 1d34759 |
+| A link's history entries are described in the builder's own words (each tab's `getDescription`, ANDed for the composition); its `label` is accepted but never shown | ede8edd, f2053c9 |
+| An `encounter` criterion, `{ type: 'encounter', encounterTypes: [uuid…] }` (1 to 10), searched and described as the Encounters tab does with only types chosen, named from `encountertype/<uuid>` | d1812fa, 4d4f2ad |
+| `encodeDefinition` beside the decoder (the same code as the fork's `dc147c7`, so the later merge is clean), and criteria → encode → decode → the same criteria, and the same link, over the golden fixtures | bea9987, 853289e |
+| The builder README's link section | 0844798 |
+
+`feat/omnibar-providers`, the fork's branch with `feat/url-definition` merged in (59fe6ca):
+
+| Change | Commit |
+| --- | --- |
+| The contract folder copied again, unchanged, from omnibar 31f7148 (`main`), pinned by hash, with this repo's import rule checked there too | 6369418, cf5800b |
+| The parser reads "how many", "count", "number of", "total", "what", "there", "have/had/has/having" as stopwords, and encounter types from the new `omnibar.encounterTypes` (none ship) as "<alias> encounter" | 85ee672, 44ff36f |
+| `composeQueries`: the Composition tab's composition, with its #744 renumbering, over queries in hand; `createCompositionQuery` now shares it | 9a5160c, 05fd242 |
+| `omnibar-cohort-count-provider` (order 20, navigate lane, global scope, Get Patients and Run Reports, `/cohort` and `/count`) replaces `omnibar-cohort-criteria-provider`. "Counting…", then "N patients" in the host's locale, with the builder's description as subtitle; the target is the builder's `?definition=` link. `definitionSearch` builds the same query the link runs last. A program enrollment alone is counted with `GET reportingrest/cohort/<patientsWithEnrollment>?v=ref&programs=…`; anything else with `POST adhocquery?v=rowFilters` and no columns. Counting waits `omnibar.countDebounceMs` (600) of a still definition, aborts on a new one, and is remembered for the session by day and link | c6ba10b, 5ba46d4 |
+| The builder README's omnibar section | 52c2ed3 |
+
+### Review round 1 (independent code review and security review, Claude): no blockers from either
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should: the count cache is module-level, so after a logout without a page load the next user on the workstation could be shown the last user's count without the server being asked | Counts are remembered per logged-in user, read from the framework's session store (not `useSession`, which suspends); another user, or none, starts afresh, and an answer is kept only if the user who asked is still the one logged in | 4221726, 32e8dbc |
+| security, should: `adhocquery?v=rowFilters` sends the matching internal patient ids, for the composition and each of its filters, to the browser, though only their number is read | Not removable without a server change. The resource's comment says so; the GET path for a lone enrollment returns only the count; `v=count` on `adhocquery` is step 5 of the brief | 32e8dbc |
+| code, nit: `readLinkRequest` turns any error into the invalid-link message, which would hide a bug | A non-`LinkError` logs its name (not its message, which could quote the link) before the plain message | 6b31bfc, merged at f966e18 |
+
+Not fixed, and why:
+
+- code, should: a drug group's subtitle says "Patients who taking 13 drugs …", not "ARVs". The subtitle is the builder's own `getDescription` text, which has no drug-group idea; the group's label would describe the count in words the builder doesn't show after Enter. Drug criteria are off by default until the server can run them; revisit then.
+- code, nit: `enrollmentPrograms` relies on a JSON round trip to drop the parameters the tabs leave undefined. It carries a comment saying so.
+
+### Review round 2 (re-check of round 1's fixes, code and security, Claude): no blockers from either
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, should, and security, nit: `remember` refused to keep a count answered after the user changed, but the row still showed it, and with the key unchanged it stayed shown to the new user | An answer or error asked for by a user no longer logged in is dropped, and the count is asked again for the user logged in now. Tested with a switch while the request is in flight: the first user's number is never reported | 7a10da4, 3071a8f |
+| code, nit: `initial()` may clear the previous user's counts while rendering | A comment: repeating it changes nothing, so a replayed render can't lose or loop | 3071a8f |
+| security, should (server): `adhocquery?v=rowFilters` evaluates only cohort definitions, which reporting gates on Get Patients, so a user with Get Patients but not Run Reports can call it directly and get patient ids. Round 1's report had it as Run Reports; it corrected itself | Not this change's to fix: the gap is in reportingrest, and the count row asks for both privileges. Noted for the `v=count` proposal (step 5), which should add a Run Reports check on that path | — |
+
+### Review round 3 (re-check of round 2's fix, code and security, Claude): no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, should (borderline): a session that changed user on every answer would ask again without end, one request per round trip, though never showing a count to the wrong user | At most three re-asks, then a plain error. Tested with the user changing during every request: four requests, then the error | 181cc5e, fd8b2a4 |
+
+- Tests: `feat/url-definition` 173 at `b8b1440`, 198 after; `feat/omnibar-providers` 589. `yarn verify`: `Tasks: 3 successful, 3 total` on both branches. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit, on both.
+- reportingrest and reporting APIs read in source (`master`, 2026-10-18): `EvaluatedResource.getEvaluationContextWithParameters`, `EvaluatedCohortResource`, `AdHocQueryResource`, `BuiltInCohortDefinitionLibrary`, `MappedParametersQuery`, the services' `@Authorized`. Assumed, not run: the GET converts a program uuid to a `Program`, and `v=rowFilters` answers `{ result: { memberIds } }`. Step 1 checks both on o3.
+- No new origin: every request goes through `openmrsFetch` to the OpenMRS server.
+- `feat/url-definition` merges onto the builder's `main` without conflicts; it is in [`docs/upstream/`](docs/upstream/) as a proposal, not opened upstream.
+- Tried live on o3 on 2026-10-19 at 0f2daad, after the round below; see "Deploy" at the end of this section.
+
+### Review round 4 (Grok 4.7 Fast xhigh, code and security, on fd8b2a4): REQUEST CHANGES
+
+The branches came from Paul's machine as a git bundle, as `m5/feat/url-definition` (6b31bfc) and `m5/feat/omnibar-providers` (fd8b2a4) on hermes. The fixes are new commits on `m5/feat/omnibar-providers`, by Opus. Nothing was rewritten and nothing is pushed.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| blocking: a count already on screen stayed there when the logged-in user changed. Round 2 covered only an answer still in flight; the hook never followed the session, and the key didn't change | The hook follows the session user. On a change the row shows "Counting…", the user's counts are cleared, the request is aborted and the count is asked again for the new user, without waiting out the debounce again. Tested on one mounted row: user A's settled "7 patients" is never shown to user B | 0bb747d, bce4a53 |
+| should: `yarn extract-translations` deleted `omnibarCommand.cohort.aliases`, `.label` and `.description` from `en.json`, since nothing calls `t()` with them and `keepRemoved` didn't match, and added `viewFailed` from the vendored contract folder | `keepRemoved` also matches `/^translations:omnibarCommand(\.\|$)/` (the reviewer's regex without `$` never matched the bare parent key), and the extract no longer scans `src/omnibar/omnibar-contract/`. A test runs the real extract on a copy of `en.json` and expects it unchanged | 41e22f2, d553208 |
+| should: a 4xx or 5xx reply was a plain error, not "Unavailable right now" as the brief says | A failed `openmrsFetch` reports `status: 'error'` with `detail.state: 'unavailable'`, never the server's text. An answer that can't be read, and the give-up after three re-asks, stay plain errors | aef0d64, 0f2daad |
+
+Not fixed, and why (nits, left for later or for Paul):
+
+- nit: `countDebounceMs` accepts 0, which would count per keystroke.
+- nit: the day in the cache key doesn't change at midnight while the row stays mounted.
+- nit: `CohortCriteriaFallbackParser` is exported and unused. Kept as the slot the brief asks the design to leave for a model fallback.
+- open, for Paul: the default highlight, a bare program word, and the under/over endpoints. See Open in `docs/decisions.md`.
+
+Re-check of fd8b2a4..0f2daad (Grok): APPROVE WITH NITS. One nit: the new user-change test settles the timers after the switch, so it would still pass if the re-ask waited the full 600 ms.
+
+- Tests: 592 at 0f2daad (39 files). `yarn test`, `lint`, `typescript`, `build` and `extract-translations` pass, and the tree stays clean after the extract.
+- The contract folder is byte-identical to omnibar `main` at 014c01c.
+- The built bundle's absolute URLs are library doc strings only, the same set as 6168e3b. No new origin.
+
+### Deploy: cohort-builder-0f2daad live on o3
+
+Paul approved the deploy at 10:59 PM PT on 2026-10-18. Homelab switched o3 over at 8:36 AM ET on 2026-10-19, from cohort-builder-6168e3b, which is the rollback point. One versioned directory and the importmap and routes overrides changed. There was no restart and no config change, and the omnibar (014c01c) and chartsearchai (1982021) are unchanged. In the routes entry, only `omnibar-cohort-criteria-provider` became `omnibar-cohort-count-provider`, with `meta.command` `{ id: 'cohort', aliases: ['cohort', 'count'] }`.
+
+Smoke tests as admin, with Playwright:
+
+1. Pass. "how many women aged 15-49 enrolled in HIV?" shows one row: "Counting…", then "0 patients". The subtitle reads "Female Patients with ages between 15 and 49 years that are alive AND Patients enrolled in HIV Care and Treatment". There was one `adhocquery?v=rowFilters` 0.77 s after the last keystroke, and no request per keystroke. The demo data has no HIV enrollments. "how many women aged 15-49" gives 1,296, also through `rowFilters`, as decided for demographics.
+2. Pass. "/" lists Cohorts, `/cohort` `/count`, first. Either alias picks the chip, and under it "women aged 15-49" shows only the count row.
+3. Pass. Enter opens `cohort-builder?definition=…`, and the builder shows the same totals (1,296 and 0).
+4. Pass. `?definition=garbage` shows "This link isn't a valid cohort query" once, without quoting the link.
+5. Pass. In a chart there's no count row and no reportingrest call. `/cohort` is listed greyed, "Not available inside a chart", and can't be chosen. The step 3 checks (`hb`, a question to ChartSearch, `/ask`) still pass.
+6. Saved cohorts pass. Saved queries weren't tested: o3 has none, and saving one is a database write.
+7. Pass. No origin other than o3.pgb.md, no page errors, and only the known console lines.
+
+Not run: the second-user check on one tab, since no users may be created on o3.
+
+Seen, cosmetic: the invalid-link notification stretches into a full-height left column and pushes the builder's panels right.

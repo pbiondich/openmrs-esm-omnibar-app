@@ -194,6 +194,39 @@ Choices made while building PR 2 (`feat/slash-commands-query-results`).
 **A count row says what it counted.** The row's subtitle is the interpreted criteria in the builder's own description words, and a phrase the parser can't fully read gives no row rather than a guess. "On ART" and other drug phrases give nothing until the drug-order criterion is live.
 *Why:* "HIV patients" by program enrollment, by a coded obs and by an active ARV order are three different populations with three different numbers. Choosing between them is a refinement, which is the builder's job; the bar's job is to be plain about which one it counted.
 
+### Building cohort counts, steps 2 and 3
+
+Choices made while building [the cohort counts brief](briefs/2026-10-18-cohort-counts.md), steps 2 and 3, in the Cohort Builder repo. Step 1, the benchmark, is being run separately, so the numbers below that depend on it are starting points.
+
+**The work builds on the fork's existing branches (Paul, 2026-10-18).** The brief assumed `pbiondich/openmrs-esm-cohortbuilder-app` and `b8b1440` weren't there; the fork existed, and its `feat/omnibar-providers` already had `b8b1440` (the URL door), the four archived providers ported onto contract 1, and form fixes from Paul's and Hermes's sessions. So `feat/url-definition` starts at `b8b1440` and is brought up to the brief, and `feat/omnibar-providers` is the fork's branch with `feat/url-definition` merged in and the count provider added.
+*Why:* rebuilding from `main` would have thrown away reviewed work and later fixes for the same result.
+
+**The count row is a navigate-lane row under the ordinary default rules (Paul, 2026-10-18).** Not the answer lane, and no host opt-out from the default highlight. This supersedes the brief's "meta.lane 'answer'" and "a count row never takes the default highlight".
+*Why:* the host draws only answer text in the answer lane: no row, nothing arrow keys or Enter reach, and no "Unavailable right now". The brief's "never the default" was a reflex from the in-chart fail-closed rule; the provider is global-scope only, where any navigate row may be the default, and if "how many patients under 30" puts the count row first, Enter opening the builder with that definition is the right outcome. So the omnibar needs no code change for it.
+
+**The count row replaces the "Build cohort" row (Paul, 2026-10-18).** `omnibar-cohort-criteria-provider` leaves the builder's `routes.json`; `omnibar-cohort-count-provider` takes its order, 20. The builder-by-name, saved cohorts and saved queries rows stay.
+*Why:* both rows parse the same text into the same link, so the bar would show two rows for one definition.
+
+**A link's descriptions are the builder's own words; its `label` is never shown.** The history entries a `?definition=` link adds are described by each search tab's `getDescription`, ANDed for the composition, and the count row's subtitle is the same text. `label` is still accepted, so older links open.
+*Why:* "A count row says what it counted": a label in a link is text anyone can write, so it could call one population another.
+
+**Any invalid link shows one plain message.** "This link isn't a valid cohort query", never which part was wrong. A valid link whose search fails still says which search failed, in the builder's words.
+*Why:* the reason can quote the link (an unknown key, for one), and anyone can write a link.
+
+**Counting waits 600 ms of a still definition.** `omnibar.countDebounceMs`, default 600, on top of the host's 200 ms. The wait is per parsed definition, not per keystroke, so rewording ("how many …") doesn't restart it. Counts are remembered for the session, keyed by the day and the link.
+*Why:* a guess until step 1 measures the count calls on o3; set it from the benchmark's warm p50.
+
+**What the GET can carry: only a program enrollment on its own.** `GET reportingrest/cohort/<key>?v=ref` makes every required parameter mandatory (`EvaluatedResource.getEvaluationContextWithParameters`), and the built-in age definitions require `effectiveDate` and `encounterSearchAdvanced` requires all eight of its parameters, which the builder never sends. Only `patientsWithEnrollment` has `programs` as its one required parameter, passed as repeated `programs=<uuid>` query parameters. Everything else, including every demographics criterion (gender, age and "alive" are separate filters), goes through `adhocquery?v=rowFilters` with no columns, which leaves missing parameters open as the builder's own search does.
+*Why:* read in reportingrest and reporting `master`, 2026-10-18. Assumed, not run: that the GET converts a program uuid to a `Program` (`ConversionUtil`), and that `v=rowFilters` answers `{ result: { memberIds } }` as `AdHocRowFilterResults` serializes. Step 1 checks both on o3. `rowFilters` also returns each filter's own id set, so a demographics count still moves an id per living patient until `v=count` (step 5).
+
+**A link still runs on load; no "land without running" option yet.** The brief left that option to step 1. Not built.
+
+**`drugCriteriaEnabled` stays at the top of the builder's config**, not under `omnibar` as the brief lists it. Set on the fork earlier, and o3's config already uses it there.
+
+**Encounter types are read as "<alias> encounter", and none ship.** `omnibar.encounterTypes` defaults to empty: encounter type uuids are site content, and guessing the demo's would be wrong elsewhere.
+
+**The count needs Run Reports as well as Get Patients.** Reporting's `CohortDefinitionService.evaluate` checks Get Patients; Run Reports is what the builder's own search needs (`DataSetDefinitionService.evaluate`), so a user who can't use the builder never sees a count, however small.
+
 ## Open
 
 These came up but aren't decided yet.
@@ -201,4 +234,10 @@ These came up but aren't decided yet.
 - **Two values on the same date.** When a patient has two results for the same concept on the same date, should the dropdown show the most recently entered one, or say "2 results on this date"?
 - **Query results layout.** One merged page with a section per provider, or tabs by kind (values, notes, orders, answer)?
 - **Privileges for the query store's patient endpoints.** Is Get Patients enough, or Get Observations too? The provider's `routes.json` must match what the server requires (plan question 10).
+- **The count row takes the default Enter highlight.** Outside a chart it's often the first row, so Enter opens the builder, which runs the full member list. That's against the brief's "never the default", as decided above, because contract 1 has no flag for a row to opt out. Keep it now that it's live, or add an opt-out to the contract? Paul to decide.
+- **"How many HIV patients?"** The parser still reads a program only after "enrolled in" or before "program", so "HIV patients", "in HIV" and "patients with HIV" give no count row. Reading a bare program alias as enrollment would answer the brief's own example, saying in the subtitle that it counted enrollment, but it's a wider grammar than the archived parser allowed. Paul to decide.
+- **Do "under" and "over" include the endpoint?** Today "under 30" is 29 and younger and "over 40" is 41 and older, which the builder's form then shows. The brief doesn't say. Paul to decide.
+- **"cohort" in Patient lists' keywords.** The brief drops it from the Patient lists destination so "cohort" gives one row. Not built. Paul to decide whether it's still wanted with `/cohort` in place.
+- **`/cohort` inside a chart.** It's listed greyed, "Not available inside a chart", as `/lab` is outside one, rather than hidden. It can't be chosen. Keep or hide? Paul to decide.
+- **The invalid-link error layout.** On o3 the notification for an invalid link stretches into a full-height left column and pushes the builder's panels right. Cosmetic, in the builder. Fix in the builder, or leave for upstream? Paul to decide.
 - **When to warm a chart.** On every chart open, as built, or on the first omnibar open, as the plan recommended? Round 1's slow cold starts argue for indexing ahead of time either way (plan question 12).

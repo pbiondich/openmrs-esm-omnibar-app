@@ -37,7 +37,8 @@ Each scenario is marked with where it stands: **Prototype** means the code exist
 | nothing yet | Recently viewed patients. | Prototype |
 | `Mary Achieng` or an ID | Matching patients, plus a link to the full search page. | Prototype |
 | "how do I do x feature?" | An answer from a knowledge base. | Planned |
-| `patients over 40 on ART` | Ideally, a numeric answer to the cohort query.  Hitting return opens the Cohort Builder pre-filled with the age and drug criteria, with the criteria spelled out before anything runs. | Planned |
+| `how many women aged 15-49 enrolled in HIV?` | A count row: "Counting…", then "1,204 patients", with what was counted in the Cohort Builder's own words underneath ("Female Patients with ages between 15 and 49 years that are alive AND Patients enrolled in HIV Care and Treatment"). Enter on it opens the Cohort Builder with the same definition, which lists the patients and fills in its forms for refining. Text the parser can't fully read gives no row. From the Cohort Builder's own app, outside a chart only. | Live on o3, from local branches of the Cohort Builder fork (cohort-builder-0f2daad) |
+| `patients over 40 on ART` | The same, once the drug-order criterion is live on the server and `drugCriteriaEnabled` is on. Until then, no row. | Planned |
 
 ### Inside a patient record
 
