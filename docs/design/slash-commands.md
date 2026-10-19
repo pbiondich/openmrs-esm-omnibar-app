@@ -1,6 +1,6 @@
 # Slash commands
 
-Design agreed with Paul on 2026-10-18, after the first Query results prototype (PR #12) and the round 3 decision (PR #17). Not yet built; the brief is [`docs/briefs/2026-10-18-slash-commands.md`](../briefs/2026-10-18-slash-commands.md). Where this document and the README's two slash-command sections differ, this document is current. The decisions it rests on are in [`docs/decisions.md`](../decisions.md).
+Design agreed with Paul on 2026-10-18, after the first Query results prototype (PR #12) and the round 3 decision (PR #17). The bar side is built (`feat/slash-commands`), with the choices it made in [`docs/decisions.md`](../decisions.md); the Query results slice is next. The brief is [`docs/briefs/2026-10-18-slash-commands.md`](../briefs/2026-10-18-slash-commands.md). Where this document and the README's two slash-command sections differ, this document is current. The decisions it rests on are in [`docs/decisions.md`](../decisions.md).
 
 ## What a command is
 

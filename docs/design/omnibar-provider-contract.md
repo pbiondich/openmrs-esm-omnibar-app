@@ -72,6 +72,7 @@ Privileges are the framework's job: the host never checks them. Implementers tur
 | `contract` | `number` | no, *new in v1* | The contract major version the provider was built against. Missing means 1. Declare it anyway |
 | `skipIdentifierQueries` | `boolean` | no, *new in v1* | Not mounted while the query [looks like an identifier](#hints), so a scanned MRN never reaches its server. Its group disappears for that query. Patient search must not set it |
 | `dedupeKey` | `string` | no, *new in v1* | Providers that may find the same record share a key. See [dedupe](#dedupe) and the [key registry](#dedupe-keys) |
+| `command` | `{ id: string; aliases: Array<string> }` | no, *new in v1* | The [slash command](#slash-commands) the provider answers. See the [command registry](#command-registry) |
 
 ## Props (`OmnibarProviderProps`)
 
@@ -93,10 +94,27 @@ Every *new in v1* prop and field is optional. A provider must work without them,
 | `patientUuid` | `string` | Set only when `scope` is `patient` |
 | `locale` | `string` | The user's locale |
 | `workspaceGroup` | `{ groupName: string; patientUuid?: string } \| null` | *New in v1.* The workspace group that is open, such as the chart's side panel, and for which patient. `null` when none is. `patientUuid` is there only when the group was opened with a string one. Missing on older hosts |
+| `command` | `{ id: string }` | *New in v1.* The slash command the user chose, such as `{ id: 'lab' }` for `/lab cd4`. Only providers that declare that id are mounted under it, so a provider sees only its own. Missing for plain text and on older hosts |
 
-A change of `scope` or `patientUuid` clears everything on screen and remounts every provider, so a query never runs against the wrong patient. A change of `workspaceGroup` doesn't: providers re-render with the new value, and the results, the highlight and the mounts stay.
+A change of `scope`, `patientUuid` or `command` clears everything on screen and remounts every provider, so a query never runs against the wrong patient. A change of `workspaceGroup` doesn't: providers re-render with the new value, and the results, the highlight and the mounts stay.
 
 A provider that needs the side panel (ChartSearch) checks `context.workspaceGroup`. When it is `undefined`, the host is older: don't offer what needs the side panel. A provider never reads the framework's `workspace2` store, not even once: it isn't a framework export. The provider knows the name of its own workspace's group itself; the built-in ChartSearch row takes it from its config (`chartSearchSuggestion.workspaceGroupName`, default `patient-chart`).
+
+### Slash commands
+
+A provider may declare the command it answers in `meta.command`. `id` is stable lower-case ASCII (letters, digits and hyphens, starting with a letter, at most 32), never shown and never translated; URLs and config use it. `aliases` are the English names typed after the slash, one word each, without the slash. Translated aliases, the label shown on the chip and in the list, and the list's one-line description come from the provider module's translations, under `omnibarCommand.<id>.aliases` (comma-separated), `.label` and `.description`. Without a label, the chip shows the first alias. The host reads all of it as data: an id or alias that doesn't fit the pattern is dropped, and labels and descriptions are plain text, cut to 40 and 120 characters.
+
+```json
+"meta": { "lane": "record", "scopes": ["patient"], "contract": 1, "command": { "id": "lab", "aliases": ["lab", "labs", "results"] } }
+```
+
+- When the user chooses a command, the host mounts only the providers that declare its id, under every other rule here as well (scope, `skipIdentifierQueries`, `contract`, privileges), and passes `context.command`. While the user is still typing `/` and a word, it mounts none. Every provider still runs for plain text.
+- `query` is the text after the command, and may be empty: do what you do for an empty field.
+- Several providers may declare the same id. Their aliases are merged; the label and description come from the first in slot order whose module has them.
+- A command is listed, greyed out, but can't be chosen in a scope none of its providers declares. Commands never widen the scope.
+- The default highlight, dedupe and the fail-closed rules are the same as for plain text.
+- Inside a chart, Enter sends the command to Query results (`?cmd=<id>&q=<query>`) only when a [view](#query-results-views-new-in-v1) declares it; otherwise Enter opens the highlighted row. Only a plain query or `ask` marks the submission, so no other command lets a view call a model on its own.
+- Implementers add, replace or disable aliases by id in the omnibar's `commands` config. An alias claimed for two ids goes to the one set in config, then to the first provider in slot order; the conflict is logged and listed by `getOmnibarCommandConflicts()`.
 
 ### `hints` (`OmnibarQueryHints`)
 
@@ -217,6 +235,7 @@ Pressing Enter on a query inside a chart opens the chart's **Query results** sec
 | `order` | Lower comes first. Defaults to 100. The built-in views use the provider numbers: chart values 10, Ask ChartSearch 100 |
 | `contract` | As for providers: missing means 1, and a host mounts only versions it speaks |
 | `skipIdentifierQueries` | As for providers: not mounted while the query looks like a patient identifier |
+| `command` | `{ id: string }`. The slash command this view shows results for; aliases are the bar's. The bar sends a command to Query results only when a view declares it. *The page doesn't read the command yet: until it does, every view mounts under a command, as for plain text.* Built in: chart values declares `lab`, Ask ChartSearch `ask` |
 
 **Props (`OmnibarViewProps`)**
 
@@ -263,6 +282,17 @@ The host ranks by lane, then by `order`. Now that several apps pick numbers, thi
 | 15 | Querystore chart search (record lane, after the REST chart values) |
 | 20-50 | Cohort Builder: criteria 20, builder 30, saved cohorts 40, saved queries 50 |
 | 100 | Suggestions (ChartSearch) |
+
+## Command registry
+
+Command ids, like dedupe keys, are shared across apps. Register new ones here.
+
+| Id | Default aliases | Providers | Views |
+| --- | --- | --- | --- |
+| `patient` | patient, pt, find | Patient search | none |
+| `lab` | lab, labs, results, obs, value | Chart lookup, query store chart | Chart values |
+| `go` | go, open, page | Destinations | none |
+| `ask` | ask, question | ChartSearch suggestion, which under it offers the side-panel row for any text | Ask ChartSearch |
 
 ## Dedupe keys
 
