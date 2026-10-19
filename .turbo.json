@@ -2,11 +2,11 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
-      "outputs": ["dist/**", "packages/esm-querystore-app/dist/**"]
+      "outputs": ["dist/**"]
     },
     "lint": {},
     "extract-translations": {
-      "outputs": ["./translations/*", "./packages/esm-querystore-app/translations/*"]
+      "outputs": ["./translations/*"]
     },
     "test": {},
     "coverage": {
