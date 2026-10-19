@@ -857,6 +857,22 @@ describe('slash commands in the bar', () => {
       expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(true);
     });
 
+    it('names the model on one line, without direction controls, and cut to 40 characters', async () => {
+      const user = userEvent.setup();
+      const spoofing = { ...consultView, meta: { ...consultView.meta, asksModel: ' Example\u202E\n  model ' } };
+      mount([], [...views, spoofing]);
+      const { unmount } = render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to ask Example model “cd4”' })).toBeInTheDocument();
+      unmount();
+
+      const long = { ...consultView, meta: { ...consultView.meta, asksModel: 'M'.repeat(60) } };
+      mount([], [...views, long]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: `Enter to ask ${'M'.repeat(39)}… “cd4”` })).toBeInTheDocument();
+    });
+
     it('keeps the command ordinary when another app’s view under the same id doesn’t set the flag', async () => {
       const user = userEvent.setup();
       const otherApp = {

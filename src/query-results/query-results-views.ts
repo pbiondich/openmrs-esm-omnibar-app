@@ -8,10 +8,13 @@ import {
   type OmnibarViewMeta,
 } from '../omnibar-contract';
 import { type OmnibarConfig } from '../config-schema';
-import { commandIdOf } from '../omnibar/commands';
+import { cleanText, commandIdOf } from '../omnibar/commands';
 import { speaksContractOf } from '../omnibar/omnibar.resource';
 
 const defaultViewOrder = 100;
+/** A model's name as the hint shows it: one line, no direction controls, at most this many characters. */
+const maxModelNameLength = 40;
+const modelNameOf = (meta: OmnibarViewMeta | undefined) => cleanText(meta?.asksModel, maxModelNameLength);
 
 /** The hints the page passes its views, worked out once per query. */
 export function queryHints(query: string, questionMinWords: number | undefined): OmnibarQueryHints {
@@ -37,11 +40,7 @@ export function modelCommandIds(views: Array<Pick<AssignedExtension, 'name' | 'm
     if (!id || !meta.scopes?.includes('patient') || !speaksContractOf(view.name, meta)) {
       continue;
     }
-    const asks =
-      meta.commandAsksModel === true &&
-      Array.isArray(meta.scopes) &&
-      typeof meta.asksModel === 'string' &&
-      meta.asksModel.trim() !== '';
+    const asks = meta.commandAsksModel === true && Array.isArray(meta.scopes) && modelNameOf(meta) !== undefined;
     (asks ? asking : ordinary).add(id);
   }
   return new Set([...asking].filter((id) => !ordinary.has(id)));
@@ -74,14 +73,13 @@ export function useAsksModel(query: string, command?: string | null): string | n
       .map((extension, index) => ({ meta: extension.meta as OmnibarViewMeta | undefined, extension, index }))
       .filter(
         ({ meta, extension }) =>
-          typeof meta?.asksModel === 'string' &&
-          meta.asksModel.trim() &&
+          modelNameOf(meta) &&
           meta.scopes?.includes('patient') &&
           (!command || commandIdOf(meta.command) === command) &&
           !(meta.skipIdentifierQueries && hints.looksLikeIdentifier) &&
           speaksContractOf(extension.name, meta),
       )
       .sort((a, b) => (a.meta.order ?? defaultViewOrder) - (b.meta.order ?? defaultViewOrder) || a.index - b.index);
-    return asking[0]?.meta.asksModel.trim() ?? null;
+    return asking[0] ? modelNameOf(asking[0].meta) : null;
   }, [assigned, query, command, questionMinWords]);
 }

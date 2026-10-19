@@ -60,7 +60,7 @@ const cleanAliases = (aliases: unknown): Array<string> =>
         .filter((alias): alias is string => Boolean(alias))
     : [];
 
-function cleanText(text: unknown, maxLength: number): string | undefined {
+export function cleanText(text: unknown, maxLength: number): string | undefined {
   if (typeof text !== 'string') {
     return undefined;
   }

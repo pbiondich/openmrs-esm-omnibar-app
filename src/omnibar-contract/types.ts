@@ -299,8 +299,8 @@ export interface OmnibarViewMeta {
   command?: { id: string; aliases?: Array<string> };
   /**
    * New in v1. The view may call a model for a query the user just submitted, and this is the name the
-   * bar's hint uses: "Enter to see all results for '…' and ask Example Assistant". Shown as written, so
-   * it is a product name, not a sentence. The bar says it only while the view is assigned to the user,
+   * bar's hint uses: "Enter to see all results for '…' and ask Example Assistant". Shown on one line,
+   * without direction controls and cut to 40 characters, so it is a product name, not a sentence. The bar says it only while the view is assigned to the user,
    * isn't skipped for the query and would mount for it (under a command, only a view declaring it);
    * the query looks like a question by the same test the host passes as `hints.looksLikeQuestion`, or,
    * under a command whose view sets `commandAsksModel`, is any text that isn't ID-shaped; and Enter
