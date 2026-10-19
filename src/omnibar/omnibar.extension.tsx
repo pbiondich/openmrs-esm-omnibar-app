@@ -46,6 +46,7 @@ import { type OmnibarConfig } from '../config-schema';
 import {
   OMNIBAR_CONTRACT_VERSION,
   OMNIBAR_QUERY_RESULTS_SLOT,
+  type OmnibarCompletion,
   type OmnibarContext,
   type OmnibarProviderMeta,
   type OmnibarProviderProps,
@@ -231,12 +232,33 @@ const Omnibar: React.FC = () => {
   // closed, so closing and opening it start new generations too.
   const contextKey = `${context.scope}:${context.patientUuid ?? ''}:${activeCommandId ?? ''}`;
   const scopePatientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
-  const { getReporter, clear, listGroups, answerGroups, selectable, unanswered } = useResultCollector(
+  const { getReporter, clear, listGroups, answerGroups, selectable, unanswered, firstCompletions } = useResultCollector(
     debouncedQuery,
     providerInfo,
     `${contextKey}:${open ? 'open' : 'closed'}`,
     scopePatientUuid,
   );
+
+  // Completions: track per-query dismissal (Escape). A new debouncedQuery un-dismisses automatically
+  // since `completionsDismissedFor !== debouncedQuery` for any query the user hasn't dismissed.
+  const [completionsDismissedFor, setCompletionsDismissedFor] = useState<string | null>(null);
+  const completionsDismissed = completionsDismissedFor === debouncedQuery;
+  const activeCompletions = useMemo(
+    () => (completionsDismissed ? [] : firstCompletions),
+    [completionsDismissed, firstCompletions],
+  );
+  const showCompletionStrip = open && activeCompletions.length > 0;
+
+  // Ghost text: shown when the first active completion's result is an extension of the live query.
+  const ghostText = useMemo(() => {
+    const first = activeCompletions[0];
+    if (!first || first.replace > debouncedQuery.length) return '';
+    const result = debouncedQuery.slice(0, debouncedQuery.length - first.replace) + first.insert;
+    if (result.toLowerCase().startsWith(query.toLowerCase()) && query.length < result.length) {
+      return result.slice(query.length);
+    }
+    return '';
+  }, [activeCompletions, debouncedQuery, query]);
 
   // Out-of-scope providers are dropped with `select`, never by returning null from the slot's render
   // function: ExtensionSlot renders `children(extension) ?? <Extension state={slotState} />`, so a null
@@ -361,11 +383,11 @@ const Omnibar: React.FC = () => {
 
   // A new query starts with nothing picked. A key kept from the old results could match a row in the
   // new ones, such as a patient who is also a recent, and Enter would open them.
-  const changeQuery = (value: string) => {
+  const changeQuery = useCallback((value: string) => {
     setQuery(value);
     setSelection(null);
     setCommandHighlight(null);
-  };
+  }, []);
 
   // Choosing a command leaves only the query in the field: the text after "/alias ", if any.
   const chooseCommand = (command: OmnibarCommandEntry, rest = '') => {
@@ -377,6 +399,18 @@ const Omnibar: React.FC = () => {
     setCommandId(null);
     setSelection(null);
   };
+
+  // Applying a completion replaces the last `replace` chars of the query with `insert`, then
+  // re-queries as if the user typed the new text. Un-dismisses any previous dismiss.
+  const applyCompletion = useCallback(
+    (completion: OmnibarCompletion) => {
+      const newQuery = query.slice(0, query.length - completion.replace) + completion.insert;
+      setCompletionsDismissedFor(null);
+      changeQuery(newQuery);
+      inputRef.current?.focus();
+    },
+    [query, changeQuery],
+  );
 
   // What the field holds is read for a command as it changes, so typing "/lab " or pasting
   // "/lab cd4" both choose the command.
@@ -608,6 +642,13 @@ const Omnibar: React.FC = () => {
         document.getElementById(`${listboxId}-${next.key}`)?.scrollIntoView({ block: 'nearest' });
         return;
       }
+      case 'Tab':
+        // Tab with completions showing takes the first (marked) one. Shift+Tab always moves focus.
+        if (!event.shiftKey && !event.nativeEvent.isComposing && activeCompletions.length > 0) {
+          event.preventDefault();
+          applyCompletion(activeCompletions[0]);
+        }
+        return;
       case 'Enter':
         // Enter that confirms an input method's composition isn't a submission.
         if (event.nativeEvent.isComposing) return;
@@ -627,7 +668,15 @@ const Omnibar: React.FC = () => {
   // Escape closes from anywhere in the bar, not only the field: Tab reaches the close and source
   // buttons. The tablet and phone sheet covers the page, so Tab wraps around inside it.
   // With a command chip, the first Escape takes it off and keeps the text.
+  // Escape with completions showing dismisses them for this query first; a second Escape then
+  // removes a command chip or closes the bar as usual.
   const onContainerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' && showCompletionStrip) {
+      event.preventDefault();
+      setCompletionsDismissedFor(debouncedQuery);
+      inputRef.current?.focus();
+      return;
+    }
     if (event.key === 'Escape' && open && activeCommand) {
       event.preventDefault();
       removeCommand();
@@ -852,34 +901,43 @@ const Omnibar: React.FC = () => {
             </button>
           </span>
         )}
-        <input
-          ref={inputRef}
-          className={styles.input}
-          value={query}
-          placeholder={activeCommand ? t('commandQueryPlaceholder', 'Type what to look for') : placeholder}
-          onChange={(event) => {
-            onFieldChange(event.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={listboxId}
-          aria-autocomplete="list"
-          aria-activedescendant={
-            listing
-              ? highlightedCommand
-                ? `${listboxId}-command-${listedCommands.indexOf(highlightedCommand)}`
-                : undefined
-              : selected
-                ? `${listboxId}-${selected.key}`
-                : undefined
-          }
-          aria-label={placeholder}
-          autoComplete="off"
-          spellCheck={false}
-        />
+        <span className={styles.inputWrapper}>
+          {ghostText && (
+            <span className={styles.ghostOverlay} aria-hidden="true">
+              <span className={styles.ghostPrefix}>{query}</span>
+              <span className={styles.ghostSuffix}>{ghostText}</span>
+            </span>
+          )}
+          <input
+            ref={inputRef}
+            className={styles.input}
+            value={query}
+            placeholder={activeCommand ? t('commandQueryPlaceholder', 'Type what to look for') : placeholder}
+            onChange={(event) => {
+              onFieldChange(event.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={onKeyDown}
+            role="combobox"
+            aria-expanded={open}
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            aria-activedescendant={
+              listing
+                ? highlightedCommand
+                  ? `${listboxId}-command-${listedCommands.indexOf(highlightedCommand)}`
+                  : undefined
+                : selected
+                  ? `${listboxId}-${selected.key}`
+                  : undefined
+            }
+            aria-label={placeholder}
+            aria-describedby={showCompletionStrip ? `${listboxId}-completion-announce` : undefined}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </span>
         {!open && desktop && appearance === 'field' && <kbd className={styles.shortcut}>{shortcutHint}</kbd>}
         {open && desktop && appearance === 'icon' && (
           <button
@@ -910,6 +968,39 @@ const Omnibar: React.FC = () => {
 
       {open && (
         <div className={styles.panel}>
+          {showCompletionStrip && (
+            <div className={styles.completionStrip}>
+              {/* Polite announcement for screen readers. */}
+              <span
+                id={`${listboxId}-completion-announce`}
+                className={styles.completionAnnounce}
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {t('tabToComplete', 'Tab to complete: {{label}}', {
+                  label: activeCompletions[0].label ?? activeCompletions[0].insert,
+                  interpolation: { escapeValue: false },
+                })}
+              </span>
+              {activeCompletions.map((completion, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className={classNames(styles.completionItem, { [styles.completionItemTab]: index === 0 })}
+                  tabIndex={-1}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applyCompletion(completion)}
+                >
+                  <span dir="auto">{completion.label ?? completion.insert}</span>
+                  {completion.detail && (
+                    <span className={styles.completionDetail} dir="auto">
+                      {completion.detail}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
           {context.scope === 'global' && chartPatientUuid && (
             <button type="button" className={styles.scopeNotice} onClick={narrowToPatient}>
               {t('backToChart', 'Search only {{name}}’s chart', {

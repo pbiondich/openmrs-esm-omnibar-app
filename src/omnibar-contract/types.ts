@@ -200,6 +200,38 @@ export interface OmnibarAnswer {
   sources: Array<OmnibarSource>;
 }
 
+/**
+ * A completion a provider offers for the current query, new in v1 and optional. The host replaces
+ * the last `replace` characters of the query with `insert` and does nothing else: no navigation,
+ * no write, no model call. Hosts from before completions were added ignore this field. The host
+ * shows the completions of the first provider (lane, then order) that reports any for the current
+ * query.
+ */
+export interface OmnibarCompletion {
+  /**
+   * The text to insert. Replaces the last `replace` characters of the query. Must be 1–120
+   * plain-text characters on one line (no direction controls, no `\n`, `\r` or other C0/DEL
+   * control characters).
+   */
+  insert: string;
+  /**
+   * How many characters to replace from the end of the query (0 appends). Must be a whole number
+   * from 0 to the current query's length. The resulting text must not start with "/" (to prevent
+   * unintentionally opening the slash-command list) and must differ from the current query.
+   */
+  replace: number;
+  /**
+   * Short label shown in the completions strip instead of `insert`. One line of plain text, cut to
+   * 200 characters.
+   */
+  label?: string;
+  /**
+   * Muted detail shown after the label (or `insert`) in the completions strip. One line of plain
+   * text, cut to 200 characters.
+   */
+  detail?: string;
+}
+
 export interface OmnibarReport {
   /** The query these results answer. Reports for any other query are discarded as stale. */
   query: string;
@@ -219,6 +251,13 @@ export interface OmnibarReport {
    * in contract 1, as do hosts from before contract 1 was published.
    */
   detail?: OmnibarReportDetail;
+  /**
+   * Text completions for the current query, new in v1 and optional. The host shows those from the
+   * first provider (lane, then order) that reports any. Tab takes the first (marked) completion;
+   * clicking or tapping takes any one. Escape dismisses them for this query. The host validates
+   * every completion and keeps at most five. Hosts from before this field was added ignore it.
+   */
+  completions?: Array<OmnibarCompletion>;
 }
 
 export interface OmnibarReportDetail {

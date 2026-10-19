@@ -80,7 +80,7 @@ Typing `/` on its own lists the available commands, and typing on filters them. 
 
 ### Everywhere
 
-The field is visible in the header on desktop. For now, on tablet and phone it's a field-shaped button that opens a full-screen search (this still feels too buried to me atm tbh!).  Implementations that prefer today's collapsed magnifier can keep it with one line of config. Arrow keys move through results, Enter opens one, Escape closes.
+The field is visible in the header on desktop. For now, on tablet and phone it's a field-shaped button that opens a full-screen search (this still feels too buried to me atm tbh!).  Implementations that prefer today's collapsed magnifier can keep it with one line of config. Arrow keys move through results, Enter opens one, Escape closes. When a provider offers completions, a strip appears below the field: **Tab** takes the first one (applying it as new query text), **Escape** dismisses the strip (a second Escape closes the bar), and clicking or tapping any strip item applies it. Ghost text shows the first completion's suffix in muted colour when it extends the current query.
 
 ## How it works
 

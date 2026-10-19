@@ -6,6 +6,7 @@ import { looksLikeIdentifier } from '../omnibar-contract';
 import {
   OMNIBAR_CONTRACT_VERSION,
   OMNIBAR_SELECTED_EVENT,
+  type OmnibarCompletion,
   type OmnibarLane,
   type OmnibarPatient,
   type OmnibarProviderMeta,
@@ -209,12 +210,13 @@ export function cleanReport(report: unknown): OmnibarReport | null {
   if (!isObject(report) || typeof report.query !== 'string' || typeof report.title !== 'string') {
     return null;
   }
-  const { results, answer, detail } = report;
+  const { results, answer, detail, completions } = report;
   if (results !== undefined && !Array.isArray(results)) {
     return null;
   }
+  const query = report.query;
   return {
-    query: report.query,
+    query,
     status: report.status as OmnibarReport['status'],
     title: plainText(report.title),
     results: Array.isArray(results)
@@ -241,6 +243,63 @@ export function cleanReport(report: unknown): OmnibarReport | null {
       isObject(detail) && typeof detail.state === 'string'
         ? { state: detail.state as OmnibarReportDetail['state'], note: plainTextOrNothing(detail.note) }
         : undefined,
+    completions: Array.isArray(completions)
+      ? completions
+          .slice(0, 20)
+          .map((comp) => cleanCompletion(comp, query))
+          .filter((comp): comp is OmnibarCompletion => comp !== null)
+          .slice(0, 5)
+      : undefined,
+  };
+}
+
+/** C0 control characters (U+0000–U+001F) and DEL (U+007F). */
+// \p{Cc} matches Unicode General Category Cc (control chars: C0 U+0000–U+001F, DEL U+007F, C1 U+0080–U+009F).
+const controlChars = /\p{Cc}/u;
+
+/** Cap `text` to at most `length` Unicode characters, appending … if cut. */
+function capTextTo(text: string, length: number): string {
+  const chars = Array.from(text);
+  return chars.length > length ? `${chars.slice(0, length - 1).join('')}…` : text;
+}
+
+/**
+ * A single completion in the shape the bar can use, or null to drop it. Validates all rules
+ * described in the contract: insert length, no control characters, replace within the query,
+ * result doesn't start with "/" and differs from the query, label/detail plain one-line text.
+ */
+function cleanCompletion(completion: unknown, query: string): OmnibarCompletion | null {
+  if (!isObject(completion)) return null;
+  const { insert, replace, label, detail } = completion;
+
+  if (typeof insert !== 'string') return null;
+  const cleanInsert = plainText(insert);
+  const insertChars = Array.from(cleanInsert);
+  if (insertChars.length < 1 || insertChars.length > 120) return null;
+  if (controlChars.test(cleanInsert)) return null;
+
+  if (!Number.isInteger(replace) || (replace as number) < 0 || (replace as number) > query.length) return null;
+
+  const resultText = query.slice(0, query.length - (replace as number)) + cleanInsert;
+  if (resultText.startsWith('/')) return null;
+  if (resultText === query) return null;
+
+  if (label !== undefined) {
+    if (typeof label !== 'string') return null;
+    const cleanLabel = plainText(label);
+    if (controlChars.test(cleanLabel)) return null;
+  }
+  if (detail !== undefined) {
+    if (typeof detail !== 'string') return null;
+    const cleanDetail = plainText(detail);
+    if (controlChars.test(cleanDetail)) return null;
+  }
+
+  return {
+    insert: cleanInsert,
+    replace: replace as number,
+    label: label !== undefined ? capTextTo(plainText(label as string), 200) : undefined,
+    detail: detail !== undefined ? capTextTo(plainText(detail as string), 200) : undefined,
   };
 }
 
@@ -508,7 +567,13 @@ export function useResultCollector(
     [reports, query, providerInfo],
   );
 
-  return { getReporter, clear, listGroups, answerGroups, selectable, unanswered };
+  // Completions from the first ranked provider that reports any for the current query.
+  const firstCompletions = useMemo<Array<OmnibarCompletion>>(
+    () => groups.find((group) => group.completions?.length)?.completions ?? [],
+    [groups],
+  );
+
+  return { getReporter, clear, listGroups, answerGroups, selectable, unanswered, firstCompletions };
 }
 
 export function getProviderOrder(
