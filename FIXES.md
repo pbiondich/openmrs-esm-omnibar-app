@@ -1339,7 +1339,7 @@ Seen, cosmetic: the invalid-link notification stretches into a full-height left 
 
 ## Feature: cohort phrases, a phrase table and the server's vocabulary (in the Cohort Builder's app)
 
-Paul asked for layers 1 and 2 of the plan for the variety of ways people ask for a cohort: a large phrase table for the words, and the server's own names for programs and encounter types (CIEL synonyms before any model). Built on the Cohort Builder fork's local branch `feat/cohort-phrases`, from `feat/omnibar-providers` at `fd8b2a4`. Nothing is pushed. Round 4's fixes at `0f2daad` (hermes) aren't on this machine yet, so this branch doesn't have them; it touches the count hook only to wire in the vocabulary. The choices are in `docs/decisions.md`, under "Cohort phrases: a phrase table and the server's vocabulary".
+Paul asked for layers 1 and 2 of the plan for the variety of ways people ask for a cohort: a large phrase table for the words, and the server's own names for programs and encounter types (CIEL synonyms before any model). Built on the Cohort Builder fork's local branch `feat/cohort-phrases`, from `feat/omnibar-providers` at `fd8b2a4`. Nothing is pushed. Round 4's fixes at `0f2daad` (hermes) came later by git bundle and are merged in; see the end of this section. The choices are in `docs/decisions.md`, under "Cohort phrases: a phrase table and the server's vocabulary".
 
 | Change | Commit |
 | --- | --- |
@@ -1381,3 +1381,10 @@ Not fixed, and why:
 - REST checked in source (`openmrs-module-webservices.rest` `master`): a concept name's representation has no voided flag, and pages default to 50, hence `limit=100`. Assumed, not run: that `concept:(names:(name,locale))` is accepted in a program's custom representation on o3.
 - No new origin: the two new requests go to the OpenMRS server through `openmrsFetch`.
 - Not tried on o3 or in a browser.
+
+### Round 4's fixes merged in
+
+Round 4's branch came from hermes as a git bundle (`m5/feat/omnibar-providers`, head `0f2daad`, verified with `git bundle verify`), fetched as the local branch `round4`, and merged into `feat/cohort-phrases` at `91e5e25`, with a merge, not a rebase. It builds on `fd8b2a4`, as this branch does, and merged without conflicts: its count-hook, extract and unavailable fixes don't touch the parser, the phrase table or the vocabulary.
+
+- Tests: 1,174 at `91e5e25`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
+- Still local: nothing is pushed.
