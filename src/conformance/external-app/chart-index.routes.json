@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.openmrs.org/routes.schema.json",
+  "extensions": [
+    {
+      "name": "chart-index-omnibar-provider",
+      "component": "chartIndexProvider",
+      "slot": "omnibar-providers-slot",
+      "privileges": ["Get Observations"],
+      "meta": { "lane": "record", "scopes": ["patient"], "order": 15, "defaultInChart": true, "contract": 1, "dedupeKey": "chart-values", "skipIdentifierQueries": true, "command": { "id": "lab", "aliases": ["lab", "labs", "results", "obs", "value"] } }
+    }
+  ]
+}
