@@ -166,7 +166,7 @@ Choices made while building PR 2 (`feat/slash-commands-query-results`).
 **A command fails closed unless the bar offers it here and a view declares it.** "Offers" means it is in the bar's alias table for a chart: declared by a provider this user has, and not disabled in config. So `?cmd=lab` with `lab` disabled fails closed, even though the chart values view declares it. `cmd=` with nothing, or anything that isn't a command id, fails closed too; only a URL with no `cmd` at all is a plain query.
 *Why:* the design lists a disabled command among the cases that fail closed, and the only way to know it's disabled is the bar's own table. Failing closed on junk keeps a malformed link from quietly becoming a plain query.
 
-**A refused page drops any "just asked" mark, and its plain-search link isn't marked.** Following the link shows the plain results with an Ask button rather than asking ChartSearch at once.
+**A refused page drops every "just asked" mark it could never take, and its plain-search link isn't marked.** Following the link shows the plain results with an Ask button rather than asking ChartSearch at once. A mark for the page's own command is kept, in case the command becomes available once a lazily loaded app registers its extensions; the page takes nothing while it refuses.
 *Why:* the user asked for a command, not for a model call on the plain text, so the link is a new page nobody asked a model on, like a bookmark.
 
 **The mark carries its command.** A mark made for `/ask cd4` is taken only by a page showing `cmd=ask&q=cd4`, and a plain one only by a page with no `cmd`. The bar and an earlier query chosen on the page still mark only a plain query or `/ask`; that PR 1 rule now backs up the view filtering.
