@@ -227,6 +227,15 @@ Choices made while building [the cohort counts brief](briefs/2026-10-18-cohort-c
 
 **The count needs Run Reports as well as Get Patients.** Reporting's `CohortDefinitionService.evaluate` checks Get Patients; Run Reports is what the builder's own search needs (`DataSetDefinitionService.evaluate`), so a user who can't use the builder never sees a count, however small.
 
+## 2026-10-19
+
+### Making the omnibar thin
+
+Decisions from [the thin-pass brief](briefs/2026-10-19-thin-pass.md): the bar keeps the shell, the slots, ranking and the contract, and stops knowing other apps by name.
+
+**The wristband scan on Enter stays with the built-in patient search only, as a deliberate safety exception (Paul, 2026-10-19).** For an ID-shaped query inside a chart, the one patient row that may take the default highlight is the one from `omnibar-patient-search-provider` in `@openmrs/esm-omnibar-app` (`builtInPatientSearch` in `omnibar.resource.ts`), holding exactly that identifier with no one else on screen. No `meta` flag grants it, and the contract gains none. Every other provider stays under the fail-closed rule: inside a chart a result naming another patient never takes the default.
+*Why:* a scanner types the ID and its own Enter at once, so whichever row holds the default is opened with no human look at it. The host can vouch for its own patient search, which matches identifiers exactly against the server's patient index. It can't vouch for another app's provider, and a grantable flag would let any app, buggy or not, decide which patient a scan opens. The cost is that an app with a better patient search can't take over scans; revisit only with a way for the host to check the match itself.
+
 ## Open
 
 These came up but aren't decided yet.
