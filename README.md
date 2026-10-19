@@ -322,10 +322,13 @@ ChartSearch uses the same contract from its own app, as a Query results view rat
 yarn install --immutable
 yarn start                                           # dev server, against dev3.openmrs.org by default
 yarn start --backend http://localhost:8080/openmrs   # or against a local backend
+yarn start:querystore                                # the omnibar and the query store app together
 yarn test                                            # vitest only, while iterating
 yarn verify                                          # lint, type-check, and tests with coverage
-yarn build                                           # production build into dist/
+yarn build                                           # both bundles: dist/ and packages/esm-querystore-app/dist/
 ```
+
+`yarn start:querystore` is `openmrs develop` with two `--sources`, the repo root and `packages/esm-querystore-app`, so each app gets its own dev server and both go into the import map the dev server hands the app shell. It takes the same options as `yarn start`, such as `--backend`. The query store provider returns results only from a backend with the `querystore` module installed.
 
 Build tooling comes from [openmrs-esm-template-app](https://github.com/openmrs/openmrs-esm-template-app). The Playwright scaffolding in `e2e/` comes from the template too; there are no omnibar end-to-end tests yet.
 

@@ -80,7 +80,7 @@ yarn test     # vitest only, while iterating
 
 If plain `yarn` isn't on the PATH (Homebrew's Node ships without corepack), use the copy the repo pins: `node .yarn/releases/yarn-4.10.3.cjs <command>`.
 
-`yarn verify` and `yarn build` must both pass before a change is offered for review or deploy. `yarn build` builds the omnibar into `dist/` and the query store app into `packages/esm-querystore-app/dist/`. The one expected warning is the asset size limit, once per bundle. When you change the contract folder, keep `src/conformance/` passing, and expect the copies in other apps to need updating.
+`yarn verify` and `yarn build` must both pass before a change is offered for review or deploy. `yarn build` builds the omnibar into `dist/` and the query store app into `packages/esm-querystore-app/dist/`. `yarn start` serves the omnibar alone; `yarn start:querystore` serves both. The one expected warning is the asset size limit, once per bundle. When you change the contract folder, keep `src/conformance/` passing, and expect the copies in other apps to need updating.
 
 ## Where things are documented
 

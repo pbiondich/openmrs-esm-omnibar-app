@@ -8,6 +8,7 @@
   "source": true,
   "scripts": {
     "start": "openmrs develop",
+    "start:querystore": "openmrs develop --sources . --sources packages/esm-querystore-app",
     "serve": "rspack serve --mode=development",
     "build": "rspack --mode production && cd packages/esm-querystore-app && rspack --mode production",
     "analyze": "rspack --mode=production --env analyze=true",
