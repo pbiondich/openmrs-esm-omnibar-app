@@ -600,7 +600,12 @@ describe('the Query results page under a slash command', () => {
     const seen: Array<OmnibarViewProps> = [];
     const exampleView = (id: string, flag: Partial<OmnibarViewMeta>) => ({
       name: `${id}-view`,
-      meta: { scopes: ['patient'], command: { id, aliases: [id] }, asksModel: 'Example model', ...flag } as OmnibarViewMeta,
+      meta: {
+        scopes: ['patient'],
+        command: { id, aliases: [id] },
+        asksModel: 'Example model',
+        ...flag,
+      } as OmnibarViewMeta,
       component: reports('ready', 'Example', seen),
     });
     const chooseEarlier = async (cmd: string) => {

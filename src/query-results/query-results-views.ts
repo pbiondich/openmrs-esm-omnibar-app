@@ -47,12 +47,6 @@ export function modelCommandIds(views: Array<Pick<AssignedExtension, 'name' | 'm
   return ids;
 }
 
-/** `modelCommandIds` for the views assigned to this user. */
-export function useModelCommandIds(): Set<string> {
-  const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
-  return useMemo(() => modelCommandIds(assigned), [assigned]);
-}
-
 /**
  * The model the page would ask about this query, as its view's `asksModel` names it, for the words
  * "and ask …" in the bar's hint and on an earlier query. Only from a view the page mounts for it, by
@@ -67,11 +61,10 @@ export function useAsksModel(query: string, command?: string | null): string | n
   const { queryResults } = useConfig<OmnibarConfig>();
   const questionMinWords = queryResults?.questionMinWords;
   const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
-  const modelCommands = useModelCommandIds();
   return useMemo(() => {
     const hints = queryHints(query, questionMinWords);
     const question =
-      command && modelCommands.has(command)
+      command && modelCommandIds(assigned).has(command)
         ? query.trim() !== '' && !hints.looksLikeIdentifier
         : hints.looksLikeQuestion;
     if (!question) {
@@ -90,5 +83,5 @@ export function useAsksModel(query: string, command?: string | null): string | n
       )
       .sort((a, b) => (a.meta.order ?? defaultViewOrder) - (b.meta.order ?? defaultViewOrder) || a.index - b.index);
     return asking[0]?.meta.asksModel.trim() ?? null;
-  }, [assigned, modelCommands, query, command, questionMinWords]);
+  }, [assigned, query, command, questionMinWords]);
 }
