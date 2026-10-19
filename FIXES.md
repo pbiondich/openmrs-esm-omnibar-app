@@ -1336,3 +1336,58 @@ Smoke tests as admin, with Playwright:
 Not run: the second-user check on one tab, since no users may be created on o3.
 
 Seen, cosmetic: the invalid-link notification stretches into a full-height left column and pushes the builder's panels right.
+
+## Feature: make the omnibar truly thin (PR #31)
+
+Built from [the thin-pass brief](docs/briefs/2026-10-19-thin-pass.md) on `feat/thin-pass`, with one commit in ChartSearch's app (`openmrs-esm-chartsearchai`, local branch `feat/ask-flag`). Nothing is pushed. The choices are in `docs/decisions.md`, under "Making the omnibar thin".
+
+| Change | Commit |
+| --- | --- |
+| The bar's ask hints name the model from the view's `asksModel` ("Enter to ask {{model}} '…'") | 25c349f |
+| `commandAsksModel`, an optional view `meta` flag, decides which commands mark the submission and ask a model; the id `ask` means nothing to the omnibar | ffeb327, 8949eb1 |
+| ChartSearch's answer view sets `commandAsksModel: true`, so `/ask` works as before | csai a14e073 |
+| The deprecated ChartSearch settings are deleted, and contract and code comments use neutral examples | e86878d |
+| The wristband scan on Enter stays with the built-in patient search, recorded as a safety exception | 2f08c15 |
+| A view from another app, built only on the contract folder, declares `/consult` with the flag and gets `/ask`'s behaviour; without the flag the command stays ordinary | f4c3cca |
+| The query store provider and its warm-up on chart open move into their own app, `packages/esm-querystore-app/`, with a boundary test; `chartLookup.source` and its comparison mode go | d04e638, 3b14cf7 |
+| Docs: the contract, slash-command design, README, AGENTS.md and decisions.md | 69b5c57, e3cc811 |
+
+### Review round 1 (independent code review, Claude Opus, and security review, Claude Sonnet, on e3cc811): no blockers from either
+
+Grok wasn't available in this harness, so the two reviews ran on different Claude models.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should, and code, nit: the flag was decided per command id, while views mount per id. One app's flagged view under `lab` would make Enter under `/lab` hand `submitted: true` to every other view declaring `lab`, and the hint could name an unflagged view's model | A command asks a model only when every view Query results would mount under it is flagged with a usable `asksModel`; a mixed command fails closed to ordinary. Tested both ways round, and in the bar | b529b73 |
+| security, nit: `asksModel` was shown as written, so direction controls or a long name could spoof or stretch the hint | Cleaned as command labels are: one line, no direction controls, at most 40 characters | b0dbb80 |
+| code, should: the CI artifact got a second path, which moved its root to the repo, so the release job's `dist/` would have held `dist/dist/…` | The query store app's dist is its own artifact, `querystore-dist` | 3783e7b |
+| code, should: nothing in ChartSearch's repo pinned the flag, so deleting the line would quietly make `/ask` ordinary | A test pins `asksModel` and `commandAsksModel: true` on the view; it fails with the line removed | csai 09ba410 |
+| code, nit: the conformance fixtures' "Model", "Saved lists" and "Unavailable right now" shipped in `translations/en.json` | `extract-translations` skips `src/conformance/**` | 00df3ac |
+
+Not fixed, and why:
+
+- code, should: a new omnibar with an old ChartSearch build (no flag) makes `/ask` ordinary. It fails closed: the hint stops promising an answer and nothing asks. Deploy ChartSearch's flag first or in the same window; decisions.md says so.
+- code, nit: a view could set the flag on a command only providers declare, such as `go`. The hint says Enter will ask before it does, and a view that declares a command gets Enter sent to Query results anyway, so this is within the contract.
+- security, nit: `runAgain` on Query results marks without checking the command is still offered. Unchanged from before (`ask` did the same); the page fails closed and the mark expires.
+- code, nit: the first half of the page test for a made-up command calls `markSubmitted` directly, so it doesn't prove the flag. Its second half and f4c3cca's conformance test do.
+- code, nit: `modelCommandIds` wants `scopes` to be a list, while the page also mounts a view whose `scopes` is the string `"patient"`. Such a view's command is ordinary, which fails closed.
+- code, nit: with chart lookup removed by slot config, the query store's heading reads "In this chart (query store)" where the old `querystore` mode said "In this chart". The provider can't tell what else is mounted; decisions.md records it.
+- code, nit: `yarn start` serves the omnibar only. Serving the query store app in development isn't scripted yet; nothing was tried.
+- security, nit: installing the query store app turns warm-up on by default, where `chartLookup.source` used to default to off. Recorded in decisions.md; `warmOnChartOpen: false` turns it off.
+
+### Review round 2 (re-check of round 1's fixes, code and security, Claude Opus, on 00df3ac): no blockers
+
+All five fixes hold. `modelCommandIds` uses the same "would mount" test as the page and the bar, a malformed `meta` makes the command ordinary, and a model name that cleans to nothing does too, so the bar never marks without naming a model.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| nit: the release job downloaded every artifact, so `querystore-dist/` would have been packed into the omnibar's npm package (`yarn pack --dry-run` packs gitignored folders, since `.npmignore` lists only `node_modules`) | The release job downloads only `dist`, into `dist/` | d390892 |
+
+Not fixed, and why:
+
+- nit: a zero-width character (U+200B) survives `cleanText`, so a view could name its model with nothing visible: "Enter to ask  '…'". The hint still says Enter asks, and command labels behave the same; strip zero-width characters in `cleanText` if it's ever seen.
+- nit: two flagged views under one command with different `asksModel` names get one name in the hint, the first in page order, though both are asked. Both apps opted in; the same holds for a plain question today.
+
+- Tests: 770 in 24 files (`yarn verify`: `Tasks: 3 successful, 3 total`). csai: 527 in 20 files, lint and type check clean.
+- No new dependency or origin: `package.json`'s dependencies and `yarn.lock` are unchanged, and the query store app has only peer dependencies and calls the OpenMRS server through `openmrsFetch`.
+- Not tried live on o3.

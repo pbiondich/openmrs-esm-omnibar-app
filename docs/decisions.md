@@ -242,6 +242,9 @@ Decisions from [the thin-pass brief](briefs/2026-10-19-thin-pass.md): the bar ke
 **The bar's hints name the model from `asksModel`.** "Enter to ask ChartSearch '…'" and "Ask ChartSearch '…'" are now "Enter to ask {{model}} '…'" and "Ask {{model}} '…'", with the model taken from the declaring view, as the "and ask …" hint already was.
 *Why:* same reason; the text reads exactly as before for ChartSearch.
 
+**ChartSearch's flag deploys before or with this omnibar.** An omnibar from this branch with a ChartSearch build that lacks `commandAsksModel` treats `/ask` as an ordinary command: the hint says "Enter to see Ask ChartSearch for '…'" and nothing asks. That fails closed, but it's a regression for clinicians, so the ChartSearch build with the flag (chartsearchai `a14e073`) goes first or in the same window. An older omnibar ignores the flag, so ChartSearch can go first safely.
+*Why:* found in review round 1 (FIXES.md); a runtime fallback to the id `ask` would bring back the special case the brief removes.
+
 **The deprecated ChartSearch settings are deleted now, not after a release.** `chartSearchSuggestion.*` and `queryResults.askChartSearch` leave the config schema. A config that still sets them logs the framework's "Unknown config key" error and works otherwise. This supersedes "stay in the config schema for one release as no-ops" (2026-10-18).
 *Why:* the brief asks for no settings tied to one app before the omnibar is shared, and the settings already did nothing. If o3's config still carries `chartSearchSuggestion.enabled`, remove that line in the next deploy window.
 
