@@ -40,7 +40,4 @@ Step 6 of [the test results brief](../../briefs/2026-10-19-cohort-test-results.m
 
 ## For the design
 
-Recommendations, for Paul:
-
-- A short list of common tests with the shorthand clinicians type, each pointing at a CIEL concept (VL and "viral load" → 856, CD4 → 5497, Hb → 21, weight → 5089 and so on), shipped as editable config. The server still supplies each concept's name and units. Completions can come from this list instantly, with no request.
-- Keep the server lookup for every other test, by whole words, with completions offering its numeric matches.
+Recommended here: a short list of common tests with shorthand, shipped as config. Paul chose the dictionary instead (2026-10-19, in `decisions.md`): tests are known only by their concept names and synonyms, and missing shorthand is added as synonyms. The row also reads each name without a trailing unit in brackets, so "weight" finds "Weight (kg)". On o3 that leaves HIV viral load (CIEL 856) as the clear gap: "viral load" and "VL" need adding as synonyms or index terms.
