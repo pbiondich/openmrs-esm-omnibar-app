@@ -68,14 +68,14 @@ Typing `/` starts a command, which states the type of query up front instead of 
 
 | The user types | What it means |
 | --- | --- |
-| `/ask when did he start ART?` | Open ChartSearch with the question filled in, rather than look something up. |
+| `/ask when did he start ART?` | A question for ChartSearch, rather than something to look up. Enter asks it on Query results; the row in the list opens ChartSearch's side panel with it filled in. |
 | `/lab cd4` | CD4 as a lab result, never a patient whose name matches. |
 | `/cohort over 40 on ART` | A population question, even when typed inside a chart. |
 | `/go ward` | Open a page. |
 | `/patient Mary Achieng` | Find a patient. |
 | `/help printing labels` | Search the knowledge base. |
 
-Typing `/` on its own lists the available commands. When the omnibar infers a type from plain text, it shows the equivalent command as a chip ("searching as /lab"), so people pick up the shortcuts just by using it. Commands follow the design rules like everything else: `/order cbc` would open a pre-filled order form and never place an order. A command that only makes sense outside a chart, like `/cohort`, either widens the scope visibly or says it isn't available there.
+Typing `/` on its own lists the available commands. When the omnibar infers a type from plain text, it shows the equivalent command as a chip ("searching as /lab"), so people pick up the shortcuts just by using it. Commands follow the design rules like everything else: `/order cbc` would open a pre-filled order form and never place an order. A command that only makes sense outside a chart, like `/cohort`, is listed greyed out with the reason; for now a command never widens the scope. The agreed design is in [`docs/design/slash-commands.md`](docs/design/slash-commands.md).
 
 ### Everywhere
 
@@ -151,7 +151,7 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 
 ### Slash commands, under the hood
 
-*Status: Planned.* Command names start in English, but the design expects other names from the start: translations, synonyms and site-specific labels. So each command has a stable **id**, which is never shown or translated, and any number of **aliases**. A provider declares its command in `meta`, as an optional field that keeps the contract at version 1:
+*Status: Planned; design agreed, see [`docs/design/slash-commands.md`](docs/design/slash-commands.md).* Command names start in English, but the design expects other names from the start: translations, synonyms and site-specific labels. So each command has a stable **id**, which is never shown or translated, and any number of **aliases**. A provider declares its command in `meta`, as an optional field that keeps the contract at version 1:
 
 ```json
 "meta": {
@@ -165,7 +165,8 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 - Aliases come from three places: the provider's `routes.json` (English defaults), the provider's translation files (localized aliases), and implementer config (custom names, such as `/vl` for viral load). The shell merges them into one table for the user's locale.
 - Any alias resolves to the id. The chip shows the command's label in the user's language, whichever alias was typed.
 - URLs carry the id, not the alias (`?cmd=lab&q=cd4`), so a bookmarked query works in any language.
-- When a command is given, only the providers that declare it run. More than one provider can declare the same command: chart lookup and the query store provider would both answer `/lab`.
+- When a command is given, only the providers that declare it run, and they learn which from `context.command`. More than one provider can declare the same command: chart lookup and the query store provider would both answer `/lab`.
+- Query results views declare commands the same way, and under a command only the views that declare it mount, so `/lab` can never bring up the view that asks a model.
 - If the same alias is claimed for two different commands, provider order decides, and the conflict is reported to implementers rather than silently shadowed.
 
 ### Built-in providers
@@ -321,7 +322,7 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 3. Add a dedicated centre slot to the navbar in esm-primary-navigation-app, since `top-nav-actions-slot` is crowded.
 4. Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.
 5. ~~Add the Query results section.~~ A first prototype is built: Enter submits the query, and views in `omnibar-query-results-slot` fill the page, starting with chart values and Ask ChartSearch. Still to do, in the patient chart: a condensed sticky patient banner, and showing the vitals header only where it's relevant. The Ask ChartSearch view should move into ChartSearch's own app.
-6. Add slash commands, starting with English names and designed for localized and custom aliases.
+6. Add slash commands, starting with English names and designed for localized and custom aliases. The design is agreed and written up in [`docs/design/slash-commands.md`](docs/design/slash-commands.md); the brief is ready to give.
 7. Use the query store for chart lookups. A query store chart provider, with warming on chart open, is built in and off by default: `chartLookup.source` set to `querystore` replaces chart lookup, and `both` shows the two side by side. Next is trying it live.
 8. Add cohort questions from the Cohort Builder's own app, which needs it to accept a query definition by URL. The first attempt, `feat/cohort-omnibar`, is retired and kept as history; see the [provider registration plan](docs/design/provider-registration.md).
 9. Fix `PatientPhoto` in esm-styleguide to load only same-origin photos, then use it in patient rows again.

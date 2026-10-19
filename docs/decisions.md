@@ -121,6 +121,23 @@ These are the decisions in §7A of [the provider registration plan](design/provi
 **Query store rows take the default highlight inside a chart again.** The query store chart provider sets `defaultInChart` once more, as PR #5 shipped it, accepting the CD4 count-first order. It ranks after chart lookup in the same lane and every target stays on the open chart, so chart lookup's copy of a shared value still wins (by dedupe, or by rank alone under `'both'`, which leaves query store rows out of dedupe). The query store takes the default for rows chart lookup didn't find or hasn't returned within the bounded wait, and in chart lookup's place under `chartLookup.source: 'querystore'`. A matching destination waits for its rows as it does for chart lookup's. This supersedes the round 2 decision and settles plan question 11: yes.
 *Why:* round 3 above. The query store is two to four times faster than REST and FHIR, every latest value was right, and its first row matched REST's in 21 of 26 queries. The five misses are all `cd4`, where count first is arguably the better pick.
 
+### From the slash-commands design session, evening PT
+
+**Slash commands land with a thin Query results slice.** The URL carries the command id (`?cmd=lab&q=cd4`), views declare `meta.command` and only views declaring the id mount under it, views with no command mount only for plain queries, and history stores `{ cmd, q }`. An id matching no view this user can see fails closed with a link to re-run the text plainly. The design is in [design/slash-commands.md](design/slash-commands.md).
+*Why:* the brief had left URL ids for "the Query results section", which now exists, and Enter inside a chart now submits. Without the slice, `/lab cd4` + Enter would show every section, contradicting the chip, or do nothing. Filtering views by command also means a command can never mount the model-calling view the user didn't ask for.
+
+**`/ask` + Enter asks ChartSearch on Query results, skipping the question heuristic.** The side-panel suggestion row stays in the list as the alternative target.
+*Why:* Enter on a question already asks there, with the hint saying so beforehand; `/ask` is the clinician saying "this is a question" more plainly than any heuristic can infer it. Rule 6 as reworded in PR #12 holds unchanged.
+
+**Localized aliases and labels come from the provider module's translations, loaded on demand.** Keys `omnibarCommand.<id>.aliases`, `.label` and `.description`; the host calls `window.i18next.loadNamespaces(moduleName)` when the command list first opens and rebuilds the alias table as namespaces arrive. Implementers localize labels through the framework's translation overrides, not omnibar config; config adds, replaces or disables aliases by id only.
+*Why:* it's how everything else in O3 is translated, so Transifex and overrides see it. Verified in the app shell: its i18next backend resolves any namespace by `importDynamic(moduleName)` and that module's `importTranslation`, so a namespace loads for a module that hasn't mounted. The alternative, language-keyed aliases in `routes.json`, would be a second translation mechanism.
+
+**`/patient` inside a chart gives no new default highlight.** Only the ID-shaped wristband exception applies; a name search under `/patient` needs an arrow key.
+*Why:* widening the fail-closed exception to name queries isn't justified before the command has been used on o3. Revisit if use shows the arrow key costs more than the rule protects.
+
+**Providers learn the command from `context.command`.** An optional `{ id }`, new in v1.
+*Why:* the ChartSearch suggestion needs it to skip its heuristic under `/ask`, and the query store can show recent values for an empty `/lab`. A provider must still work without it.
+
 ## Open
 
 These came up but aren't decided yet.

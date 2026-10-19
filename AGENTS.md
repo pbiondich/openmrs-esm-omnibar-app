@@ -87,6 +87,7 @@ If plain `yarn` isn't on the PATH (Homebrew's Node ships without corepack), use 
 - [README.md](README.md): the idea, the user experience, the design rules, and how to use and extend the omnibar.
 - [docs/design/omnibar-provider-contract.md](docs/design/omnibar-provider-contract.md): the full provider contract, the order registry and the dedupe key registry.
 - [docs/design/omnibar-context-rules.md](docs/design/omnibar-context-rules.md): how context shapes which suggestions appear.
+- [docs/design/slash-commands.md](docs/design/slash-commands.md): the agreed slash-command design, including the Query results slice.
 - [docs/design/chartsearch-row.md](docs/design/chartsearch-row.md) and [docs/design/patient-row-photos.md](docs/design/patient-row-photos.md): detail on those two features.
 - [docs/design/omnibar-concept.md](docs/design/omnibar-concept.md): the original concept and design rationale.
 - [FIXES.md](FIXES.md): every review round, its findings and fixes.
