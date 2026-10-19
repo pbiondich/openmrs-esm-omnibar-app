@@ -210,13 +210,13 @@ export interface OmnibarAnswer {
 export interface OmnibarCompletion {
   /**
    * The text to insert. Replaces the last `replace` characters of the query. Must be 1–120
-   * plain-text characters on one line (no direction controls, no `\n`, `\r` or other C0/DEL
-   * control characters).
+   * plain-text characters on one line: no `\n`, `\r` or other control characters (C0, DEL, C1).
+   * Direction controls and other invisible format characters are stripped.
    */
   insert: string;
   /**
-   * How many characters to replace from the end of the query (0 appends). Must be a whole number
-   * from 0 to the current query's length. The resulting text must not start with "/" (to prevent
+   * How many characters to replace from the end of the query (0 appends), counted as JavaScript
+   * string length (UTF-16 code units). Must be a whole number from 0 to the current query's length. The resulting text must not start with "/" (to prevent
    * unintentionally opening the slash-command list) and must differ from the current query.
    */
   replace: number;

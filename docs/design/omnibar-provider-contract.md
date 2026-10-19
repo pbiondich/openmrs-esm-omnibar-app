@@ -155,12 +155,14 @@ Drawn as one quiet line under the heading: plain text, not a live region, and it
 
 ### Completions (`OmnibarCompletion`)
 
+Completions answer the query the provider was given. While the field is ahead of it, within the debounce or before a chosen command settles, the host hides them, and Tab moves focus as usual; the host also applies a completion to that query, never to newer text, and refuses any result that would begin with "/".
+
 A completion is a suggested replacement for what the user has typed. The host picks the completions from the **first provider by lane and order** that reports any, and ignores those from all others. The host keeps at most 5 per report, in order.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `insert` | `string` | The text to append (or partially replace). 1–120 Unicode chars, one line, no C0/DEL control characters. Direction controls are stripped. Required |
-| `replace` | `number` | Whole number, 0 to `query.length`. The host removes the last `replace` characters of the current query and appends `insert`. A `replace` of 0 appends without removing anything. The result must not start with `/` and must not be identical to the current query. Required |
+| `insert` | `string` | The text to append (or partially replace). 1–120 Unicode chars, one line, no control characters (C0, DEL, C1). Direction controls and other invisible format characters are stripped. Required |
+| `replace` | `number` | Whole number, 0 to `query.length`. The host removes the last `replace` characters of the current query and appends `insert`. A `replace` of 0 appends without removing anything. The result must not start with `/` and must not be identical to the current query. Counted as JavaScript string length (UTF-16 code units). Required |
 | `label` | `string` | One line, ≤200 chars. What the strip shows. Defaults to `insert`. Optional |
 | `detail` | `string` | One line, ≤200 chars. Secondary text shown beside the label in the strip. Optional |
 

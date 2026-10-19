@@ -255,7 +255,10 @@ export function cleanReport(report: unknown): OmnibarReport | null {
 
 /** C0 control characters (U+0000–U+001F) and DEL (U+007F). */
 // \p{Cc} matches Unicode General Category Cc (control chars: C0 U+0000–U+001F, DEL U+007F, C1 U+0080–U+009F).
+// Control characters: C0, DEL and C1. Any of them drops a completion.
 const controlChars = /\p{Cc}/u;
+// Invisible format characters, such as zero-width spaces and joiners: stripped from completions.
+const completionText = (text: string) => plainText(text).replace(/\p{Cf}/gu, '');
 
 /** Cap `text` to at most `length` Unicode characters, appending … if cut. */
 function capTextTo(text: string, length: number): string {
@@ -273,7 +276,7 @@ function cleanCompletion(completion: unknown, query: string): OmnibarCompletion 
   const { insert, replace, label, detail } = completion;
 
   if (typeof insert !== 'string') return null;
-  const cleanInsert = plainText(insert);
+  const cleanInsert = completionText(insert);
   const insertChars = Array.from(cleanInsert);
   if (insertChars.length < 1 || insertChars.length > 120) return null;
   if (controlChars.test(cleanInsert)) return null;
@@ -286,20 +289,20 @@ function cleanCompletion(completion: unknown, query: string): OmnibarCompletion 
 
   if (label !== undefined) {
     if (typeof label !== 'string') return null;
-    const cleanLabel = plainText(label);
+    const cleanLabel = completionText(label);
     if (controlChars.test(cleanLabel)) return null;
   }
   if (detail !== undefined) {
     if (typeof detail !== 'string') return null;
-    const cleanDetail = plainText(detail);
+    const cleanDetail = completionText(detail);
     if (controlChars.test(cleanDetail)) return null;
   }
 
   return {
     insert: cleanInsert,
     replace: replace as number,
-    label: label !== undefined ? capTextTo(plainText(label as string), 200) : undefined,
-    detail: detail !== undefined ? capTextTo(plainText(detail as string), 200) : undefined,
+    label: label !== undefined ? capTextTo(completionText(label as string), 200) : undefined,
+    detail: detail !== undefined ? capTextTo(completionText(detail as string), 200) : undefined,
   };
 }
 

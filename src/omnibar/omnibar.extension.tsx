@@ -243,10 +243,22 @@ const Omnibar: React.FC = () => {
   // since `completionsDismissedFor !== debouncedQuery` for any query the user hasn't dismissed.
   const [completionsDismissedFor, setCompletionsDismissedFor] = useState<string | null>(null);
   const completionsDismissed = completionsDismissedFor === debouncedQuery;
+  // Completions answer the query the providers were given. While the field is ahead of it, within the
+  // debounce or before a chosen command settles, they're hidden, so Tab can never apply one to text it
+  // wasn't made for.
+  const completionsCurrent = commandSettled && providerText === debouncedText;
   const activeCompletions = useMemo(
-    () => (completionsDismissed ? [] : firstCompletions),
-    [completionsDismissed, firstCompletions],
+    () => (completionsDismissed || !completionsCurrent ? [] : firstCompletions),
+    [completionsDismissed, completionsCurrent, firstCompletions],
   );
+  // Screen readers hear a completion once, not on every keystroke that hides and shows it again.
+  const firstCompletionLabel = activeCompletions[0] ? (activeCompletions[0].label ?? activeCompletions[0].insert) : '';
+  const [announcedCompletion, setAnnouncedCompletion] = useState('');
+  if ((!open || completionsDismissed) && announcedCompletion) {
+    setAnnouncedCompletion('');
+  } else if (firstCompletionLabel && firstCompletionLabel !== announcedCompletion) {
+    setAnnouncedCompletion(firstCompletionLabel);
+  }
   const showCompletionStrip = open && activeCompletions.length > 0;
 
   // Ghost text: shown when the first active completion's result is an extension of the live query.
@@ -404,12 +416,15 @@ const Omnibar: React.FC = () => {
   // re-queries as if the user typed the new text. Un-dismisses any previous dismiss.
   const applyCompletion = useCallback(
     (completion: OmnibarCompletion) => {
-      const newQuery = query.slice(0, query.length - completion.replace) + completion.insert;
+      // Applied to the text the provider answered, which completionsCurrent says the field still holds.
+      const newQuery = debouncedQuery.slice(0, debouncedQuery.length - completion.replace) + completion.insert;
+      // Checked again here as well as when the report came: a completion never begins a command.
+      if (newQuery.startsWith('/')) return;
       setCompletionsDismissedFor(null);
       changeQuery(newQuery);
       inputRef.current?.focus();
     },
-    [query, changeQuery],
+    [debouncedQuery, changeQuery],
   );
 
   // What the field holds is read for a command as it changes, so typing "/lab " or pasting
@@ -968,20 +983,22 @@ const Omnibar: React.FC = () => {
 
       {open && (
         <div className={styles.panel}>
+          {/* Polite announcement for screen readers, kept mounted so a completion is heard once. */}
+          <span
+            id={`${listboxId}-completion-announce`}
+            className={styles.completionAnnounce}
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {announcedCompletion &&
+              t('tabToComplete', 'Tab to complete: {{label}}', {
+                label: announcedCompletion,
+                // React escapes the text; i18next escaping would show "&amp;" for "&".
+                interpolation: { escapeValue: false },
+              })}
+          </span>
           {showCompletionStrip && (
             <div className={styles.completionStrip}>
-              {/* Polite announcement for screen readers. */}
-              <span
-                id={`${listboxId}-completion-announce`}
-                className={styles.completionAnnounce}
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                {t('tabToComplete', 'Tab to complete: {{label}}', {
-                  label: activeCompletions[0].label ?? activeCompletions[0].insert,
-                  interpolation: { escapeValue: false },
-                })}
-              </span>
               {activeCompletions.map((completion, index) => (
                 <button
                   key={index}

@@ -100,6 +100,8 @@ $omnibar-min-width: 18rem;
   z-index: 1;
   width: 100%;
   height: 100%;
+  // No inner padding, so the ghost text behind the input starts where the typed text does.
+  padding: 0;
   border: 0;
   background: transparent;
   color: inherit;

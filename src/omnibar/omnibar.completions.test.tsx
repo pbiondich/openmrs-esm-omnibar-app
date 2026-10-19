@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getDefaultsFromConfigSchema,
   useAssignedExtensions,
+  useDebounce,
   useConfig,
   useLayoutType,
 } from '@openmrs/esm-framework';
@@ -125,8 +126,7 @@ describe('cleanReport: completion validation', () => {
     ...overrides,
   });
 
-  const report = (completions: unknown) =>
-    cleanReport({ query, title: 'T', status: 'ready', completions });
+  const report = (completions: unknown) => cleanReport({ query, title: 'T', status: 'ready', completions });
 
   it('passes through a valid completion with insert, replace, label and detail', () => {
     const result = report([{ insert: 'CD4 count', replace: 3, label: 'CD4', detail: 'copies/mL' }]);
@@ -281,9 +281,7 @@ describe('useResultCollector: firstCompletions', () => {
   ): OmnibarReport => ({ query, title: 'T', status, completions });
 
   it('returns completions from the first provider that reports any', () => {
-    const { result } = renderHook(() =>
-      useResultCollector('cd4', { p1: recordMeta, p2: recordMeta }),
-    );
+    const { result } = renderHook(() => useResultCollector('cd4', { p1: recordMeta, p2: recordMeta }));
     act(() => {
       result.current.getReporter('p1')({ query: 'cd4', title: 'T', status: 'ready' });
       result.current.getReporter('p2')(report('cd4', [{ insert: 'CD4 count', replace: 3 }]));
@@ -293,9 +291,7 @@ describe('useResultCollector: firstCompletions', () => {
   });
 
   it('prefers the record-lane provider over navigate-lane when both report completions', () => {
-    const { result } = renderHook(() =>
-      useResultCollector('cd4', { record: recordMeta, nav: navigateMeta }),
-    );
+    const { result } = renderHook(() => useResultCollector('cd4', { record: recordMeta, nav: navigateMeta }));
     act(() => {
       result.current.getReporter('record')(report('cd4', [{ insert: 'CD4 count', replace: 3 }]));
       result.current.getReporter('nav')(report('cd4', [{ insert: 'Navigate somewhere', replace: 3 }]));
@@ -312,9 +308,7 @@ describe('useResultCollector: firstCompletions', () => {
   it('does not expose completions from a stale report (wrong query)', () => {
     const { result } = renderHook(() => useResultCollector('cd4', { p1: recordMeta }));
     // Report for a different query: ignored by cleanReport's query gate in the collector.
-    act(() =>
-      result.current.getReporter('p1')(report('cd', [{ insert: 'CD4 count', replace: 2 }])),
-    );
+    act(() => result.current.getReporter('p1')(report('cd', [{ insert: 'CD4 count', replace: 2 }])));
     expect(result.current.firstCompletions).toEqual([]);
   });
 });
@@ -342,7 +336,9 @@ describe('Omnibar: completions strip', () => {
       {
         name: 'test-provider',
         meta: completionMeta,
-        component: completionsProvider('vir', [{ insert: 'viral load', replace: 3, label: 'HIV viral load', detail: 'copies/mL' }]),
+        component: completionsProvider('vir', [
+          { insert: 'viral load', replace: 3, label: 'HIV viral load', detail: 'copies/mL' },
+        ]),
       },
     ]);
     renderOmnibar();
@@ -456,11 +452,14 @@ describe('Omnibar: Tab takes the first completion', () => {
     await user.type(field, 'cd');
     expect(await screen.findByText(/Tab to complete/i)).toBeInTheDocument();
 
-    // Within the debounce, the field holds "cdx" while the completion answers "cd".
+    // Within the debounce, the field holds "cdx" while the completion answers "cd". (The framework's
+    // test mock doesn't debounce, so the lag is set by hand.)
+    vi.mocked(useDebounce).mockReturnValue('cd');
     await user.type(field, 'x');
     expect(screen.queryByRole('button', { name: /CD4 count/ })).not.toBeInTheDocument();
     await user.tab();
     expect(field).toHaveValue('cdx');
+    vi.mocked(useDebounce).mockImplementation((value) => value);
   });
 
   it('Escape dismisses completions for the current query without closing the bar', async () => {
