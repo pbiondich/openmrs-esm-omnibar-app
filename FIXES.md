@@ -1022,3 +1022,14 @@ Not fixed, and why:
 - A logout in another tab, or an external login provider whose logout leaves the SPA before the module has loaded, still isn't seen by this tab. The owner check means only the same user could read what's left.
 - The module (its entry bundle and `startupApp`) now also loads on the login and logout pages. It is served by the OpenMRS server like the rest, so nothing new goes to another origin.
 - Reviews are still to come.
+
+### Review round 1 (Grok code): APPROVE WITH NITS, no blocking or should-fix
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| nit: the source check matched any `export const sessionChangePage = `, so a lifecycle that renders a real page on the login screen would pass | It matches the empty lifecycle, `getSyncLifecycle(() => null, options)`. Fails with `6fa826f`'s `index.ts` and `routes.json`, with only its `index.ts`, and with the lifecycle rendering a `<div />` | this commit |
+
+The reviewer confirmed the root cause against esm-core 11.0.0, that a page is the idiomatic way to load the module where no slot renders, the route matches (also `logout/`, `login/confirm`, `login/totp-challenge`; not `two-factor-auth`, which shows the navbar anyway), and that `startupApp` adds no fetch on those routes. They also noted a narrow case already covered by the gaps above: a same-user login that finishes before the entry bundle runs `startupApp`.
+
+- `yarn verify`: `Tasks: 3 successful, 3 total`, 704 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- The security review is still to come.

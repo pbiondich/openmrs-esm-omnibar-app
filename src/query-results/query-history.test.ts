@@ -125,7 +125,7 @@ describe('query history', () => {
       }
       // index.ts can't be imported under vitest (require.context), so check the export by its source.
       expect(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../index.ts'), 'utf8')).toMatch(
-        /export const sessionChangePage = /,
+        /export const sessionChangePage = getSyncLifecycle\(\(\) => null, options\);/,
       );
     });
 
