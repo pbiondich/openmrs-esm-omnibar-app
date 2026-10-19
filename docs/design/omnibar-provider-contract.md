@@ -235,7 +235,7 @@ Pressing Enter on a query inside a chart opens the chart's **Query results** sec
 | `order` | Lower comes first. Defaults to 100. The built-in views use the provider numbers: chart values 10, Ask ChartSearch 100 |
 | `contract` | As for providers: missing means 1, and a host mounts only versions it speaks |
 | `skipIdentifierQueries` | As for providers: not mounted while the query looks like a patient identifier |
-| `command` | `{ id: string }`. The slash command this view shows results for; aliases are the bar's. The bar sends a command to Query results only when a view declares it. *The page doesn't read the command yet: until it does, every view mounts under a command, as for plain text.* Built in: chart values declares `lab`, Ask ChartSearch `ask` |
+| `command` | `{ id: string }`. The slash command this view shows results for; aliases are the bar's. The bar sends a command to Query results only when a view declares it. Under `?cmd=<id>` only the views declaring it mount, with `context.command`; a view without one mounts only for plain queries. A command the bar doesn't offer here (disabled, or no provider this user has declares it) or that no view this user can see declares fails closed: the page shows the query, "That command isn't available here.", and a link to search the text plainly. Built in: chart values declares `lab`, Ask ChartSearch `ask` |
 
 **Props (`OmnibarViewProps`)**
 
@@ -259,7 +259,9 @@ Pressing Enter on a query inside a chart opens the chart's **Query results** sec
 
 **Errors.** Wrap each view in `withViewBoundary(View, extensionName)`. A view that throws then shows "This section couldn't be shown." in its own section and counts as `error`; the page and the other views carry on.
 
-**History.** The page, not the views, keeps this session's queries for each patient, in `sessionStorage`, and only their text. Choosing one runs it again; nothing a view showed is stored.
+**History.** The page, not the views, keeps this session's queries for each patient, in `sessionStorage`, and only their text and slash command id, if any. Choosing one runs it again, under its command; nothing a view showed is stored.
+
+**`submitted` under a command.** The mark is made for one patient, one query and its command, and taken only by a page showing that same command, or none. Only a plain query or `/ask` is ever marked, by Enter or by choosing an earlier query, so no other command lets a view call a model on its own. A page that fails closed drops any mark, and its plain-search link isn't marked. Under `/ask`, a view that asks a model may take any text that isn't ID-shaped as a question.
 
 ## Errors
 
