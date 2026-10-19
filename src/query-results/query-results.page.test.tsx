@@ -182,6 +182,41 @@ describe('the Query results page', () => {
     );
   });
 
+  describe('saying whether an earlier query asks a model again', () => {
+    const values = {
+      name: 'values',
+      meta: { scopes: ['patient'] } as OmnibarViewMeta,
+      component: reports('ready', 'Values'),
+    };
+    const answer = {
+      name: 'answer',
+      meta: { scopes: ['patient'], order: 100, asksModel: 'ChartSearch' } as OmnibarViewMeta,
+      component: reports('empty', 'Answer'),
+    };
+    const titleOf = (query: string) => screen.getByRole('button', { name: query }).getAttribute('title');
+
+    beforeEach(() => {
+      rememberQuery(humprey, 'when did he start ART?');
+      rememberQuery(humprey, 'weight');
+    });
+
+    it('names the model an assigned view declares, for an earlier question', () => {
+      register([values, answer]);
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+      expect(titleOf('when did he start ART?')).toBe('Run again and ask ChartSearch');
+      expect(titleOf('weight')).toBe('Run again');
+    });
+
+    it('says only "Run again" when no assigned view asks a model', () => {
+      register([values]);
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+      expect(titleOf('when did he start ART?')).toBe('Run again');
+      expect(titleOf('weight')).toBe('Run again');
+    });
+  });
+
   it('remembers the query it shows', () => {
     register([]);
     const { unmount } = render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
