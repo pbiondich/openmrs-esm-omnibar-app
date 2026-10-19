@@ -7,9 +7,7 @@ import {
   type FetchConfig,
   type FetchResponse,
   type Session,
-  getConfig,
   getGlobalStore,
-  getRegisteredWorkspace2Names,
   getDefaultsFromConfigSchema,
   getSessionStore,
   interpolateUrl,
@@ -33,7 +31,6 @@ import { configSchema as appConfigSchema, type OmnibarConfig } from '../config-s
 import routes from '../routes.json';
 import packageJson from '../../package.json';
 import ChartLookupProvider from '../providers/chart-lookup.provider';
-import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.provider';
 import DestinationsProvider from '../providers/destinations.provider';
 import PatientSearchProvider, { providerId as patientSearchProviderId } from '../providers/patient-search.provider';
 import QuerystoreChartProvider from '../providers/querystore-chart.provider';
@@ -46,7 +43,7 @@ import {
   type ProviderInfo,
   useResultCollector,
 } from './omnibar.resource';
-import { withProviderBoundary } from '../omnibar-contract';
+import { OMNIBAR_QUERY_RESULTS_SLOT, type OmnibarViewMeta, withProviderBoundary } from '../omnibar-contract';
 import { getPatientUuidFromPath } from './use-omnibar-context';
 // The framework mock re-exports this module, so this is the store getSessionStore returns.
 import { mockSessionStore } from '@openmrs/esm-api/mock';
@@ -91,9 +88,6 @@ vi.mock('@openmrs/esm-framework', async (importOriginal) => {
     ...framework,
     // Missing from the framework mock; the real one, as the app shell provides it.
     formatPartialDate: (await import('@openmrs/esm-utils')).formatPartialDate,
-    getRegisteredWorkspace2Names: vi.fn(),
-    // ChartSearch's config with its default limit, so no test depends on the schema the config mock last saw.
-    getConfig: vi.fn(() => Promise.resolve({ maxQuestionLength: 1000 })),
     ExtensionSlot: ({ name, select = (extensions) => extensions, children, state }) =>
       select(framework.useAssignedExtensions(name)).map((extension) =>
         createElement(
@@ -129,7 +123,6 @@ const mockUseConfig = vi.mocked(useConfig<OmnibarConfig>);
 const mockUseLayoutType = vi.mocked(useLayoutType);
 const mockUseAssignedExtensions = vi.mocked(useAssignedExtensions);
 const mockOpenmrsFetch = vi.mocked(openmrsFetch);
-const mockGetRegisteredWorkspace2Names = vi.mocked(getRegisteredWorkspace2Names);
 
 const providers = {
   patients: { lane: 'record' as const, order: 10 },
@@ -840,18 +833,8 @@ describe('Omnibar with providers mounted through the slot', () => {
     expect(provider).not.toHaveBeenCalled();
   });
 
-  describe('ChartSearch suggestion provider', () => {
+  describe('workspace targets that need the chart’s side panel open', () => {
     const chartPatientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
-    const providerName = 'omnibar-chartsearch-suggestion-provider';
-    const providerRoute = routes.extensions.find((extension) => extension.name === providerName) as {
-      privileges: Array<string>;
-      meta: OmnibarProviderMeta;
-    };
-    const provider = {
-      name: providerName,
-      meta: providerRoute?.meta,
-      component: ChartSearchSuggestionProvider,
-    };
 
     const openChartGroup = (patientUuid: string | null, groupName = 'patient-chart') => {
       getGlobalStore('workspace2').setState({
@@ -865,16 +848,42 @@ describe('Omnibar with providers mounted through the slot', () => {
       });
     };
 
+    // A row that opens a side-panel workspace for this chart only while the panel is open for it.
+    const SidePanelRow: React.FC<OmnibarProviderProps> = ({ query, report }) => {
+      useEffect(
+        () =>
+          report({
+            query,
+            title: 'Side panel',
+            status: 'ready',
+            results: query
+              ? [
+                  {
+                    id: 'ask',
+                    title: 'Ask in the side panel',
+                    target: {
+                      type: 'workspace',
+                      workspaceName: 'ai-chat-workspace',
+                      workspaceProps: { patientUuid: chartPatientUuid },
+                      requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
+                    },
+                  },
+                ]
+              : [],
+          }),
+        [query, report],
+      );
+      return null;
+    };
+    const provider = {
+      name: 'side-panel',
+      meta: { lane: 'navigate', scopes: ['patient'], order: 100 } as OmnibarProviderMeta,
+      component: SidePanelRow,
+    };
+
     beforeEach(() => {
       window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
       openChartGroup(chartPatientUuid);
-      mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
-      vi.mocked(useSession).mockReturnValue({
-        authenticated: true,
-        sessionId: 'session',
-        user: { uuid: 'user-uuid', privileges: [], roles: [] },
-      } as Session);
-      vi.mocked(userHasAccess).mockReturnValue(true);
       vi.mocked(usePatient).mockReturnValue({
         patient: { id: chartPatientUuid, name: [{ given: ['Jane'], family: 'Doe' }] },
         patientUuid: chartPatientUuid,
@@ -885,298 +894,16 @@ describe('Omnibar with providers mounted through the slot', () => {
 
     afterEach(() => window.history.pushState({}, '', '/'));
 
-    it('checks the side panel group the host reports, not the store, when the host reports one', async () => {
-      const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
-      const report = vi.fn();
-      const ask = (workspaceGroup: OmnibarContext['workspaceGroup']) => (
-        <ChartSearchSuggestionProvider
-          query="what happened at the last visit"
-          context={{ scope: 'patient', patientUuid: chartPatientUuid, locale: 'en', workspaceGroup }}
-          report={report}
-        />
-      );
-      const lastStatus = () => report.mock.calls.at(-1)[0].status;
-
-      // The store has the group open for this patient; the host says it's open for someone else.
-      const { rerender } = render(ask({ groupName: 'patient-chart', patientUuid: otherPatientUuid }));
-      await waitFor(() => expect(lastStatus()).toBe('idle'));
-
-      act(() => openChartGroup(null));
-      rerender(ask({ groupName: 'patient-chart', patientUuid: chartPatientUuid }));
-      await waitFor(() => expect(lastStatus()).toBe('ready'));
-
-      rerender(ask({ groupName: 'other-group', patientUuid: chartPatientUuid }));
-      await waitFor(() => expect(lastStatus()).toBe('idle'));
-
-      rerender(ask(null));
-      await waitFor(() => expect(lastStatus()).toBe('idle'));
-    });
-
-    it("decides from the host's open group and the group its config names, never from the store's registry", async () => {
-      getGlobalStore('workspace2').setState({ registeredWorkspacesByName: {}, registeredWindowsByName: {} });
-      const report = vi.fn();
-      const ask = (groupName: string) => (
-        <ChartSearchSuggestionProvider
-          query="what happened at the last visit"
-          context={{
-            scope: 'patient',
-            patientUuid: chartPatientUuid,
-            locale: 'en',
-            workspaceGroup: { groupName, patientUuid: chartPatientUuid },
-          }}
-          report={report}
-        />
-      );
-      const lastStatus = () => report.mock.calls.at(-1)[0].status;
-
-      const { rerender } = render(ask('patient-chart'));
-      await waitFor(() => expect(lastStatus()).toBe('ready'));
-
-      const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
-      mockUseConfig.mockReturnValue({
-        ...defaults,
-        chartSearchSuggestion: { ...defaults.chartSearchSuggestion, workspaceGroupName: 'ai-panel' },
-      } as OmnibarConfig);
-      rerender(ask('patient-chart'));
-      await waitFor(() => expect(lastStatus()).toBe('idle'));
-      rerender(ask('ai-panel'));
-      await waitFor(() => expect(lastStatus()).toBe('ready'));
-    });
-
-    it('offers no row on a host that does not say which group is open, whatever the store says', async () => {
-      const report = vi.fn();
-      render(
-        <ChartSearchSuggestionProvider
-          query="what happened at the last visit"
-          context={{ scope: 'patient', patientUuid: chartPatientUuid, locale: 'en' }}
-          report={report}
-        />,
-      );
-
-      await waitFor(() => expect(report).toHaveBeenCalled());
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-      expect(report.mock.calls.map(([sent]) => sent.status)).not.toContain('ready');
-    });
-
-    it('declares patient scope and the backend privilege without opting into the chart default', () => {
-      expect(providerRoute.privileges).toEqual(['AI Query Patient Data']);
-      expect(providerRoute.meta).toEqual(
-        expect.objectContaining({ lane: 'navigate', scopes: ['patient'], order: 100 }),
-      );
-      expect(providerRoute.meta.defaultInChart).toBeUndefined();
-    });
-
-    it.each([
-      [
-        'ArrowDown and Enter',
-        async (user: ReturnType<typeof userEvent.setup>, row: HTMLElement) => {
-          await user.keyboard('{ArrowDown}{Enter}');
-        },
-      ],
-      [
-        'a click',
-        async (user: ReturnType<typeof userEvent.setup>, row: HTMLElement) => {
-          await user.click(row);
-        },
-      ],
-    ])('makes no ChartSearch request while typing and launches only after %s', async (_, pick) => {
-      const user = userEvent.setup();
-      const fetch = vi.spyOn(window, 'fetch').mockResolvedValue(new Response('{}'));
-      const selected = vi.fn();
-      window.addEventListener(OMNIBAR_SELECTED_EVENT, selected);
-      mountProviders([provider]);
-      render(<Omnibar />);
-
-      const input = screen.getByRole('combobox', { name: /search this chart/i });
-      await user.type(input, 'what happened at the last visit');
-      const row = await screen.findByRole('option', { name: /ask chartsearch.*jane doe/i });
-
-      expect(row).toHaveAttribute('aria-selected', 'false');
-      expect(input).not.toHaveAttribute('aria-activedescendant');
-      await user.keyboard('{Enter}');
-      expect(launchWorkspace2).not.toHaveBeenCalled();
-      expect(mockOpenmrsFetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
-      expect(fetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
-
-      await pick(user, row);
-
-      expect(launchWorkspace2).toHaveBeenCalledWith(
-        'ai-chat-workspace',
-        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
-        null,
-        null,
-      );
-      expect(selected.mock.calls[0][0].detail).toEqual({
-        providerId: providerName,
-        resultId: 'ask-chartsearch',
-      });
-      expect(mockOpenmrsFetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
-      expect(fetch.mock.calls.flat().join(' ')).not.toContain('chartsearchai');
-      window.removeEventListener(OMNIBAR_SELECTED_EVENT, selected);
-    });
-
-    it('reopens an already-open Ask AI chat with the new workspace props', async () => {
-      const user = userEvent.setup();
-      getGlobalStore('workspace2').setState({
-        openedWindows: [
-          {
-            windowName: 'ai-chat',
-            openedWorkspaces: [{ workspaceName: 'ai-chat-workspace', props: {} }],
-          },
-        ],
-      });
-      mountProviders([provider]);
-      render(<Omnibar />);
-
-      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-      await user.keyboard('{ArrowDown}{Enter}');
-
-      expect(launchWorkspace2).toHaveBeenCalledWith(
-        'ai-chat-workspace',
-        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
-        null,
-        null,
-      );
-    });
-
-    it('keeps a real chart result as the default above the suggestion', async () => {
-      const user = userEvent.setup();
-      const ChartResult: React.FC<OmnibarProviderProps> = ({ query, report }) => {
-        useEffect(() => report(ready(query, 'In this chart', ['chart result'])), [query, report]);
-        return null;
-      };
-      mountProviders([
-        {
-          name: 'chart',
-          meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
-          component: ChartResult,
-        },
-        provider,
-      ]);
-      render(<Omnibar />);
-
-      await user.type(screen.getByRole('combobox'), 'show the latest viral load');
-
-      expect(screen.getByRole('option', { name: 'chart result' })).toHaveAttribute('aria-selected', 'true');
-      expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'false');
-      await user.keyboard('{Enter}');
-      expect(landedOn()).toBe('/chart%20result');
-      expect(launchWorkspace2).not.toHaveBeenCalled();
-    });
-
-    it('offers the row below the chart value for "what is his latest weight?", never as the default', async () => {
-      const user = userEvent.setup();
-      serveChartDictionary();
-      mountProviders([
-        {
-          name: 'omnibar-chart-lookup-provider',
-          meta: routes.extensions.find((extension) => extension.name === 'omnibar-chart-lookup-provider')
-            .meta as OmnibarProviderMeta,
-          component: ChartLookupProvider,
-        },
-        provider,
-      ]);
-      renderWithFreshCache(<Omnibar />);
-
-      await user.click(screen.getByRole('combobox'));
-      await user.paste('what is his latest weight?');
-
-      const weight = await screen.findByRole('option', { name: /Weight \(kg\): 70 kg/ });
-      const ask = screen.getByRole('option', { name: /ask chartsearch/i });
-      expect(weight).toHaveAttribute('aria-selected', 'true');
-      expect(ask).toHaveAttribute('aria-selected', 'false');
-      expect(weight.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    });
-
-    it('hides the row outside patient scope and when any runtime gate fails', async () => {
-      const user = userEvent.setup();
-      mountProviders([provider]);
-      window.history.pushState({}, '', '/openmrs/spa/home');
-      render(<Omnibar />);
-      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-
-      act(() => {
-        window.history.pushState({}, '', `/openmrs/spa/patient/${chartPatientUuid}/chart/Patient%20Summary`);
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      });
-      vi.mocked(userHasAccess).mockReturnValue(false);
-      await user.clear(screen.getByRole('combobox'));
-      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-    });
-
-    it('hides the row when disabled or when the workspace is not registered', async () => {
-      const user = userEvent.setup();
-      const defaults = getDefaultsFromConfigSchema(configSchema) as OmnibarConfig;
-      mockUseConfig.mockReturnValue({
-        ...defaults,
-        chartSearchSuggestion: { ...defaults.chartSearchSuggestion, enabled: false },
-      });
-      mountProviders([provider]);
-      const { unmount } = render(<Omnibar />);
-      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-
-      unmount();
-      mockUseConfig.mockReturnValue(defaults);
-      mockGetRegisteredWorkspace2Names.mockReturnValue([]);
-      render(<Omnibar />);
-      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-    });
-
-    it.each([
-      ['no open group', null],
-      ['another group', 'other-group'],
-      ['a different patient', 'patient-chart'],
-    ] as const)('hides the row when the chart group is %s', async (label, groupName) => {
-      const user = userEvent.setup();
-      if (label === 'a different patient') {
-        openChartGroup('0c1d2e3f-4a5b-4c6d-8e7f-901234567890', groupName);
-      } else if (groupName) {
-        openChartGroup(chartPatientUuid, groupName);
-      } else {
-        openChartGroup(null);
-      }
-      mountProviders([provider]);
-      render(<Omnibar />);
-      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-    });
-
-    it('does not launch after the chart group closes', async () => {
-      const user = userEvent.setup();
-      mountProviders([provider]);
-      render(<Omnibar />);
-      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-      await user.keyboard('{ArrowDown}');
-      expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'true');
-
-      act(() => {
-        openChartGroup(null);
-      });
-
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-      await user.keyboard('{Enter}');
-      expect(launchWorkspace2).not.toHaveBeenCalled();
-    });
-
     it('refuses a workspace launch when the required chart group is no longer open', async () => {
       openChartGroup(chartPatientUuid);
       const target = {
         type: 'workspace' as const,
         workspaceName: 'ai-chat-workspace',
-        workspaceProps: { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        workspaceProps: { patientUuid: chartPatientUuid },
         requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
       };
       await executeTarget(target);
-      expect(launchWorkspace2).toHaveBeenCalledWith(
-        'ai-chat-workspace',
-        { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
-        null,
-        null,
-      );
+      expect(launchWorkspace2).toHaveBeenCalledWith('ai-chat-workspace', { patientUuid: chartPatientUuid }, null, null);
 
       vi.mocked(launchWorkspace2).mockClear();
       openChartGroup(null);
@@ -1189,7 +916,7 @@ describe('Omnibar with providers mounted through the slot', () => {
       const target = (workspacePatientUuid: unknown) => ({
         type: 'workspace' as const,
         workspaceName: 'ai-chat-workspace',
-        workspaceProps: { patientUuid: workspacePatientUuid, initialQuestion: 'what happened at the last visit' },
+        workspaceProps: { patientUuid: workspacePatientUuid },
         requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
       });
 
@@ -1206,7 +933,7 @@ describe('Omnibar with providers mounted through the slot', () => {
     it('refuses a launch whose window or group props name another patient than the open group it requires', async () => {
       const otherPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
       const requiresOpenGroup = { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid };
-      const workspaceProps = { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' };
+      const workspaceProps = { patientUuid: chartPatientUuid };
 
       for (const props of [
         { groupProps: { patientUuid: otherPatientUuid } },
@@ -1352,7 +1079,7 @@ describe('Omnibar with providers mounted through the slot', () => {
       const target = {
         type: 'workspace' as const,
         workspaceName: 'ai-chat-workspace',
-        workspaceProps: { patientUuid: chartPatientUuid, initialQuestion: 'what happened at the last visit' },
+        workspaceProps: { patientUuid: chartPatientUuid },
         requiresOpenGroup: { workspaceName: 'ai-chat-workspace', patientUuid: chartPatientUuid },
       };
       expect(await executeTarget(target)).toBe(true);
@@ -1393,7 +1120,7 @@ describe('Omnibar with providers mounted through the slot', () => {
         render(<Omnibar />);
 
         await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-        const row = await screen.findByRole('option', { name: /ask chartsearch/i });
+        const row = await screen.findByRole('option', { name: /ask in the side panel/i });
         await user.keyboard('{ArrowDown}');
         expect(row).toHaveAttribute('aria-selected', 'true');
 
@@ -1423,246 +1150,11 @@ describe('Omnibar with providers mounted through the slot', () => {
         render(<Omnibar />);
 
         await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-        await user.click(await screen.findByRole('option', { name: /ask chartsearch/i }));
+        await user.click(await screen.findByRole('option', { name: /ask in the side panel/i }));
 
         await waitFor(() => expect(launchWorkspace2).toHaveBeenCalledTimes(1));
         expect(showSnackbar).not.toHaveBeenCalled();
       });
-    });
-
-    it('hides the row when the question is longer than ChartSearch accepts', async () => {
-      mountProviders([provider]);
-      render(<Omnibar />);
-      fireEvent.change(screen.getByRole('combobox'), { target: { value: `what ${'a'.repeat(996)}` } });
-      await waitFor(
-        () => {
-          expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-        },
-        { timeout: 1000 },
-      );
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-    });
-
-    describe("with ChartSearch's maxQuestionLength", () => {
-      const chartSearchModuleName = '@openmrs/esm-chartsearchai-app';
-      const questionOfLength = (length: number) => `what ${'a'.repeat(length - 5)}`;
-      const askRow = () => screen.queryByRole('option', { name: /ask chartsearch/i });
-
-      const expectOffered = async (length: number, offered: boolean) => {
-        fireEvent.change(screen.getByRole('combobox'), { target: { value: questionOfLength(length) } });
-        if (offered) {
-          expect(await screen.findByRole('option', { name: /ask chartsearch/i })).toBeInTheDocument();
-          return;
-        }
-        // Long enough for the 200 ms debounce and the provider's report.
-        await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
-        expect(askRow()).not.toBeInTheDocument();
-      };
-
-      const renderOmnibar = () => {
-        mountProviders([provider]);
-        render(<Omnibar />);
-      };
-
-      it('hides a question longer than a lowered live limit', async () => {
-        vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 500 });
-        renderOmnibar();
-
-        await expectOffered(501, false);
-        await expectOffered(500, true);
-        expect(getConfig).toHaveBeenCalledWith(chartSearchModuleName);
-      });
-
-      it('offers a question up to a raised live limit', async () => {
-        vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 2000 });
-        renderOmnibar();
-
-        await expectOffered(2001, false);
-        await expectOffered(2000, true);
-      });
-
-      it.each([
-        ['a string', { maxQuestionLength: '500' }],
-        ['zero', { maxQuestionLength: 0 }],
-        ['a negative number', { maxQuestionLength: -5 }],
-        ['a fraction', { maxQuestionLength: 12.5 }],
-        ['null', { maxQuestionLength: null }],
-        ['missing', {}],
-        ['no config at all', undefined],
-      ])('keeps the 1000-character default when the live value is %s', async (_label, config) => {
-        vi.mocked(getConfig).mockResolvedValue(config);
-        renderOmnibar();
-
-        await expectOffered(1001, false);
-        await expectOffered(1000, true);
-      });
-
-      it("keeps the 1000-character default while ChartSearch's config has not loaded", async () => {
-        vi.mocked(getConfig).mockReturnValue(new Promise(() => {}));
-        renderOmnibar();
-
-        await expectOffered(1001, false);
-        await expectOffered(1000, true);
-      });
-
-      it("hides the row when ChartSearch's config loads with a lower limit", async () => {
-        let loadConfig: (config: { maxQuestionLength: number }) => void = () => {};
-        vi.mocked(getConfig).mockReturnValue(new Promise((resolve) => (loadConfig = resolve)));
-        renderOmnibar();
-        await expectOffered(800, true);
-
-        await act(async () => loadConfig({ maxQuestionLength: 500 }));
-
-        await waitFor(() => expect(askRow()).not.toBeInTheDocument());
-      });
-
-      it('measures the question without the spaces around it, as ChartSearch does', async () => {
-        const report = vi.fn();
-        // The shell trims before providers see the query, so this renders the provider directly, with the
-        // open group a contract 1 host passes.
-        render(
-          <ChartSearchSuggestionProvider
-            query={`  ${questionOfLength(1000)}  `}
-            context={{
-              scope: 'patient',
-              patientUuid: chartPatientUuid,
-              locale: 'en',
-              workspaceGroup: { groupName: 'patient-chart', patientUuid: chartPatientUuid },
-            }}
-            report={report}
-          />,
-        );
-
-        await waitFor(() => expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ready' })));
-      });
-
-      it("does not wait on ChartSearch's config when its workspace is not registered", async () => {
-        mockGetRegisteredWorkspace2Names.mockReturnValue([]);
-        renderOmnibar();
-
-        await expectOffered(800, false);
-        expect(getConfig).not.toHaveBeenCalled();
-      });
-    });
-
-    it.each(['100GEJ', '1234567'])(
-      'shows an ID-matched patient for %s without a ChartSearch suggestion',
-      async (identifier) => {
-        const user = userEvent.setup();
-        const matchedPatient = {
-          uuid: '5b3c6f0e-8d2a-4c1e-9f7b-2a6d4e8c1b90',
-          identifiers: [
-            {
-              identifier,
-              identifierType: { uuid: openmrsIdType, display: 'OpenMRS ID' },
-            },
-          ],
-          person: { display: 'Jane Doe', gender: 'F', birthdate: null, dead: false },
-        };
-        mockOpenmrsFetch.mockImplementation((url: string) => {
-          if (url.includes('/patient?')) {
-            return Promise.resolve({ data: { results: [matchedPatient] } } as FetchResponse);
-          }
-          if (url.includes('/user/user-uuid')) {
-            return Promise.resolve({ data: { userProperties: {} } } as FetchResponse);
-          }
-          return new Promise(() => {});
-        });
-        const patientRoute = routes.extensions.find(
-          (extension) => extension.name === 'omnibar-patient-search-provider',
-        ) as { meta: OmnibarProviderMeta };
-        mountProviders([
-          {
-            name: 'omnibar-patient-search-provider',
-            meta: patientRoute.meta,
-            component: PatientSearchProvider,
-          },
-          provider,
-        ]);
-        renderWithFreshCache(<Omnibar />);
-
-        await user.type(screen.getByRole('combobox'), identifier);
-
-        expect(await screen.findByRole('option', { name: /jane doe/i })).toBeInTheDocument();
-        expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-      },
-    );
-
-    it('does not launch a suggestion left over from an earlier query', async () => {
-      const user = userEvent.setup();
-      mountProviders([provider]);
-      render(<Omnibar />);
-      const input = screen.getByRole('combobox');
-      const query = 'what happened at the last visit';
-      await user.type(input, query);
-      const row = await screen.findByRole('option', { name: /ask chartsearch/i });
-
-      vi.mocked(useDebounce).mockReturnValue(query);
-      await user.type(input, '?');
-      expect(row).toHaveAttribute('aria-disabled', 'true');
-      await user.click(row);
-
-      expect(launchWorkspace2).not.toHaveBeenCalled();
-    });
-
-    it('launches ChartSearch for the chart that is open when the row is picked', async () => {
-      const user = userEvent.setup();
-      const nextPatientUuid = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
-      mountProviders([provider]);
-      render(<Omnibar />);
-
-      const ask = async (patientUuid: string) => {
-        act(() => {
-          openChartGroup(patientUuid);
-          window.history.pushState({}, '', `/openmrs/spa/patient/${patientUuid}/chart/Patient%20Summary`);
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        });
-        const input = screen.getByRole('combobox', { name: /search this chart/i });
-        await user.clear(input);
-        await user.type(input, 'what happened at the last visit');
-        expect(await screen.findByRole('group', { name: 'Suggestions' })).toBeInTheDocument();
-        expect(screen.getByRole('option', { name: /ask chartsearch/i })).toHaveAttribute('aria-selected', 'false');
-        await user.keyboard('{ArrowDown}{Enter}');
-        expect(launchWorkspace2).toHaveBeenLastCalledWith(
-          'ai-chat-workspace',
-          { patientUuid, initialQuestion: 'what happened at the last visit' },
-          null,
-          null,
-        );
-      };
-
-      await ask(chartPatientUuid);
-      await ask(nextPatientUuid);
-      expect(launchWorkspace2).toHaveBeenCalledTimes(2);
-    });
-
-    it('isolates a workspace registration failure inside the provider boundary', async () => {
-      const user = userEvent.setup();
-      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-      mockGetRegisteredWorkspace2Names.mockImplementation(() => {
-        throw new Error('workspace registry failed');
-      });
-      const ChartResult: React.FC<OmnibarProviderProps> = ({ query, report }) => {
-        useEffect(() => report(ready(query, 'In this chart', ['chart result'])), [query, report]);
-        return null;
-      };
-      mountProviders([
-        {
-          name: 'chart',
-          meta: { lane: 'record', scopes: ['patient'], order: 10, defaultInChart: true },
-          component: ChartResult,
-        },
-        { ...provider, component: withProviderBoundary(ChartSearchSuggestionProvider, providerName) },
-      ]);
-      render(<Omnibar />);
-
-      await user.type(screen.getByRole('combobox'), 'what happened at the last visit');
-
-      expect(screen.getByRole('option', { name: 'chart result' })).toBeInTheDocument();
-      expect(screen.getByText('Couldn’t load results')).toBeInTheDocument();
-      expect(showToast).not.toHaveBeenCalled();
-      consoleError.mockRestore();
     });
   });
 
@@ -3928,10 +3420,10 @@ describe('Omnibar with providers mounted through the slot', () => {
       );
     });
 
-    it('skips identifier queries for the ChartSearch row, and never for patient search', () => {
+    it('skips identifier queries for the query store provider, and never for patient search', () => {
       const metaOf = (name: string) =>
         routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
-      expect(metaOf('omnibar-chartsearch-suggestion-provider').skipIdentifierQueries).toBe(true);
+      expect(metaOf('omnibar-querystore-chart-provider').skipIdentifierQueries).toBe(true);
       expect(metaOf('omnibar-patient-search-provider').skipIdentifierQueries).toBeUndefined();
     });
 
@@ -5240,12 +4732,32 @@ describe('Enter inside a chart, with Query results', () => {
     expect(takeSubmission(chartPatient, 'cd4')).toBe(false);
   });
 
-  it('says in the hint when Enter will also ask ChartSearch', async () => {
+  // Views in the Query results slot, as their apps' routes.json register them. The framework assigns
+  // only those the user may see; the bar's providers slot is left empty.
+  const assignViews = (...metas: Array<OmnibarViewMeta>) =>
+    mockUseAssignedExtensions.mockImplementation((slot: string) =>
+      slot === OMNIBAR_QUERY_RESULTS_SLOT
+        ? metas.map((meta, index) => ({
+            id: `view-${index}`,
+            name: `view-${index}`,
+            moduleName: 'some-app',
+            meta,
+            config: null,
+          }))
+        : [],
+    );
+  const asksChartSearch: OmnibarViewMeta = {
+    scopes: ['patient'],
+    order: 100,
+    contract: 1,
+    skipIdentifierQueries: true,
+    asksModel: 'ChartSearch',
+  };
+  const chartValues: OmnibarViewMeta = { scopes: ['patient'], order: 10, contract: 1 };
+
+  it('says in the hint when Enter will also ask the model a view declares', async () => {
     const user = userEvent.setup();
-    mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
-    vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
-    vi.mocked(userHasAccess).mockReturnValue(true);
-    mountProviders([]);
+    assignViews(chartValues, asksChartSearch);
     render(<Omnibar />);
 
     await user.type(screen.getByRole('combobox'), 'when did he start ART?');
@@ -5254,24 +4766,45 @@ describe('Enter inside a chart, with Query results', () => {
         name: 'Enter to see all results for “when did he start ART?” and ask ChartSearch',
       }),
     ).toBeInTheDocument();
-
     expect(
       screen.getByText('↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close'),
     ).toBeInTheDocument();
 
-    vi.mocked(userHasAccess).mockReturnValue(false);
-    await user.type(screen.getByRole('combobox'), ' ');
+    // Not for a query that doesn't look like a question.
+    await user.clear(screen.getByRole('combobox'));
+    await user.type(screen.getByRole('combobox'), 'cd4');
+    expect(await screen.findByRole('button', { name: 'Enter to see all results for “cd4”' })).toBeInTheDocument();
+  });
+
+  it('says only "see all results" when no assigned view asks a model', async () => {
+    const user = userEvent.setup();
+    // As for a user without the view's privilege, or with its app not installed: the framework
+    // doesn't assign it.
+    assignViews(chartValues);
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'when did he start ART?');
     expect(
-      screen.getByRole('button', { name: 'Enter to see all results for “when did he start ART?”' }),
+      await screen.findByRole('button', { name: 'Enter to see all results for “when did he start ART?”' }),
     ).toBeInTheDocument();
+    expect(screen.getByText('↑ ↓ to choose a result, Enter to see all, Esc to close')).toBeInTheDocument();
+    expect(screen.queryByText(/and ask/)).not.toBeInTheDocument();
+  });
+
+  it('promises no model for an ID-shaped query, which Enter never submits', async () => {
+    const user = userEvent.setup();
+    assignViews(chartValues, asksChartSearch, { ...asksChartSearch, skipIdentifierQueries: undefined });
+    render(<Omnibar />);
+
+    await user.type(screen.getByRole('combobox'), 'what is 100GEJ?');
+    await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
+    expect(screen.queryByRole('button', { name: /see all results/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/and ask/)).not.toBeInTheDocument();
+    expect(screen.getByText('↑ ↓ to move, Enter to open, Esc to close')).toBeInTheDocument();
   });
 
   it('promises nothing, and marks nothing, for a question longer than the page takes', async () => {
-    mockGetRegisteredWorkspace2Names.mockReturnValue(['ai-chat-workspace']);
-    vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
-    vi.mocked(userHasAccess).mockReturnValue(true);
-    vi.mocked(getConfig).mockResolvedValue({ maxQuestionLength: 5000 });
-    mountProviders([]);
+    assignViews(chartValues, asksChartSearch);
     render(<Omnibar />);
 
     const long = `what ${'x'.repeat(1100)}?`;
@@ -5281,18 +4814,6 @@ describe('Enter inside a chart, with Query results', () => {
     ).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
     expect(takeSubmission(chartPatient, long.slice(0, 1000))).toBe(false);
-  });
-
-  it('keeps working when the workspace registry fails', async () => {
-    const user = userEvent.setup();
-    mockGetRegisteredWorkspace2Names.mockImplementation(() => {
-      throw new Error('registry failed');
-    });
-    mountProviders([]);
-    render(<Omnibar />);
-
-    await user.type(screen.getByRole('combobox'), 'when did he start ART?{Enter}');
-    expect(landedOn()).toBe(queryResultsFor('when did he start ART?'));
   });
 
   it('submits the typed text before any provider has answered', async () => {

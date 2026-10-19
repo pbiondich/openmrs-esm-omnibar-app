@@ -10,7 +10,6 @@ import {
   useConfig,
 } from '@openmrs/esm-framework';
 import {
-  looksLikeIdentifier,
   OMNIBAR_CONTRACT_VERSION,
   OMNIBAR_QUERY_RESULTS_SLOT,
   type OmnibarContext,
@@ -32,7 +31,7 @@ import { useOpenedWorkspaceGroup } from '../omnibar/workspace-group';
 import { capQuery, queryResultsUrl } from './query-results-url';
 import { getQueryHistory, type QueryHistoryEntry, rememberQuery, sameQuery } from './query-history';
 import { clearSubmission, dropOtherSubmissions, markSubmitted, onSubmission, takeSubmission } from './submission';
-import { useChartSearchOffer } from '../views/chartsearch-offer';
+import { queryHints, useAsksModel } from './query-results-views';
 import styles from './query-results.scss';
 
 interface QueryResultsPageProps {
@@ -86,6 +85,9 @@ const defaultViewOrder = 100;
 /** The command's label, for its chip; undefined for an id the table doesn't know. */
 const labelOf = (table: CommandTable, id: string | null | undefined) => (id ? table.byId.get(id)?.label : undefined);
 
+/** Whether the bar offers the command in a chart: declared, enabled and available for a patient. */
+const isOffered = (table: CommandTable, id: string) => Boolean(table.byId.get(id)?.scopes.includes('patient'));
+
 /**
  * The chart's Query results section: the query, this session's earlier queries about this patient,
  * then one section per view in `omnibar-query-results-slot`. The page is the host for its views, as
@@ -96,9 +98,16 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   const { t, i18n } = useTranslation();
   const { query, command } = useUrlRequest();
   const workspaceGroup = useOpenedWorkspaceGroup();
-  const { commands: commandConfig } = useConfig<OmnibarConfig>();
+  const { commands: commandConfig, queryResults } = useConfig<OmnibarConfig>();
+  const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   // The bar's alias table, for whether a command is enabled here and for its label.
-  const commandTable = useCommandTable(useAssignedExtensions(omnibarProvidersSlot), commandConfig, i18n.language, true);
+  const commandTable = useCommandTable(
+    useAssignedExtensions(omnibarProvidersSlot),
+    assigned,
+    commandConfig,
+    i18n.language,
+    true,
+  );
 
   const patientName = useMemo(() => {
     const name = patient?.name?.[0];
@@ -106,14 +115,14 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   }, [patient]);
   const owner = patientName || t('thisPatient', 'this patient');
 
-  const hints = useMemo(() => ({ looksLikeIdentifier: looksLikeIdentifier(query) }), [query]);
+  const questionMinWords = queryResults?.questionMinWords;
+  const hints = useMemo(() => queryHints(query, questionMinWords), [query, questionMinWords]);
 
   // With a command, only the views that declare it mount, so `/lab` never brings up a view that asks a
   // model; a view with no command mounts only for plain queries. A command must also be one the bar
-  // offers here (declared by a provider this user has, enabled, for a chart) and declared by a view
+  // offers here (declared by a provider or view this user has, enabled, for a chart) and declared by a view
   // this user can see. Otherwise the page fails closed: it shows nothing but the query, a line saying
   // so, and a link to search the text plainly. It never runs another set of views instead.
-  const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   const eligible = useMemo(
     () =>
       assigned
@@ -130,7 +139,7 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
         .map(({ extension }) => extension),
     [assigned],
   );
-  const commandOffered = command !== null && Boolean(commandTable.byId.get(command)?.scopes.includes('patient'));
+  const commandOffered = command !== null && isOffered(commandTable, command);
   const declaring = useMemo(
     () =>
       command === null
@@ -217,6 +226,27 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   }, [generation, patientUuid, query, command, takesSubmission, failsClosed]);
   const submitted = submission?.generation === generation && submission.submitted;
 
+  // One signal per generation, aborted once the page has moved past it: another query or chart, a
+  // rerun, or the page closing. The abort waits a microtask, because React's development checks
+  // unmount and remount effects at once, and that mustn't abort a run that carries on.
+  const controllers = useRef<{ generation: string; controller: AbortController } | null>(null);
+  if (controllers.current?.generation !== generation) {
+    controllers.current = { generation, controller: new AbortController() };
+  }
+  const { controller } = controllers.current;
+  const liveController = useRef<AbortController | null>(null);
+  useEffect(() => {
+    liveController.current = controller;
+    return () => {
+      liveController.current = null;
+      queueMicrotask(() => {
+        if (liveController.current !== controller) {
+          controller.abort();
+        }
+      });
+    };
+  }, [controller]);
+
   useEffect(
     () =>
       onSubmission((submittedPatient, submittedQuery, submittedCommand) => {
@@ -260,12 +290,20 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
             return byView[name] === state ? current : { generation, byView: { ...byView, [name]: state } };
           });
         };
-        props = { query, context, contractVersion: OMNIBAR_CONTRACT_VERSION, reportState, hints, submitted };
+        props = {
+          query,
+          context,
+          contractVersion: OMNIBAR_CONTRACT_VERSION,
+          reportState,
+          hints,
+          submitted,
+          signal: controller.signal,
+        };
         cache.set(name, props);
       }
       return props;
     };
-  }, [generation, query, context, hints, submitted]);
+  }, [generation, query, context, hints, submitted, controller]);
 
   const reported = views.map((view) => statesNow[view.name]);
   const settled = reported.length > 0 && reported.every((state) => state && state !== 'loading');
@@ -324,7 +362,7 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
                   <HistoryItem
                     entry={entry}
                     label={labelOf(commandTable, entry.cmd)}
-                    patientUuid={patientUuid}
+                    offered={!entry.cmd || isOffered(commandTable, entry.cmd)}
                     onRun={runAgain}
                   />
                 </li>
@@ -379,24 +417,31 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
 
 /**
  * An earlier query, with its command's chip when the bar knows the command. Choosing it runs it again,
- * and asks ChartSearch again where Enter would, so it says so.
+ * and asks a model again where Enter would, so it says so: for a plain query or one under /ask, while
+ * its command is still offered here, when a view that would mount for it asks a model.
  */
 const HistoryItem: React.FC<{
   entry: QueryHistoryEntry;
   label?: string;
-  patientUuid: string;
+  offered: boolean;
   onRun: (entry: QueryHistoryEntry) => void;
-}> = ({ entry, label, patientUuid, onRun }) => {
+}> = ({ entry, label, offered, onRun }) => {
   const { t } = useTranslation();
-  const underAsk = entry.cmd === askCommandId;
-  const offered = useChartSearchOffer(entry.q, patientUuid, underAsk);
-  const asksChartSearch = offered && (!entry.cmd || underAsk);
+  const model = useAsksModel(entry.q, entry.cmd);
+  const asksModel = offered && (!entry.cmd || entry.cmd === askCommandId) ? model : null;
   return (
     <button
       type="button"
       className={styles.historyItem}
       onClick={() => onRun(entry)}
-      title={asksChartSearch ? t('runAgainAndAsk', 'Run again and ask ChartSearch') : t('runAgain', 'Run again')}
+      title={
+        asksModel
+          ? t('runAgainAndAsk', 'Run again and ask {{model}}', {
+              model: asksModel,
+              interpolation: { escapeValue: false },
+            })
+          : t('runAgain', 'Run again')
+      }
       dir="auto"
     >
       {label && (

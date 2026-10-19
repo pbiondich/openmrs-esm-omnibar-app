@@ -13,9 +13,9 @@ The omnibar is a thin shell, and capabilities live in the apps that own the data
 - the **selection event**, `openmrs:omnibar-selected`;
 - the **contract**, in [`src/omnibar-contract/`](src/omnibar-contract/).
 
-Feature apps such as Cohort Builder and ChartSearch **register their own providers** in `omnibar-providers-slot` from their own `routes.json`. Each app also declares its own page. New capabilities go into the owning app as a provider, not into this repo.
+Feature apps such as Cohort Builder and ChartSearch **register their own providers** in `omnibar-providers-slot`, and their own Query results views in `omnibar-query-results-slot`, from their own `routes.json`. Each app also declares its own page. New capabilities go into the owning app as a provider, not into this repo.
 
-The omnibar keeps these built-in providers as defaults for now: patient search with recently viewed patients, chart lookup, destinations, the ChartSearch suggestion row, and the query store chart provider, which is off unless `chartLookup.source` is `querystore` or `both` (see [`src/routes.json`](src/routes.json)). The query store provider is a recorded exception to the rule above: the query store has no frontend app of its own, and the provider serves the same chart values as chart lookup, beside it rather than replacing it. Move it if the query store gains other frontend consumers. See [`docs/decisions.md`](docs/decisions.md). See the [design rules](README.md#design-rules) in the README and [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
+The omnibar keeps these built-in providers as defaults for now: patient search with recently viewed patients, chart lookup, destinations, and the query store chart provider, which is off unless `chartLookup.source` is `querystore` or `both` (see [`src/routes.json`](src/routes.json)). The query store provider is a recorded exception to the rule above: the query store has no frontend app of its own, and the provider serves the same chart values as chart lookup, beside it rather than replacing it. Move it if the query store gains other frontend consumers. See [`docs/decisions.md`](docs/decisions.md). See the [design rules](README.md#design-rules) in the README and [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
 
 ## Contract v1, in brief
 
@@ -88,7 +88,7 @@ If plain `yarn` isn't on the PATH (Homebrew's Node ships without corepack), use 
 - [docs/design/omnibar-provider-contract.md](docs/design/omnibar-provider-contract.md): the full provider contract, the order registry and the dedupe key registry.
 - [docs/design/omnibar-context-rules.md](docs/design/omnibar-context-rules.md): how context shapes which suggestions appear.
 - [docs/design/slash-commands.md](docs/design/slash-commands.md): the agreed slash-command design, including the Query results slice.
-- [docs/design/chartsearch-row.md](docs/design/chartsearch-row.md) and [docs/design/patient-row-photos.md](docs/design/patient-row-photos.md): detail on those two features.
+- [docs/design/patient-row-photos.md](docs/design/patient-row-photos.md): detail on patient row photos.
 - [docs/design/omnibar-concept.md](docs/design/omnibar-concept.md): the original concept and design rationale.
 - [FIXES.md](FIXES.md): every review round, its findings and fixes.
 - [docs/decisions.md](docs/decisions.md): dated decisions and why they were made. Check it before reopening a settled question.

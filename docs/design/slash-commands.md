@@ -85,7 +85,7 @@ Built-in declarations:
 | Chart lookup | `lab` | lab, labs, results, obs, value | As today |
 | Query store chart | `lab` | (shares chart lookup's) | As today; recents on an empty query |
 | Destinations | `go` | go, open, page | As today |
-| ChartSearch suggestion | `ask` | ask, question | Offers the side-panel row for any non-empty text, skipping the question heuristic (`chartSearchSuggestion.minWords`, question words, `?`) |
+| ~~ChartSearch suggestion~~ | `ask` | ask, question | *Removed in ChartSearch step 3 with the bar's ChartSearch row.* `ask` is now declared by ChartSearch's answer view, from its own app (see below); no provider declares it |
 
 The README's `/cohort` and `/help` have no providers yet. They appear when the Cohort Builder and a knowledge-base app declare them from their own `routes.json`; nothing in this repo names them.
 
@@ -97,11 +97,11 @@ The README promised that URLs carry the id, and Enter now submits to Query resul
 
 **URL.** `/patient/<uuid>/chart/query-results?cmd=lab&q=cd4`. `cmd` is the id, so a bookmark works in any language. A plain query has no `cmd`.
 
-**Views declare commands too.** `OmnibarViewMeta.command?: { id: string }` (aliases on a view are ignored; the bar owns aliases). With `cmd` set, only views declaring that id mount. Views with no `command` mount only for plain queries. Built in: the chart values view declares `lab`; the Ask ChartSearch view declares `ask`. This is a safety property as much as a filter: under `/lab` the model-calling view is never mounted, so a command can't cause a model call the clinician didn't ask for.
+**Views declare commands too.** `OmnibarViewMeta.command?: { id: string; aliases?: Array<string> }`. With `cmd` set, only views declaring that id mount. Views with no `command` mount only for plain queries. A view's declaration also goes into the bar's command table, with its aliases and its module's translations, as a provider's does (Paul's option a for `/ask`, 2026-10-18); a command only views declare mounts no providers in the bar. Built in: the chart values view declares `lab`. The Ask ChartSearch view moved into ChartSearch's own app in step 3, and declares `ask` there with the aliases ask and question. This is a safety property as much as a filter: under `/lab` the model-calling view is never mounted, so a command can't cause a model call the clinician didn't ask for.
 
 **Unknown or disabled `cmd`.** If the id matches no view this user can see (a bookmark from another site, a disabled command, garbage), the page fails closed: it shows the query, says "That command isn't available here", and offers one link that re-runs the text as a plain query. It never silently runs a different set of views.
 
-**`/ask`.** Enter on `/ask when did he start ART` opens Query results with `cmd=ask`, marks the submission as today, and the Ask ChartSearch view asks, exactly as a plain question does now. `/ask` bypasses the heuristic, nothing more: the hint still says beforehand that Enter asks, a reloaded or reopened page still shows an Ask button, and `submitted` is unchanged. Design rule 6 holds as reworded in PR #12.
+**`/ask`.** Enter on `/ask when did he start ART` opens Query results with `cmd=ask`, marks the submission as today, and ChartSearch's answer view asks, exactly as a plain question does now. `/ask` bypasses the heuristic, nothing more: the hint still says beforehand that Enter asks, a reloaded or reopened page still shows an Ask button, and `submitted` is unchanged. Design rule 6 holds as reworded in PR #12.
 
 **History.** Entries become `{ cmd?: string, q: string }` under the same per-user, per-patient `sessionStorage` rules. Choosing one re-runs it with its command. The page and the history list render an entry as the command's chip (label, from the table) followed by the text; a stored id with no label falls back to the plain text alone. Entries stored before this change, plain strings, are read as plain queries.
 

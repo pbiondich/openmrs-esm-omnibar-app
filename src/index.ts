@@ -44,11 +44,6 @@ export const chartLookupProvider = getAsyncLifecycle(
   options,
 );
 
-export const chartSearchSuggestionProvider = getAsyncLifecycle(
-  () => import('./providers/chartsearch-suggestion.provider').then(bounded('omnibar-chartsearch-suggestion-provider')),
-  options,
-);
-
 export const destinationsProvider = getAsyncLifecycle(
   () => import('./providers/destinations.provider').then(bounded('omnibar-destinations-provider')),
   options,
@@ -73,10 +68,5 @@ const boundedView =
 
 export const chartValuesView = getAsyncLifecycle(
   () => import('./views/chart-values.view').then(boundedView('omnibar-chart-values-view')),
-  options,
-);
-
-export const chartSearchAnswerView = getAsyncLifecycle(
-  () => import('./views/chartsearch-answer.view').then(boundedView('omnibar-chartsearch-answer-view')),
   options,
 );

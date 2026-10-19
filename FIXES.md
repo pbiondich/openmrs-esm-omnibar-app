@@ -1126,3 +1126,113 @@ Not fixed, and why:
 - `yarn verify`: `Tasks: 3 successful, 3 total`, 784 tests. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
 - Framework API checked in source: attaching an extension from `routes.json` creates its slot's entry, and assigned extensions are worked out for every slot, rendered or not (`esm-extensions/src/extensions.ts`), so the page can read the providers' slot and the bar the views' slot.
 - Not tried live on o3, and the chips on the page weren't checked in a browser.
+
+## Feature: ChartSearch step 3, the answer section moves into ChartSearch's app
+
+Built from [the step 3 brief](docs/briefs/2026-10-18-chartsearch-step3.md), with Paul's decisions in its section 9. First built on e29adaf; slash commands (PR #21) merged while it was being built, so it was replayed onto main 2cef413 on `feat/chartsearch-step3` (the first build is kept on the local branch `feat/chartsearch-step3-on-main`). ChartSearch's app registers its answer section as a Query results view (`chartsearch-query-results-view`, order 100, `asksModel: "ChartSearch"`); the omnibar deletes its own copy and the bar's Ask ChartSearch row, and keeps the hint.
+
+Scope, as Paul set it during the restack: slash commands PR 2 (Query results honouring `cmd`) is Paul's own session, so step 3 changes nothing about how the page reads or ignores `cmd`, adds no fail-closed or per-command mounting, and leaves submission marking alone. Under a command chip the bar behaves exactly as #21 built it; the `asksModel` lookup only replaces `useChartSearchOffer`.
+
+| Change | Commit |
+| --- | --- |
+| Contract v1, additive: `OmnibarViewMeta.asksModel`, `OmnibarQueryHints.looksLikeQuestion`, `OmnibarViewProps.signal`, beside #21's `command` fields. `looksLikeQuestion(query, minWords = 3)` moves into the contract folder beside `looksLikeIdentifier`, its tests into `src/conformance/query-hints.test.ts`. `OMNIBAR_CONTRACT_VERSION` stays 1 | 980da6b |
+| Host: the page passes `hints.looksLikeQuestion` (new `queryResults.questionMinWords`, default 3, whole number of at least 2) and a `signal` per run, aborted on a rerun, another query or chart, and the page closing; the abort waits a microtask, so React's development double mount doesn't abort a live run. The page's own view selection is untouched. The bar's plain-text hint and the history tooltip say "and ask {{model}}" from the first assigned, non-skipped view with `asksModel`, for a question-like query (`useAsksModel`, `src/query-results/query-results-views.ts`); under a chip, #21's `marksSubmission` gate and its `/ask` wording are unchanged. Tests: a fake view built only on the contract folder (hint, `hints.looksLikeQuestion`, `signal` on rerun, chart change, unmount and under StrictMode), the slot empty and chart values alone with nothing logged, and the bar's hint with and without an `asksModel` view and for an ID-shaped query | 2883c49 |
+| Deleted: the answer view, stream client, styles, offer hook and their tests; the suggestion provider, its export, routes entry and tests; `chartsearch-question.ts`; both routes entries; 34 translation keys, and `omnibarCommand.ask`, which only that provider used. The contract-folder test no longer allows a POST in `src/views/`. The host's side-panel launch guards keep their 14 test cases on a plain fake provider. The `/ask` tests move to a fake provider from another app that declares `ask`, and the built-in command table test loses `ask` | b8c3bb8 |
+| `chartSearchSuggestion.*` and `queryResults.askChartSearch` stay in the schema as no-ops, "Deprecated, no effect in this release" (worded so after review round 1 below), and leave `OmnibarConfig`, so nothing can read them | c6810a3 |
+| Test: what `/ask` does now (below) | b51c191 |
+| The contract's `asksModel` comment says the hint follows whether Enter marks the submission, not whether the view declares the chosen command, matching the scope above | e0c12d9 |
+| Docs: README, AGENTS.md, the contract doc (fields, order and command registries, the folder's files), `decisions.md` (the exception retired, the row deleted, `/ask` open), the slash-commands design's `ask` row, the registration plan's step 3, the context rules, the briefs index, the step 3 brief's status line and `docs/upstream/README.md`. `docs/design/chartsearch-row.md` and `docs/upstream/esm-chartsearchai-initial-question.patch` are deleted | this commit |
+
+**What happens to `/ask` (open, for Paul).** #21 made the built-in ChartSearch suggestion provider the only declarer of `ask`, and the alias table is built only from providers (config can't add a command no provider declares). With that provider deleted, `/ask` and its aliases are gone from the command list. Typing `/ask when did he start ART?` reads as plain text with "No command /ask", and Enter submits the whole text, prefix included, as a plain question: the submission is marked and an installed answer view asks about "/ask when did he start ART?". The bar's `ask` rules (the marked submission, "Enter to ask ChartSearch '…'") stay, because any app's provider declaring `ask` still triggers them; with the built-ins alone they can't be reached. `cmd=ask` URLs are treated by the page like any other `cmd`, as #21 left it. Nothing new was built. The options are recorded in `decisions.md` under Open: (a) a view's `command` carries aliases and translations, so chartsearchai declares `/ask` from its view; (b) chartsearchai registers a row-less provider declaring `ask`; (c) the host adds `ask` when an `asksModel` view is assigned; (d) drop `/ask` until a later slice.
+
+Deviations from the brief, and why:
+
+- `thinking` and `unsourcedAnswer` stay in `translations/en.json`: the bar's answer lane still uses both. The brief counts six `citation…` keys; there are seven, so its 33 hold once those two are left out.
+- The `omnibar.test.tsx` block "ChartSearch suggestion provider" isn't deleted whole: 14 test cases in it cover the host's side-panel launch guards, which stay. The registry-failure test is gone, since nothing calls the registry any more, and the meta test for skipping identifier queries now checks the query store provider.
+- The brief asked for the deprecated keys' descriptions to start "Deprecated, no effect since" and name the release. They first said "since 0.1.0", the version in `package.json`; review round 1 found that main is 0.1.0 and still has the row, so they now say "no effect in this release".
+- `askCommandId`, the `/ask` hint keys and #21's `marksSubmission` rule are kept, not deleted as dead: they're unreachable with the built-in providers, but reachable through the contract by any provider that declares `ask`, which option (b) would use, and the scope set for the restack keeps #21's chip behaviour as it is.
+- `docs/design/omnibar-concept.md` and `omnibar-source-listing.md` are historical and left as they were.
+
+- Tests: 761 in 23 files on main 2cef413; 692 in 20 files after. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- No new origin: `src/` has no `http(s)://` outside comments and `routes.json`'s `$schema`.
+- Not tried live on o3; the deploy is section 8 of the brief, with chartsearchai's side.
+- Reviewed in round 1 below.
+
+### Review round 1 (Grok code, omnibar side, on fca53a4): APPROVE WITH NITS, no blocking or should-fix
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| nit: the deprecated config descriptions said "no effect since 0.1.0", but 0.1.0 is `package.json`'s current version, which on main still has the row and the answer view, and this branch doesn't bump it | The five descriptions say "Deprecated, no effect in this release", and the README says the same | 47d072d |
+| nit: no test read the history tooltip, the other user-visible `asksModel` string, so hard-coding "Run again" wouldn't fail | Two page tests: an earlier question shows "Run again and ask ChartSearch" when an assigned view declares `asksModel`, and an earlier non-question "Run again"; with no such view assigned, both show "Run again". With the tooltip hard-coded, the first fails | f333e21 |
+
+The reviewer also checked the contract stays additive at 1 beside #21's `command` fields, the per-generation `signal` (rerun, chart change, unmount, StrictMode), the hint's conditions (no hint for an ID-shaped query, under `/lab`, or with no `asksModel` view), that the restack leaves `submission.ts`, `query-results-url.ts`, the page's view filter and #21's chip behaviour untouched, the `/ask` handling with no declarer (no command invented, options recorded under Open), that chartsearchai's contract folder is identical to this branch's, the side-panel guards, and offline-first. They noted that the page's mount rule and `useAsksModel`'s are copied, not shared, which is fine for this scope but PR 2 must keep in step.
+
+- `src/omnibar-contract/` unchanged in this round.
+- Tests: 692 before, 694 after, in 20 files. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+
+### Review round 1 (Grok code, chartsearchai side, on 3be329a): APPROVE WITH NITS, no blocking or should-fix
+
+chartsearchai is another maintainer's repo, so its side is a local branch, `feat/query-results-answer`, on Paul's machine, not pushed. Logged here so both halves of step 3 are in one place.
+
+| Finding | Fix | Commit (chartsearchai) |
+| --- | --- | --- |
+| nit: the "no `submitted`" test passed `undefined` through a helper whose default turned it into `submitted={false}`, so it would stay green if a missing `submitted` ever started a request, the v1-host fallback the brief requires | The test builds the props with no `submitted` key, asserts the key is absent, and renders the view with them. `queryResultsAnswer.enabled`'s description also says the bar's hint still names ChartSearch while the extension is assigned | c9a9b81 |
+
+Later chartsearchai commits, after the review:
+
+- 9244830 copies the contract folder from this branch at 980da6b (the `command` fields) and declares `command: { id: "ask" }` on `chartsearch-query-results-view`, with a test. Declaring it on a view doesn't put `/ask` back in the bar's list, which still needs a provider (see Open in `decisions.md`).
+- 74ee4e7 copies the folder again from e0c12d9, where only the `asksModel` comment changed.
+
+The reviewer checked: the folder is byte-identical to this branch's; `routes.json` matches the brief (slot, privilege, order 100, `contract: 1`, `skipIdentifierQueries`, `asksModel`); no chat-session store and no `useChartSearchAi` in the view; server messages are never shown or logged; the stream is capped at 2 MB and fields at 500 or 5,000 characters, same-origin only; its own `AbortController` aborts on unmount and on the host's signal; no request until `submitted` except the Ask button; no new origin. They noted that `queryResultsAnswer.enabled: false` hides the section but leaves the bar's hint, as the max-length gap the brief accepts; slot `remove` drops both.
+
+- Tests: 520 passed on 3be329a, as the reviewer ran them. From the diffs: c9a9b81 rewrites that test without adding one (520), 9244830 adds one (521), and 74ee4e7 changes no test (521). Not rerun from this session.
+
+### Main merged after PR #22, and `/ask` option a (Paul, 2026-10-18 8:40 PM PT)
+
+Main (PR #22 merged as 5de0d24) was merged into the branch, not rebased, and Paul then chose option (a) for `/ask`: ChartSearch owns it through its answer view.
+
+| Change | Commit |
+| --- | --- |
+| Merge main. Step 3's deletion of the answer view, `chartsearch-offer.ts` and their tests is kept. The page, `submission.ts`, `query-history.ts`, the bar and `commands.ts` keep #22's command filtering, fail-closed page, command-bound marks and `{ cmd, q }` history, and step 3's `hints.looksLikeQuestion`, `signal` and `asksModel` hint. `useAsksModel(query, command)` now counts only views that would mount for the input (under a command, only those declaring it) and, under `/ask`, any text that isn't ID-shaped, so the hint keeps #22's `/ask` rule; the history tooltip says "and ask" only for a plain or `/ask` entry whose command is still offered. #22's page tests that needed a declarer of `ask` got a stand-in provider for this commit only | 12bfebf |
+| Contract, the folder's one change: `OmnibarViewMeta.command` may carry optional `aliases`; its comment says a view-declared command joins the bar's list with the view module's `omnibarCommand.<id>.*` translations and mounts no providers, and `asksModel`'s says the view must mount for the input and that any non-ID text counts under `ask`. Still `OMNIBAR_CONTRACT_VERSION = 1` | 8600fd1 |
+| Host: `buildCommandTable` and `useCommandTable` take the views in `omnibar-query-results-slot` as well as providers. A view counts as the page mounts it (for a patient, on a contract the host speaks; privileges by assignment), and gives its command the `patient` scope. Declarations merge by id, providers first for the label and for alias conflicts; view modules' namespaces load with the providers'; the `commands` config applies to view-declared ids. Under a command only views declare, the bar mounts no providers and doesn't show "Nothing matches" | 5f80906 |
+| Tests: the b51c191 tests pinning `/ask` as plain text, and step 3's stand-in `ask` provider, are replaced (below) | 47d93bb |
+| Docs: decisions (option a recorded, the Open question removed), the contract doc (slash commands, the view `command` row, the `ask` registry row), the slash-commands design, README, the step 3 brief's status and the briefs index | this commit |
+
+**#22's `/ask` behaviour in the view moves to chartsearchai.** #22 made the omnibar's own answer view treat any non-ID text under `context.command?.id === 'ask'` as a question, with two view tests. Step 3 deletes that view, so the rule and its tests move to chartsearchai's `chartsearch-query-results-view`, which another builder does. The bar's hint already follows the same rule here.
+
+The `/ask` tests now, and what they prove:
+
+- `omnibar-commands.test.tsx`, "/ask, declared by ChartSearch's answer view", with the view declaring `{ id: 'ask', aliases: ['ask', 'question'] }` from `@openmrs/esm-chartsearchai-app` and #21's strings as its module's translations:
+  - listed with the label "Ask ChartSearch" and description "Ask ChartSearch, an AI, about this chart", and `/question` chooses it with the chip;
+  - says "Enter to ask ChartSearch '…'", Enter lands on `cmd=ask` and the mark is taken only under `ask`;
+  - any text (`cd4`) is asked, skipping the question heuristic;
+  - a view-only command mounts no providers, and the bar says nothing about no matches (a mutation dropping that check fails it);
+  - an ID-shaped query promises nothing;
+  - absent when no view declares it (as without chartsearchai or its privilege) and when config sets `enabled: false`: not listed, "No command /ask".
+- `commands.test.ts`, "declared by Query results views": a view's command is listed with its aliases, translations and the `patient` scope; it merges with a provider's same id, the provider's label first; a view not for a patient or on another contract is ignored; `enabled: false` and `replaceAliases` apply.
+- `query-results.page.test.tsx`: #22's `/ask` page tests now get `ask` from the answer view's own declaration, with no provider; an earlier `/ask` is labelled from the view module's translations, and its tooltip says "Run again and ask ChartSearch" for non-question text.
+- The namespace test checks that a view module's namespace is asked for with the providers'.
+
+Deviations, and why:
+
+- The bar hides "Nothing matches '…'" under a command no provider declares. The brief didn't ask for it, but with no providers mounted the line would tell a clinician typing `/ask cd4` that nothing matched before anything was asked.
+- `useAsksModel` takes the command, and the callers still check that Enter marks the submission and that the command is offered, as the page does; the page's mount rule and `useAsksModel`'s are still two copies of one rule, kept in step by tests.
+
+- Tests: 714 in 20 files after the merge; 722 in 20 files after option a. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- No new origin in `src/`.
+- Not reviewed yet, and not tried live on o3.
+
+### Review round (Grok, code, both sides, on omnibar 8153cf5 and chartsearchai 8432367): APPROVE WITH SHOULD-FIX, no blocking
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| should-fix (chartsearchai): its CI "Verify translations" runs the extractor over `src/**/*.component.tsx` only, with `keepRemoved: false`, so it deletes `omnibarCommand.ask.aliases`, `.label` and `.description`, which no `t()` call names (the host reads them with `translateFrom`), along with the view's own keys | In chartsearchai, by its builder. The extractor also scans `src/**/*.view.tsx` and `src/omnibar-contract/**/*.tsx`, and `keepRemoved` is set to keep `omnibarCommand.*`; today's extract output isn't committed. i18next-parser 6.6.0 reads that `keepRemoved` as plain `true`, so the extractor now keeps every unreferenced key, not just the command keys. So `src/translations.test.ts` now fails on any `en.json` key that no code uses and that doesn't match `omnibarCommand`, which keeps stale keys from building up | chartsearchai: c155718 (globs and `keepRemoved`), 1982021 (the stale-key test) |
+| nit 1 (omnibar): README's slash-commands section said "under `/ask` any text counts as a question", leaving out the ID exception the contract doc, `useAsksModel` and the view all keep | README says any text that isn't ID-shaped counts, and that an ID still opens its patient on Enter | this commit |
+| nit 2 (chartsearchai): a test comment in `src/query-results/omnibar-contract.test.ts` says the aliases and strings were "as the omnibar's built-in view did"; on 5de0d24 the view declared only `{ id: 'ask' }`, and the aliases and strings were the suggestion provider's | In chartsearchai, handled by its builder: the comment names the suggestion provider and the omnibar catalogue | chartsearchai: c155718 |
+
+The reviewer checked the merge against 5de0d24 (`submission.ts`, `query-history.ts`, `query-results-url.ts` and the styles identical; command filtering, fail-closed, command-bound marks and `{ cmd, q }` history intact; step 3's deletions kept), `useAsksModel` following the page's mount rule and #22's `/ask` rule, view-declared commands (patient only, contract-checked, cleaned like a provider's, config applied, namespaces loaded, no providers mounted), that no command but a plain query or `/ask` can lead to a model call, the hint and chip strings against #22's catalogue, the contract folder (version 1, only the optional `command.aliases`, identical in both apps), and offline-first. They accepted the two builder deviations above and noted the known `maxQuestionLength` hint gap from step 3 is unchanged.
+
+- `src/omnibar-contract/` unchanged in this round.
+- chartsearchai head after the fixes: 1982021, 526 tests (525 at review), as its builder reports; not rerun from this session.
+- Tests: 722 in 20 files, unchanged. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.

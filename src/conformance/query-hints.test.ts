@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { looksLikeIdentifier } from '../omnibar-contract';
+import { looksLikeIdentifier, looksLikeQuestion } from '../omnibar-contract';
 
 describe('looksLikeIdentifier', () => {
   it.each([
@@ -25,5 +25,66 @@ describe('looksLikeIdentifier', () => {
     ['a page', 'patient lists'],
   ])('is false for %s: %j', (_, query) => {
     expect(looksLikeIdentifier(query)).toBe(false);
+  });
+});
+
+describe('looksLikeQuestion', () => {
+  const minWords = 3;
+
+  it.each([
+    ['question word of four characters', 'what', true],
+    ['question word in any token', 'her latest viral load', true],
+    ['question word that is not first', 'last cd4', true],
+    ['listed word show', 'show weight', true],
+    ['trailing question mark', 'allergies?', true],
+    ['trailing question mark on a short concept', 'weight?', true],
+    ['trailing question mark on a concept code', 'cd4?', true],
+    ['three words and no question word', 'blood pressure trend', true],
+    ['three words including a concept code', 'cd4 count trend', true],
+    ['concept code with one digit', 'hba1c results ok', true],
+    ['hyphenated name with a short number', 'covid-19 risk today', true],
+    ['trimmed question', '  what was her last cd4  ', true],
+    ['input under four characters', 'why', false],
+    ['input under four characters', 'cd4', false],
+    ['single concept', 'weight', false],
+    ['single concept', 'hemoglobin', false],
+    ['two words and no question word', 'cd4 count', false],
+    ['a name', 'Mary Achieng', false],
+    ['empty input', '', false],
+    ['uuid', '8673ee4f-e2ab-4077-ba55-4980f408773e', false],
+    ['uuid with a trailing question mark', '8673ee4f-e2ab-4077-ba55-4980f408773e?', false],
+    ['compact id', '100GEJ', false],
+    ['compact id with a hyphen', 'MRN-1234', false],
+    ['compact id with a trailing question mark', '100GEJ?', false],
+    ['compact id embedded in a question', 'what is 100GEJ', false],
+    ['compact id embedded before a question mark', 'show chart for 100GEJ?', false],
+    ['uuid embedded in a question', 'who is 8673ee4f-e2ab-4077-ba55-4980f408773e', false],
+    ['a digit inside a question', 'why is her hemoglobin 7', true],
+    ['a year inside a question', 'what happened in 2024', true],
+    ['five digits inside a question', 'show chart 12345', true],
+    ['six digits inside a question', 'find patient 123456', false],
+    ['a long number inside a question', 'find patient 1234567', false],
+    ['a long number after a label', 'mrn 1234567 allergies', false],
+    ['numeric id', '1234567', false],
+    ['numeric id with a trailing question mark', '1234567?', false],
+  ])('%s: %j', (_label, query, expected) => {
+    expect(looksLikeQuestion(query, minWords)).toBe(expected);
+  });
+
+  it('uses minWords only after the question-word and question-mark rules', () => {
+    expect(looksLikeQuestion('show weight', 9)).toBe(true);
+    expect(looksLikeQuestion('allergies?', 9)).toBe(true);
+    expect(looksLikeQuestion('blood pressure trend', 4)).toBe(false);
+    expect(looksLikeQuestion('cd4 count', 2)).toBe(true);
+  });
+
+  it('never counts fewer than two words, whatever minWords says', () => {
+    expect(looksLikeQuestion('hemoglobin', 1)).toBe(false);
+    expect(looksLikeQuestion('hemoglobin', 0)).toBe(false);
+  });
+
+  it('defaults to three words, for views on a host that passes no hint', () => {
+    expect(looksLikeQuestion('blood pressure trend')).toBe(true);
+    expect(looksLikeQuestion('cd4 count')).toBe(false);
   });
 });

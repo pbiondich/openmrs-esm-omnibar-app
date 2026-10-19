@@ -56,8 +56,8 @@ import {
 } from './types';
 import { looksLikeIdentifier } from '../omnibar-contract';
 import { maxQueryLength, queryResultsUrl } from '../query-results/query-results-url';
+import { useAsksModel } from '../query-results/query-results-views';
 import { markSubmitted } from '../query-results/submission';
-import { useChartSearchOffer } from '../views/chartsearch-offer';
 import styles from './omnibar.scss';
 
 export const providersSlot = omnibarProvidersSlot;
@@ -124,9 +124,17 @@ const Omnibar: React.FC = () => {
   // in a scope one of its providers declares: choosing it never widens the scope, and a command that
   // stops being available (the patient chip removed, say) is dropped.
   const assigned = useAssignedExtensions(providersSlot);
+  // Query results views may declare commands too; one only views declare mounts no providers here.
+  const assignedViews = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   const [commandId, setCommandId] = useState<string | null>(null);
   const listingCommands = !commandId && query.startsWith('/') && !/\s/u.test(query);
-  const commandTable = useCommandTable(assigned, commandConfig, scopeContext.locale, open && listingCommands);
+  const commandTable = useCommandTable(
+    assigned,
+    assignedViews,
+    commandConfig,
+    scopeContext.locale,
+    open && listingCommands,
+  );
   const isAvailable = useCallback(
     (command: OmnibarCommandEntry) => command.scopes.includes(scopeContext.scope),
     [scopeContext.scope],
@@ -489,7 +497,6 @@ const Omnibar: React.FC = () => {
 
   // Under a command, Enter sends it with the query only when a Query results view shows results for
   // it. Otherwise there would be nothing to show, so Enter opens the highlight, as outside a chart.
-  const assignedViews = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   const commandsWithViews = useMemo(
     () =>
       new Set(
@@ -525,10 +532,10 @@ const Omnibar: React.FC = () => {
   // model on its own. Query results mounts only the views declaring a command under it, so this is a
   // second guard: no other command can cause a model call, whichever views declare it.
   const marksSubmission = !activeCommandId || activeCommandId === askCommandId;
-  // Said in the hint, so the user knows Enter will also ask ChartSearch, an AI, about the chart.
-  const offersChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid, activeCommandId === askCommandId);
+  // Said in the hint, so the user knows Enter will also ask a model, such as ChartSearch, about the chart.
+  const modelForQuery = useAsksModel(submittedQuery, activeCommandId);
   // A query longer than the page takes is cut, and the page never asks about a cut query on its own.
-  const asksChartSearch = marksSubmission && offersChartSearch && Array.from(submittedQuery).length <= maxQueryLength;
+  const asksModel = marksSubmission && Array.from(submittedQuery).length <= maxQueryLength ? modelForQuery : null;
   const submitQuery = () => {
     if (!scopePatientUuid || !submittedQuery) return;
     const to = queryResultsUrl(scopePatientUuid, submittedQuery, activeCommandId);
@@ -686,17 +693,18 @@ const Omnibar: React.FC = () => {
   const hintValues = {
     query: submittedQuery,
     command: activeCommand?.label,
+    model: asksModel,
     interpolation: { escapeValue: false },
   };
   const submitHint =
-    asksChartSearch && activeCommandId === askCommandId
+    asksModel && activeCommandId === askCommandId
       ? desktop
         ? t('enterToAskChartSearch', 'Enter to ask ChartSearch “{{query}}”', hintValues)
         : t('askChartSearchAbout', 'Ask ChartSearch “{{query}}”', hintValues)
-      : asksChartSearch
+      : asksModel
         ? desktop
-          ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask ChartSearch', hintValues)
-          : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask ChartSearch', hintValues)
+          ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask {{model}}', hintValues)
+          : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask {{model}}', hintValues)
         : activeCommand && activeCommandId !== askCommandId
           ? desktop
             ? t('enterToSeeCommand', 'Enter to see {{command}} for “{{query}}”', hintValues)
@@ -730,7 +738,16 @@ const Omnibar: React.FC = () => {
     (g) => g.status === 'loading' || (g.status !== 'idle' && g.detail?.state === 'projecting'),
   );
   const hasListResults = selectable.length > 0;
-  const showNoMatches = Boolean(debouncedQuery) && !stillLoading && !hasListResults && !answerGroups.length;
+  // A command only Query results views declare, such as /ask, mounts no providers, so there is nothing
+  // here to match: the hint says what Enter does instead.
+  const searchesHere =
+    !activeCommandId ||
+    assigned.some((extension) => {
+      const meta = extension.meta as OmnibarProviderMeta | undefined;
+      return Boolean(meta?.lane) && commandIdOf(meta.command) === activeCommandId;
+    });
+  const showNoMatches =
+    Boolean(debouncedQuery) && searchesHere && !stillLoading && !hasListResults && !answerGroups.length;
 
   // Closed states. "icon" keeps today's collapsed magnifier everywhere, for implementations that want
   // a minimal header. "field" (the default) shows a field on desktop; on tablet and phone, where a
@@ -1127,10 +1144,14 @@ const Omnibar: React.FC = () => {
           {desktop && (
             <div className={styles.footer}>
               {submitsOnEnter
-                ? asksChartSearch
+                ? asksModel
                   ? t(
                       'keyboardHintsSubmitAndAsk',
-                      '↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close',
+                      '↑ ↓ to choose a result, Enter to see all and ask {{model}}, Esc to close',
+                      {
+                        model: asksModel,
+                        interpolation: { escapeValue: false },
+                      },
                     )
                   : t('keyboardHintsSubmit', '↑ ↓ to choose a result, Enter to see all, Esc to close')
                 : listing

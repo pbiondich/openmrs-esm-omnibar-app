@@ -113,15 +113,12 @@ describe('the built-in Query results views', () => {
     }
   });
 
-  // Views navigate or open workspaces; nothing on the page writes to the record. The one request
-  // that isn't a read is ChartSearch's question, which is a POST that only reads and is sent only
-  // when the clinician presses Ask.
+  // Views navigate or open workspaces; nothing on the page writes to the record.
   it('never write to the record', () => {
     for (const file of readdirSync(views).filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name))) {
       const source = readFileSync(join(views, file), 'utf8');
       const methods = [...source.matchAll(/method:\s*['"](\w+)['"]/g)].map(([, method]) => method);
-      const allowed = file === 'chartsearch-stream.ts' ? ['POST'] : [];
-      expect({ file, methods }).toEqual({ file, methods: methods.filter((method) => allowed.includes(method)) });
+      expect({ file, methods }).toEqual({ file, methods: [] });
     }
   });
 });

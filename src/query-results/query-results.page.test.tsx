@@ -199,6 +199,41 @@ describe('the Query results page', () => {
     );
   });
 
+  describe('saying whether an earlier query asks a model again', () => {
+    const values = {
+      name: 'values',
+      meta: { scopes: ['patient'] } as OmnibarViewMeta,
+      component: reports('ready', 'Values'),
+    };
+    const answer = {
+      name: 'answer',
+      meta: { scopes: ['patient'], order: 100, asksModel: 'ChartSearch' } as OmnibarViewMeta,
+      component: reports('empty', 'Answer'),
+    };
+    const titleOf = (query: string) => screen.getByRole('button', { name: query }).getAttribute('title');
+
+    beforeEach(() => {
+      rememberQuery(humprey, 'when did he start ART?');
+      rememberQuery(humprey, 'weight');
+    });
+
+    it('names the model an assigned view declares, for an earlier question', () => {
+      register([values, answer]);
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+      expect(titleOf('when did he start ART?')).toBe('Run again and ask ChartSearch');
+      expect(titleOf('weight')).toBe('Run again');
+    });
+
+    it('says only "Run again" when no assigned view asks a model', () => {
+      register([values]);
+      render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+      expect(titleOf('when did he start ART?')).toBe('Run again');
+      expect(titleOf('weight')).toBe('Run again');
+    });
+  });
+
   it('remembers the query it shows', () => {
     register([]);
     const { unmount } = render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
@@ -294,7 +329,8 @@ describe('the Query results page', () => {
 
 describe('the Query results page under a slash command', () => {
   const omnibarModule = '@openmrs/esm-omnibar-app';
-  // The built-in providers, as routes.json declares them: they make up the bar's command table.
+  // The built-in providers, as routes.json declares them: with the views' declarations, they make up
+  // the bar's command table. No provider declares ask; the answer view below does, as ChartSearch's does.
   const providers = routes.extensions
     .filter((extension) => extension.slot === 'omnibar-providers-slot')
     .map((extension) => ({
@@ -352,7 +388,7 @@ describe('the Query results page under a slash command', () => {
       },
       {
         name: 'answer',
-        meta: { scopes: ['patient'], order: 100, command: { id: 'ask' } },
+        meta: { scopes: ['patient'], order: 100, command: { id: 'ask', aliases: ['ask'] } },
         component: reports('ready', 'Answer', asks),
       },
       { name: 'notes', meta: { scopes: ['patient'], order: 50 }, component: reports('ready', 'Notes', plain) },
@@ -449,7 +485,7 @@ describe('the Query results page under a slash command', () => {
     registerViews([
       {
         name: 'answer',
-        meta: { scopes: ['patient'], command: { id: 'ask' }, skipIdentifierQueries: true },
+        meta: { scopes: ['patient'], command: { id: 'ask', aliases: ['ask'] }, skipIdentifierQueries: true },
         component: reports('ready', 'Answer', asks),
       },
     ]);
@@ -526,6 +562,27 @@ describe('the Query results page under a slash command', () => {
     await user.click(within(screen.getByRole('navigation', { name: 'Earlier this session' })).getByRole('button'));
     expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=ask&q=cd4`);
     expect(takeSubmission(humprey, 'cd4', 'ask')).toBe(true);
+  });
+
+  it('labels an earlier /ask from the view module’s translations, and says it asks the view’s model again', () => {
+    registerViews([
+      {
+        name: 'answer',
+        meta: { scopes: ['patient'], command: { id: 'ask', aliases: ['ask'] }, asksModel: 'ChartSearch' },
+        component: reports('ready', 'Answer', asks),
+      },
+    ]);
+    vi.mocked(translateFrom).mockImplementation((moduleName: string, key: string, fallback?: string) =>
+      moduleName === 'some-app' && key === 'omnibarCommand.ask.label' ? 'Ask ChartSearch' : (fallback ?? key),
+    );
+    rememberQuery(humprey, 'cd4', 'ask');
+    goToRequest({ q: 'weight' });
+    render(<QueryResultsPage patientUuid={humprey} patient={patient} />);
+
+    const item = within(screen.getByRole('navigation', { name: 'Earlier this session' })).getByRole('button');
+    expect(item).toHaveTextContent('Ask ChartSearch: cd4');
+    // Under /ask any text that isn't ID-shaped is a question, so "cd4" is asked again.
+    expect(item).toHaveAttribute('title', 'Run again and ask ChartSearch');
   });
 
   it('shows an earlier query under a command the bar no longer knows as its text alone', () => {

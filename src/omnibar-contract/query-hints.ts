@@ -33,3 +33,47 @@ export function looksLikeIdentifier(query: string): boolean {
         codedIdentifier.test(token)),
   );
 }
+
+const QUESTION_WORDS = new Set([
+  'what',
+  'when',
+  'which',
+  'who',
+  'how',
+  'why',
+  'is',
+  'are',
+  'does',
+  'did',
+  'has',
+  'was',
+  'were',
+  'any',
+  'list',
+  'show',
+  'latest',
+  'last',
+]);
+
+/**
+ * True when the query reads like a question for a model rather than a lookup: four characters or
+ * more, not ID-shaped, and ending in a question mark, using a question word such as "what" or
+ * "latest", or `minWords` words long (at least 2, 3 by default).
+ *
+ * The host computes this once per query, with its own `minWords`, and passes it to views as
+ * `hints.looksLikeQuestion`. A view on a host that doesn't pass it calls this with the default.
+ */
+export function looksLikeQuestion(query: string, minWords = 3): boolean {
+  const trimmed = query.trim();
+  if (trimmed.length < 4 || looksLikeIdentifier(trimmed)) {
+    return false;
+  }
+
+  if (trimmed.endsWith('?')) {
+    return true;
+  }
+
+  const words = trimmed.split(/\s+/);
+  const lexicalWords = trimmed.toLocaleLowerCase().match(/\p{L}+/gu) ?? [];
+  return lexicalWords.some((word) => QUESTION_WORDS.has(word)) || words.length >= Math.max(2, minWords);
+}
