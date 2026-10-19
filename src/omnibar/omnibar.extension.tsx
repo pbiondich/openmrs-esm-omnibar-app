@@ -36,6 +36,7 @@ import {
   commandIdOf,
   type OmnibarCommandEntry,
   omnibarProvidersSlot,
+  orderForListing,
   parseCommandInput,
   useCommandTable,
 } from './commands';
@@ -154,8 +155,9 @@ const Omnibar: React.FC = () => {
   const listing = parsedInput?.mode === 'listing';
   const [commandHighlight, setCommandHighlight] = useState<string | null>(null);
   const listedCommands = useMemo(
-    () => (parsedInput?.mode === 'listing' ? commandTable.matching(parsedInput.prefix) : []),
-    [parsedInput, commandTable],
+    () =>
+      parsedInput?.mode === 'listing' ? orderForListing(commandTable.matching(parsedInput.prefix), isAvailable) : [],
+    [parsedInput, commandTable, isAvailable],
   );
   const highlightedCommand = useMemo(() => {
     const available = listedCommands.filter(isAvailable);

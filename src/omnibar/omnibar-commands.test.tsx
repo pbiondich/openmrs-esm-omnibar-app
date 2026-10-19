@@ -198,8 +198,8 @@ describe('slash commands in the bar', () => {
           .map((option) => option.textContent),
       ).toEqual([
         expect.stringContaining('Patients'),
-        expect.stringContaining('Lab results'),
         expect.stringContaining('Pages'),
+        expect.stringContaining('Lab results'),
       ]);
       expect(screen.getByText('↑ ↓ to move, Enter or Tab to choose a command, Esc to close')).toBeInTheDocument();
     });
@@ -308,6 +308,91 @@ describe('slash commands in the bar', () => {
       await user.keyboard('{Tab}');
       expect(screen.getByText('Pages')).toBeInTheDocument();
       expect(field).toHaveFocus();
+    });
+
+    describe('order', () => {
+      // As on o3: another app's navigate-lane provider is assigned before the omnibar's own.
+      const withCohorts = () => {
+        const { patients, labs, pages } = builtIns();
+        const cohorts = recording('Cohorts');
+        mount(
+          [
+            {
+              name: 'omnibar-cohort-count-provider',
+              moduleName: '@openmrs/esm-cohort-builder-app',
+              meta: {
+                lane: 'navigate',
+                scopes: ['global'],
+                order: 20,
+                contract: 1,
+                command: { id: 'cohort', aliases: ['cohort', 'count'] },
+              } as OmnibarProviderMeta,
+              component: cohorts.component,
+            },
+            {
+              name: 'omnibar-patient-search-provider',
+              meta: metaFor('omnibar-patient-search-provider'),
+              component: patients.component,
+            },
+            {
+              name: 'omnibar-chart-lookup-provider',
+              meta: metaFor('omnibar-chart-lookup-provider'),
+              component: labs.component,
+            },
+            {
+              name: 'omnibar-destinations-provider',
+              meta: metaFor('omnibar-destinations-provider'),
+              component: pages.component,
+            },
+          ],
+          views,
+        );
+      };
+      const listed = () =>
+        within(screen.getByRole('listbox', { name: 'Commands' }))
+          .getAllByRole('option')
+          .map((option) => [
+            ['Patients', 'cohort', 'Pages', 'Lab results'].find((label) => option.textContent.startsWith(label)),
+            option.getAttribute('aria-disabled'),
+          ]);
+
+      it('lists available commands first, Patients above Cohorts, and greyed ones after, outside a chart', async () => {
+        const user = userEvent.setup();
+        withCohorts();
+        render(<Omnibar />);
+
+        await user.keyboard('/');
+        expect(listed()).toEqual([
+          ['Patients', 'false'],
+          ['cohort', 'false'],
+          ['Pages', 'false'],
+          ['Lab results', 'true'],
+        ]);
+        expect(screen.getByRole('option', { name: /patients/i })).toHaveAttribute('aria-selected', 'true');
+        await user.keyboard('{ArrowDown}{Enter}');
+        expect(screen.queryByRole('listbox', { name: 'Commands' })).not.toBeInTheDocument();
+        expect(screen.getByText('cohort')).toBeInTheDocument();
+        expect(screen.getByRole('combobox')).toHaveValue('');
+      });
+
+      it('lists Cohorts, greyed, after every available command in a chart', async () => {
+        const user = userEvent.setup();
+        withCohorts();
+        inChart();
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), '/');
+        expect(listed()).toEqual([
+          ['Patients', 'false'],
+          ['Lab results', 'false'],
+          ['Pages', 'false'],
+          ['cohort', 'true'],
+        ]);
+        await user.keyboard('{ArrowUp}{Enter}');
+        expect(screen.queryByRole('listbox', { name: 'Commands' })).not.toBeInTheDocument();
+        expect(screen.getByText('Pages')).toBeInTheDocument();
+        expect(screen.getByRole('combobox')).toHaveValue('');
+      });
     });
   });
 
