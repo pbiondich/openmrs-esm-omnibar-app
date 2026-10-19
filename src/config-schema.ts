@@ -69,25 +69,25 @@ export const configSchema = {
       _type: Type.Boolean,
       _default: true,
       _description:
-        "Deprecated, no effect since 0.1.0 (ChartSearch step 3), when the bar's Ask ChartSearch row was removed. Removed in the next release.",
+        "Deprecated, no effect in this release: the bar's Ask ChartSearch row was removed (ChartSearch step 3). Removed in the next release.",
     },
     minWords: {
       _type: Type.Number,
       _default: 3,
       _description:
-        'Deprecated, no effect since 0.1.0 (ChartSearch step 3). Use queryResults.questionMinWords. Removed in the next release.',
+        'Deprecated, no effect in this release (ChartSearch step 3). Use queryResults.questionMinWords. Removed in the next release.',
     },
     workspaceName: {
       _type: Type.String,
       _default: 'ai-chat-workspace',
       _description:
-        "Deprecated, no effect since 0.1.0 (ChartSearch step 3), when the bar's Ask ChartSearch row was removed. Removed in the next release.",
+        "Deprecated, no effect in this release: the bar's Ask ChartSearch row was removed (ChartSearch step 3). Removed in the next release.",
     },
     workspaceGroupName: {
       _type: Type.String,
       _default: 'patient-chart',
       _description:
-        "Deprecated, no effect since 0.1.0 (ChartSearch step 3), when the bar's Ask ChartSearch row was removed. Removed in the next release.",
+        "Deprecated, no effect in this release: the bar's Ask ChartSearch row was removed (ChartSearch step 3). Removed in the next release.",
     },
   },
   queryResults: {
@@ -102,7 +102,7 @@ export const configSchema = {
       _type: Type.Boolean,
       _default: true,
       _description:
-        "Deprecated, no effect since 0.1.0 (ChartSearch step 3), when the answer section moved into ChartSearch's own app. Turn it off there with queryResultsAnswer.enabled, or remove chartsearch-query-results-view from omnibar-query-results-slot. Removed in the next release.",
+        "Deprecated, no effect in this release: the answer section moved into ChartSearch's own app (ChartSearch step 3). Turn it off there with queryResultsAnswer.enabled, or remove chartsearch-query-results-view from omnibar-query-results-slot. Removed in the next release.",
     },
     maxValuesPerConcept: {
       _type: Type.Number,

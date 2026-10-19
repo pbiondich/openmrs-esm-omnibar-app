@@ -261,7 +261,7 @@ Inside a chart, Enter opens Query results for what was typed. To compare it with
 
 `queryResults.maxValuesPerConcept` (default 50) sets how many values each chart value shows. `queryResults.questionMinWords` (default 3, a whole number of at least 2) is how many words make a query a question when it has no question word or question mark; the page passes the result to its views as `hints.looksLikeQuestion`, and the bar uses it for the "and ask …" hint.
 
-ChartSearch's answer section is configured in ChartSearch's app (`queryResultsAnswer.enabled`), or removed from the page with slot config: `"omnibar-query-results-slot": { "remove": ["chartsearch-query-results-view"] }`. `chartSearchSuggestion.*` and `queryResults.askChartSearch` are deprecated and have no effect; they stay in the schema for one release so an existing config still validates, then go.
+ChartSearch's answer section is configured in ChartSearch's app (`queryResultsAnswer.enabled`), or removed from the page with slot config: `"omnibar-query-results-slot": { "remove": ["chartsearch-query-results-view"] }`. `chartSearchSuggestion.*` and `queryResults.askChartSearch` are deprecated, with no effect in this release; they stay in the schema for this one release so an existing config still validates, then go.
 
 ### Writing a provider
 
