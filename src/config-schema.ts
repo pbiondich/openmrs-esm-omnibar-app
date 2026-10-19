@@ -68,29 +68,26 @@ export const configSchema = {
     enabled: {
       _type: Type.Boolean,
       _default: true,
-      _description: 'Offer an explicit ChartSearch workspace destination for question-like queries.',
+      _description:
+        "Deprecated, no effect since 0.1.0 (ChartSearch step 3), when the bar's Ask ChartSearch row was removed. Removed in the next release.",
     },
     minWords: {
       _type: Type.Number,
       _default: 3,
-      _description: 'Words needed for a query to count as a question without a question word or question mark.',
-      _validators: [
-        validator(
-          (value: number) => Number.isInteger(value) && value >= 2,
-          'ChartSearch minWords must be a whole number of at least 2.',
-        ),
-      ],
+      _description:
+        'Deprecated, no effect since 0.1.0 (ChartSearch step 3). Use queryResults.questionMinWords. Removed in the next release.',
     },
     workspaceName: {
       _type: Type.String,
       _default: 'ai-chat-workspace',
-      _description: 'Registered ChartSearch workspace opened by the suggestion row.',
+      _description:
+        "Deprecated, no effect since 0.1.0 (ChartSearch step 3), when the bar's Ask ChartSearch row was removed. Removed in the next release.",
     },
     workspaceGroupName: {
       _type: Type.String,
       _default: 'patient-chart',
       _description:
-        'The workspace group that ChartSearch workspace opens in. The row is offered only while the omnibar reports that group open for this patient.',
+        "Deprecated, no effect since 0.1.0 (ChartSearch step 3), when the bar's Ask ChartSearch row was removed. Removed in the next release.",
     },
   },
   queryResults: {
@@ -105,7 +102,7 @@ export const configSchema = {
       _type: Type.Boolean,
       _default: true,
       _description:
-        'Offer to ask ChartSearch about question-like queries on the Query results page. The answer appears on the page, and nothing is sent until the clinician presses Ask. Needs the AI Query Patient Data privilege and ChartSearch installed.',
+        "Deprecated, no effect since 0.1.0 (ChartSearch step 3), when the answer section moved into ChartSearch's own app. Turn it off there with queryResultsAnswer.enabled, or remove chartsearch-query-results-view from omnibar-query-results-slot. Removed in the next release.",
     },
     maxValuesPerConcept: {
       _type: Type.Number,
@@ -219,13 +216,6 @@ export interface Destination {
   privilege: string;
 }
 
-export interface ChartSearchSuggestionConfig {
-  enabled: boolean;
-  minWords: number;
-  workspaceName: string;
-  workspaceGroupName: string;
-}
-
 export interface CommandConfig {
   id: string;
   aliases: Array<string>;
@@ -249,10 +239,8 @@ export interface OmnibarConfig {
     resultsUrl: string;
     source: 'rest' | 'querystore' | 'both';
   };
-  chartSearchSuggestion: ChartSearchSuggestionConfig;
   queryResults: {
     enterBehavior: 'submit' | 'open-highlight';
-    askChartSearch: boolean;
     maxValuesPerConcept: number;
     questionMinWords: number;
   };
