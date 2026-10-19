@@ -136,6 +136,7 @@ Both functions are in the contract folder too, for providers and views on older 
 | `results` | `Array<OmnibarResult>` | Record and navigate lanes. The host reads the first 200, dedupes them, then shows the first 50 of each group. A report whose `results` isn't a list is ignored |
 | `answer` | `OmnibarAnswer` | Answer lane only: `{ text, streaming, sources }`. A finished answer with no sources is hidden, and missing `sources` count as none |
 | `detail` | `{ state, note? }` | *New in v1.* The state of the source behind the results. See below |
+| `completions` | `Array<OmnibarCompletion>` | *New in v1.* Up to 5 completions (the host keeps at most 5, in order, and ignores the rest). See below |
 
 ### `detail` (`OmnibarReportDetail`)
 
@@ -151,6 +152,31 @@ Drawn as one quiet line under the heading: plain text, not a live region, and it
 `note`, when set, replaces the host's line for `projecting` and `unavailable`. It is shown as plain text, cut to 200 characters (199 and an ellipsis), and a long word wraps, so it must already be translated, and it must never carry a server's message: that can quote the query or the record. A `failed` group ignores `note` and always says "Couldn't load results", as for any error. A `note` that isn't text is ignored.
 
 **When the server is out of reach**, report `status: 'error'` with `detail: { state: 'unavailable' }`. There is no separate status for it. `isServerUnreachable(error)` in the contract folder decides: a `TypeError` from fetch (as when offline), or a response with status 0, 502, 503 or 504. Any other failure is a plain `status: 'error'`. The built-in patient search and chart lookup follow this rule.
+
+### Completions (`OmnibarCompletion`)
+
+Completions answer the query the provider was given. While the field is ahead of it, within the debounce or before a chosen command settles, the host hides them, and Tab moves focus as usual; the host also applies a completion to that query, never to newer text, and refuses any result that would begin with "/".
+
+A completion is a suggested replacement for what the user has typed. The host picks the completions from the **first provider by lane and order** that reports any, and ignores those from all others. The host keeps at most 5 per report, in order.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `insert` | `string` | The text to append (or partially replace). 1–120 Unicode chars, one line, no control characters (C0, DEL, C1). Direction controls and other invisible format characters are stripped. Required |
+| `replace` | `number` | Whole number, 0 to `query.length`. The host removes the last `replace` characters of the current query and appends `insert`. A `replace` of 0 appends without removing anything. The result must not start with `/` and must not be identical to the current query. Counted as JavaScript string length (UTF-16 code units). Required |
+| `label` | `string` | One line, ≤200 chars. What the strip shows. Defaults to `insert`. Optional |
+| `detail` | `string` | One line, ≤200 chars. Secondary text shown beside the label in the strip. Optional |
+
+**How the host shows completions:**
+
+- A completions strip appears just below the field, inside the open panel, when a provider reports any. The first item is the Tab target; a keyboard hint (`Tab` or similar) marks it. The rest are clickable buttons.
+- Ghost text: when the result of the first completion is an extension of the current query (same prefix, case-insensitive), the host shows the suffix in muted colour, overlaid on the field, as a visual cue.
+- **Tab** (when not composing, not Shift+Tab, and not in the slash-command list) applies the first completion: the field value becomes the result of `query.slice(0, query.length - replace) + insert`, and the query is submitted again.
+- **Escape** (when the strip is showing) dismisses the completions for the current query. A second Escape closes the bar.
+- **Click or tap** on any strip item applies that completion.
+- The strip and ghost text are dismissed when the query changes (new completions or none from the next report).
+- A completion must not result in text that starts with `/`, so it can never silently launch a command.
+
+**First-provider-wins:** only the completions from the highest-ranked provider (by lane, then order) that reports at least one are shown. Later providers' completions are ignored for that query.
 
 ## Results (`OmnibarResult`)
 
