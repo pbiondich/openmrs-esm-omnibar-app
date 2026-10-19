@@ -2,7 +2,9 @@
 
 A contextually-aware “omnibar” for OpenMRS 3: one always-visible field where users simply ask the EMR for what they want. Summon it from anywhere with Ctrl K (⌘K on Mac), or with `/` for a command.
 
-**Status:** prototype, running live on an O3 3.8.0-rc.2 sandbox at [o3.pgb.md](https://o3.pgb.md/openmrs/spa). It type-checks, lints, builds and passes its unit tests. Other apps already plug into it: the Cohort Builder answers population questions, ChartSearch answers clinical ones, and the query store looks up chart values.
+**Status:** prototype, running live on an O3 3.8.0-rc.2 sandbox at [o3.pgb.md](https://o3.pgb.md/openmrs/spa). It type-checks, lints, builds and passes its unit tests.
+
+To illustrate how other apps plug in, I've adapted three of them on my own forks and branches, as worked examples of the contract rather than finished features: the [Cohort Builder](https://github.com/pbiondich/openmrs-esm-cohortbuilder-app) answers population questions with a count row, ChartSearch answers clinical questions on the Query results page, and a [query store app](https://github.com/pbiondich/openmrs-esm-querystore-app) looks up chart values from an index. Each registers a provider or a view from its own `routes.json`; none of it is upstream yet, and the omnibar itself knows none of them by name.
 
 <!-- Add a short screen recording here once you get around to it :) -->
 
@@ -24,7 +26,7 @@ This is a prototype of an O3 omnibar. :)
 
 ## What it does
 
-A few scenarios, to make the idea concrete. **Built** means the code exists, and most of it is running on the sandbox; **Planned** means it's designed but not built yet. Where a capability comes from another app, the table says so: the omnibar itself is a shell, and the apps that own the data provide the answers (see [How it's built](#how-its-built)).
+A few scenarios, to make the idea concrete. **Built** means the code exists, and most of it is running on the sandbox; **Planned** means it's designed but not built yet. Where a capability comes from one of the example apps above, the table says so: the omnibar itself is a shell, and the apps that own the data provide the answers (see [How it's built](#how-its-built)).
 
 ### Outside a patient record
 
