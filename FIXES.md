@@ -1420,3 +1420,13 @@ In this repo:
 Not ported, because they test the provider rather than the host: no index request for a scanned ID, the group title, and the query store's response shapes. They stay in the new repo's own tests.
 
 The wristband case already had host coverage in `omnibar.test.tsx` (a second chart-values provider that skips identifier queries), so it wasn't ported again.
+
+### Review round 1 (Grok, code, on ff188bb and the query store repo): CHANGES REQUESTED
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| blocker: `modelCommandIds` looked only at views, so another app's flagged view could be the only view under `patient` or `go`, or under `lab` once the chart values view was removed from the slot, and Enter would tell it the user asked its model | A command any provider assigned here declares is ordinary, in the bar, on the page and in the hint. Tests first, red then green: `/patient`, `/go` and `/lab` (with only the flagged view in the slot) in the bar, the same three for an earlier query on the page, and the unit case. An ID-shaped query under `/patient` still opens the highlighted patient; that test passes before and after, as a guard | 93120a0 |
+| minor: two flagged views under one command could name different models; the hint named the first, and both were asked | The command is ordinary when the cleaned names differ; one shared name keeps the hint. Red then green in the bar and the unit test | 8382bda |
+| nit: the README said `/lab` can never bring up a view that asks a model | It now says a view declaring `lab` is never told it was asked, and that `/patient`, `/go` and `/lab` never ask. The contract comment, the contract doc and AGENTS.md say the provider rule too | b89ca30 |
+
+The contract comment changed, so the copies follow: the query store repo's copy and its pinned hash (querystore 3c4fdcf; its hash test went red on the old hash first), and ChartSearch's (csai 52cb38c; lint, type check and 527 tests pass).

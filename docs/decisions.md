@@ -242,6 +242,9 @@ Decisions from [the thin-pass brief](briefs/2026-10-19-thin-pass.md): the bar ke
 **The bar's hints name the model from `asksModel`.** "Enter to ask ChartSearch '…'" and "Ask ChartSearch '…'" are now "Enter to ask {{model}} '…'" and "Ask {{model}} '…'", with the model taken from the declaring view, as the "and ask …" hint already was.
 *Why:* same reason; the text reads exactly as before for ChartSearch.
 
+**A command any provider declares is never a model ask, and the views that flag a command must name one model (Grok review round 1).** `modelCommandIds` now also takes the providers assigned to the user: if any declares the id, the command is ordinary, so `/patient`, `/go` and `/lab` can't be turned into a model ask by another app's view, even with the chart values view removed from the slot. If two flagged views under one command name different models (after cleaning), the command is ordinary too. This tightens the flag entry above.
+*Why:* views mount per command, but the text under `/patient` is a name or a partial ID and under `/lab` a lab name; a flagged view from another app being the only view under such a command would have been told the user asked its model. And with two models, the hint could name one while the other was asked.
+
 **ChartSearch's flag deploys before or with this omnibar.** An omnibar from this branch with a ChartSearch build that lacks `commandAsksModel` treats `/ask` as an ordinary command: the hint says "Enter to see Ask ChartSearch for '…'" and nothing asks. That fails closed, but it's a regression for clinicians, so the ChartSearch build with the flag (chartsearchai `a14e073`) goes first or in the same window. An older omnibar ignores the flag, so ChartSearch can go first safely.
 *Why:* found in review round 1 (FIXES.md); a runtime fallback to the id `ask` would bring back the special case the brief removes.
 
