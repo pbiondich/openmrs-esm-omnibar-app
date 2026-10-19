@@ -3,10 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  type Session,
   getDefaultsFromConfigSchema,
-  getGlobalStore,
-  getRegisteredWorkspace2Names,
   getSessionStore,
   interpolateUrl,
   navigate,
@@ -15,15 +12,12 @@ import {
   useConfig,
   useLayoutType,
   usePatient,
-  useSession,
-  userHasAccess,
 } from '@openmrs/esm-framework';
 // The framework mock re-exports this module, so this is the store getSessionStore returns.
 import { mockSessionStore } from '@openmrs/esm-api/mock';
 import { configSchema, type CommandConfig, type OmnibarConfig } from '../config-schema';
 import routes from '../routes.json';
 import en from '../../translations/en.json';
-import ChartSearchSuggestionProvider from '../providers/chartsearch-suggestion.provider';
 import { takeSubmission } from '../query-results/submission';
 import Omnibar from './omnibar.extension';
 import {
@@ -48,8 +42,6 @@ vi.mock('@openmrs/esm-framework', async (importOriginal) => {
   };
   return {
     ...framework,
-    getRegisteredWorkspace2Names: vi.fn(),
-    getConfig: vi.fn(() => Promise.resolve({ maxQuestionLength: 1000 })),
     ExtensionSlot: ({ name, select = (extensions) => extensions, children, state }) =>
       select(framework.useAssignedExtensions(name)).map((extension) =>
         createElement(
@@ -155,7 +147,6 @@ describe('slash commands in the bar', () => {
       loaded: true,
       session: { authenticated: true, sessionId: 's', user: { uuid: 'nurse' } },
     } as never);
-    vi.mocked(getRegisteredWorkspace2Names).mockReturnValue([]);
   });
   afterEach(() => window.history.pushState({}, '', '/'));
 
@@ -564,79 +555,98 @@ describe('slash commands in the bar', () => {
   });
 
   describe('/ask', () => {
-    const chartGroupOpen = () =>
-      getGlobalStore('workspace2').setState({
-        registeredWorkspacesByName: { 'ai-chat-workspace': { window: 'ai-chat' } },
-        registeredWindowsByName: { 'ai-chat': { group: 'patient-chart' } },
-        openedGroup: { groupName: 'patient-chart', props: { patientUuid: chartPatient } },
-      });
+    // The answer section, as ChartSearch's app registers it: it declares the ask command and its model.
+    const answerView = {
+      name: 'chartsearch-query-results-view',
+      meta: {
+        scopes: ['patient'],
+        order: 100,
+        contract: 1,
+        skipIdentifierQueries: true,
+        command: { id: 'ask' },
+        asksModel: 'ChartSearch',
+      } as OmnibarViewMeta,
+    };
 
-    beforeEach(() => {
-      vi.mocked(getRegisteredWorkspace2Names).mockReturnValue(['ai-chat-workspace']);
-      vi.mocked(useSession).mockReturnValue({ user: { uuid: 'nurse' } } as Session);
-      vi.mocked(userHasAccess).mockReturnValue(true);
-      chartGroupOpen();
+    it('is no command with the built-in providers, since none of them declares ask', async () => {
+      const user = userEvent.setup();
+      const { labs } = builtIns();
       mount(
         [
           {
-            name: 'omnibar-chartsearch-suggestion-provider',
-            meta: metaFor('omnibar-chartsearch-suggestion-provider'),
-            component: ChartSearchSuggestionProvider,
+            name: 'omnibar-chart-lookup-provider',
+            meta: metaFor('omnibar-chart-lookup-provider'),
+            component: labs.component,
           },
         ],
-        // The answer view declares the model it asks, as ChartSearch's app registers it.
-        views.map((view) =>
-          view.meta.command?.id === 'ask' ? { ...view, meta: { ...view.meta, asksModel: 'ChartSearch' } } : view,
-        ),
+        [...views, answerView],
       );
       inChart();
-    });
-
-    it('offers the side panel row for any text, skipping the question heuristic', async () => {
-      const user = userEvent.setup();
       render(<Omnibar />);
 
-      await user.type(screen.getByRole('combobox'), 'cd4');
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-
-      await user.clear(screen.getByRole('combobox'));
-      await user.type(screen.getByRole('combobox'), '/ask cd4');
+      await user.type(screen.getByRole('combobox'), '/');
       expect(
-        await screen.findByRole('option', {
-          name: 'Ask ChartSearch: "cd4" AI answer about Jane Doe, opens AI Chart Search',
-        }),
-      ).toBeInTheDocument();
+        within(screen.getByRole('listbox', { name: 'Commands' })).queryByRole('option', { name: /ask/i }),
+      ).not.toBeInTheDocument();
+
+      await user.type(screen.getByRole('combobox'), 'ask when did he start ART?');
+      expect(screen.getByText('No command /ask')).toBeInTheDocument();
+      expect(screen.queryByText('Ask ChartSearch')).not.toBeInTheDocument();
     });
 
-    it('marks the submission on Enter as a plain question does, and says beforehand that Enter asks', async () => {
-      const user = userEvent.setup();
-      render(<Omnibar />);
+    describe('declared by a provider from another app', () => {
+      const asker = recording('Ask');
+      beforeEach(() => {
+        mount(
+          [
+            {
+              name: 'ask-provider',
+              meta: {
+                lane: 'navigate',
+                scopes: ['patient'],
+                order: 100,
+                contract: 1,
+                skipIdentifierQueries: true,
+                command: { id: 'ask', aliases: ['ask', 'question'] },
+              },
+              component: asker.component,
+              moduleName: '@openmrs/esm-ask-app',
+            },
+          ],
+          [...views, answerView],
+        );
+        inChart();
+      });
 
-      await user.type(screen.getByRole('combobox'), '/ask when did he start ART?');
-      expect(
-        await screen.findByRole('button', { name: 'Enter to ask ChartSearch “when did he start ART?”' }),
-      ).toBeInTheDocument();
-      await user.keyboard('{Enter}');
+      it('marks the submission on Enter as a plain question does, and says beforehand that Enter asks', async () => {
+        const user = userEvent.setup();
+        render(<Omnibar />);
 
-      expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'when did he start ART?' }));
-      expect(takeSubmission(chartPatient, 'when did he start ART?')).toBe(true);
-    });
+        await user.type(screen.getByRole('combobox'), '/ask when did he start ART?');
+        expect(
+          await screen.findByRole('button', { name: 'Enter to ask ChartSearch “when did he start ART?”' }),
+        ).toBeInTheDocument();
+        await user.keyboard('{Enter}');
 
-    it('promises no answer for text the page won’t ask about until Query results knows the command', async () => {
-      const user = userEvent.setup();
-      render(<Omnibar />);
+        expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'when did he start ART?' }));
+        expect(takeSubmission(chartPatient, 'when did he start ART?')).toBe(true);
+      });
 
-      await user.type(screen.getByRole('combobox'), '/ask cd4');
-      expect(await screen.findByRole('button', { name: 'Enter to see all results for “cd4”' })).toBeInTheDocument();
-    });
+      it('promises no answer for text the page won’t ask about until Query results knows the command', async () => {
+        const user = userEvent.setup();
+        render(<Omnibar />);
 
-    it('never offers an ID-shaped query', async () => {
-      const user = userEvent.setup();
-      render(<Omnibar />);
+        await user.type(screen.getByRole('combobox'), '/ask cd4');
+        expect(await screen.findByRole('button', { name: 'Enter to see all results for “cd4”' })).toBeInTheDocument();
+      });
 
-      await user.type(screen.getByRole('combobox'), '/ask 100GEJ');
-      expect(screen.queryByRole('option', { name: /ask chartsearch/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /Enter to/ })).not.toBeInTheDocument();
+      it('promises nothing for an ID-shaped query', async () => {
+        const user = userEvent.setup();
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), '/ask 100GEJ');
+        expect(screen.queryByRole('button', { name: /Enter to/ })).not.toBeInTheDocument();
+      });
     });
   });
 

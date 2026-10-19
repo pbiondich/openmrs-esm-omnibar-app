@@ -242,24 +242,23 @@ describe('the slash-command alias table', () => {
     const fromEn: CommandTranslate = (_, key) =>
       key.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], en) as string;
 
-    it('has patient, lab, go and ask, with the design’s aliases and English labels', () => {
+    // No built-in provider declares ask since ChartSearch step 3 removed the suggestion row.
+    it('has patient, lab and go, with the design’s aliases and English labels', () => {
       const table = buildCommandTable(builtIns, [], 'en', fromEn);
       expect(table.commands.map(({ id, label, aliases, scopes }) => ({ id, label, aliases, scopes }))).toEqual([
         { id: 'patient', label: 'Patients', aliases: ['patient', 'pt', 'find'], scopes: ['global', 'patient'] },
         { id: 'lab', label: 'Lab results', aliases: ['lab', 'labs', 'results', 'obs', 'value'], scopes: ['patient'] },
-        { id: 'ask', label: 'Ask ChartSearch', aliases: ['ask', 'question'], scopes: ['patient'] },
         { id: 'go', label: 'Pages', aliases: ['go', 'open', 'page'], scopes: ['global', 'patient'] },
       ]);
       expect(getOmnibarCommandConflicts()).toEqual([]);
     });
 
-    it('declares lab on the chart values view and ask on the ChartSearch answer view', () => {
+    it('declares lab on the chart values view', () => {
       const views = routes.extensions.filter((extension) => extension.slot === 'omnibar-query-results-slot');
       expect(
         Object.fromEntries(views.map((view) => [view.name, (view.meta as { command?: unknown }).command])),
       ).toEqual({
         'omnibar-chart-values-view': { id: 'lab' },
-        'omnibar-chartsearch-answer-view': { id: 'ask' },
       });
     });
   });
