@@ -1109,7 +1109,7 @@ Scope, as Paul set it during the restack: slash commands PR 2 (Query results hon
 | Contract v1, additive: `OmnibarViewMeta.asksModel`, `OmnibarQueryHints.looksLikeQuestion`, `OmnibarViewProps.signal`, beside #21's `command` fields. `looksLikeQuestion(query, minWords = 3)` moves into the contract folder beside `looksLikeIdentifier`, its tests into `src/conformance/query-hints.test.ts`. `OMNIBAR_CONTRACT_VERSION` stays 1 | 980da6b |
 | Host: the page passes `hints.looksLikeQuestion` (new `queryResults.questionMinWords`, default 3, whole number of at least 2) and a `signal` per run, aborted on a rerun, another query or chart, and the page closing; the abort waits a microtask, so React's development double mount doesn't abort a live run. The page's own view selection is untouched. The bar's plain-text hint and the history tooltip say "and ask {{model}}" from the first assigned, non-skipped view with `asksModel`, for a question-like query (`useAsksModel`, `src/query-results/query-results-views.ts`); under a chip, #21's `marksSubmission` gate and its `/ask` wording are unchanged. Tests: a fake view built only on the contract folder (hint, `hints.looksLikeQuestion`, `signal` on rerun, chart change, unmount and under StrictMode), the slot empty and chart values alone with nothing logged, and the bar's hint with and without an `asksModel` view and for an ID-shaped query | 2883c49 |
 | Deleted: the answer view, stream client, styles, offer hook and their tests; the suggestion provider, its export, routes entry and tests; `chartsearch-question.ts`; both routes entries; 34 translation keys, and `omnibarCommand.ask`, which only that provider used. The contract-folder test no longer allows a POST in `src/views/`. The host's side-panel launch guards keep their 14 test cases on a plain fake provider. The `/ask` tests move to a fake provider from another app that declares `ask`, and the built-in command table test loses `ask` | b8c3bb8 |
-| `chartSearchSuggestion.*` and `queryResults.askChartSearch` stay in the schema as no-ops, "Deprecated, no effect since 0.1.0 (ChartSearch step 3)", and leave `OmnibarConfig`, so nothing can read them | c6810a3 |
+| `chartSearchSuggestion.*` and `queryResults.askChartSearch` stay in the schema as no-ops, "Deprecated, no effect in this release" (worded so after review round 1 below), and leave `OmnibarConfig`, so nothing can read them | c6810a3 |
 | Test: what `/ask` does now (below) | b51c191 |
 | The contract's `asksModel` comment says the hint follows whether Enter marks the submission, not whether the view declares the chosen command, matching the scope above | e0c12d9 |
 | Docs: README, AGENTS.md, the contract doc (fields, order and command registries, the folder's files), `decisions.md` (the exception retired, the row deleted, `/ask` open), the slash-commands design's `ask` row, the registration plan's step 3, the context rules, the briefs index, the step 3 brief's status line and `docs/upstream/README.md`. `docs/design/chartsearch-row.md` and `docs/upstream/esm-chartsearchai-initial-question.patch` are deleted | this commit |
@@ -1120,11 +1120,40 @@ Deviations from the brief, and why:
 
 - `thinking` and `unsourcedAnswer` stay in `translations/en.json`: the bar's answer lane still uses both. The brief counts six `citation…` keys; there are seven, so its 33 hold once those two are left out.
 - The `omnibar.test.tsx` block "ChartSearch suggestion provider" isn't deleted whole: 14 test cases in it cover the host's side-panel launch guards, which stay. The registry-failure test is gone, since nothing calls the registry any more, and the meta test for skipping identifier queries now checks the query store provider.
-- The deprecated keys name the release as 0.1.0, the version in `package.json`, since the branch doesn't bump it.
+- The brief asked for the deprecated keys' descriptions to start "Deprecated, no effect since" and name the release. They first said "since 0.1.0", the version in `package.json`; review round 1 found that main is 0.1.0 and still has the row, so they now say "no effect in this release".
 - `askCommandId`, the `/ask` hint keys and #21's `marksSubmission` rule are kept, not deleted as dead: they're unreachable with the built-in providers, but reachable through the contract by any provider that declares `ask`, which option (b) would use, and the scope set for the restack keeps #21's chip behaviour as it is.
 - `docs/design/omnibar-concept.md` and `omnibar-source-listing.md` are historical and left as they were.
 
 - Tests: 761 in 23 files on main 2cef413; 692 in 20 files after. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
 - No new origin: `src/` has no `http(s)://` outside comments and `routes.json`'s `$schema`.
 - Not tried live on o3; the deploy is section 8 of the brief, with chartsearchai's side.
-- Reviews are still to come: one Grok code review, to be logged here.
+- Reviewed in round 1 below.
+
+### Review round 1 (Grok code, omnibar side, on fca53a4): APPROVE WITH NITS, no blocking or should-fix
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| nit: the deprecated config descriptions said "no effect since 0.1.0", but 0.1.0 is `package.json`'s current version, which on main still has the row and the answer view, and this branch doesn't bump it | The five descriptions say "Deprecated, no effect in this release", and the README says the same | 47d072d |
+| nit: no test read the history tooltip, the other user-visible `asksModel` string, so hard-coding "Run again" wouldn't fail | Two page tests: an earlier question shows "Run again and ask ChartSearch" when an assigned view declares `asksModel`, and an earlier non-question "Run again"; with no such view assigned, both show "Run again". With the tooltip hard-coded, the first fails | f333e21 |
+
+The reviewer also checked the contract stays additive at 1 beside #21's `command` fields, the per-generation `signal` (rerun, chart change, unmount, StrictMode), the hint's conditions (no hint for an ID-shaped query, under `/lab`, or with no `asksModel` view), that the restack leaves `submission.ts`, `query-results-url.ts`, the page's view filter and #21's chip behaviour untouched, the `/ask` handling with no declarer (no command invented, options recorded under Open), that chartsearchai's contract folder is identical to this branch's, the side-panel guards, and offline-first. They noted that the page's mount rule and `useAsksModel`'s are copied, not shared, which is fine for this scope but PR 2 must keep in step.
+
+- `src/omnibar-contract/` unchanged in this round.
+- Tests: 692 before, 694 after, in 20 files. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+
+### Review round 1 (Grok code, chartsearchai side, on 3be329a): APPROVE WITH NITS, no blocking or should-fix
+
+chartsearchai is another maintainer's repo, so its side is a local branch, `feat/query-results-answer`, on Paul's machine, not pushed. Logged here so both halves of step 3 are in one place.
+
+| Finding | Fix | Commit (chartsearchai) |
+| --- | --- | --- |
+| nit: the "no `submitted`" test passed `undefined` through a helper whose default turned it into `submitted={false}`, so it would stay green if a missing `submitted` ever started a request, the v1-host fallback the brief requires | The test builds the props with no `submitted` key, asserts the key is absent, and renders the view with them. `queryResultsAnswer.enabled`'s description also says the bar's hint still names ChartSearch while the extension is assigned | c9a9b81 |
+
+Later chartsearchai commits, after the review:
+
+- 9244830 copies the contract folder from this branch at 980da6b (the `command` fields) and declares `command: { id: "ask" }` on `chartsearch-query-results-view`, with a test. Declaring it on a view doesn't put `/ask` back in the bar's list, which still needs a provider (see Open in `decisions.md`).
+- 74ee4e7 copies the folder again from e0c12d9, where only the `asksModel` comment changed.
+
+The reviewer checked: the folder is byte-identical to this branch's; `routes.json` matches the brief (slot, privilege, order 100, `contract: 1`, `skipIdentifierQueries`, `asksModel`); no chat-session store and no `useChartSearchAi` in the view; server messages are never shown or logged; the stream is capped at 2 MB and fields at 500 or 5,000 characters, same-origin only; its own `AbortController` aborts on unmount and on the host's signal; no request until `submitted` except the Ask button; no new origin. They noted that `queryResultsAnswer.enabled: false` hides the section but leaves the bar's hint, as the max-length gap the brief accepts; slot `remove` drops both.
+
+- Tests: 520 passed on 3be329a, as the reviewer ran them. From the diffs: c9a9b81 rewrites that test without adding one (520), 9244830 adds one (521), and 74ee4e7 changes no test (521). Not rerun from this session.
