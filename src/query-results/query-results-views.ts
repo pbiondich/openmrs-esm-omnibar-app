@@ -4,11 +4,12 @@ import {
   looksLikeIdentifier,
   looksLikeQuestion,
   OMNIBAR_QUERY_RESULTS_SLOT,
+  type OmnibarProviderMeta,
   type OmnibarQueryHints,
   type OmnibarViewMeta,
 } from '../omnibar-contract';
 import { type OmnibarConfig } from '../config-schema';
-import { cleanText, commandIdOf } from '../omnibar/commands';
+import { cleanText, commandIdOf, omnibarProvidersSlot } from '../omnibar/commands';
 import { speaksContractOf } from '../omnibar/omnibar.resource';
 
 const defaultViewOrder = 100;
@@ -26,24 +27,35 @@ export function queryHints(query: string, questionMinWords: number | undefined):
 
 /**
  * The commands under which Enter asks a model, as a plain query does. A command qualifies only when
- * every view Query results would mount under it, for a patient on a contract this host speaks, sets
- * `commandAsksModel` to exactly `true` and names its model in `asksModel`, so the hint can always say
- * which model before anything asks, and one app's flag never hands `submitted: true` to another app's
- * view under the same id. Any other command is ordinary, whatever its id.
+ * no provider assigned here declares it, so `/patient`, `/go` or `/lab` can never send what was typed
+ * to a model, and every view Query results would mount under it, for a patient on a contract this
+ * host speaks, sets `commandAsksModel` to exactly `true` and names its model in `asksModel`. So the
+ * hint can always say which model before anything asks, and one app's flag never hands
+ * `submitted: true` to another app's view under the same id. Any other command is ordinary, whatever
+ * its id.
  */
-export function modelCommandIds(views: Array<Pick<AssignedExtension, 'name' | 'meta'>>): Set<string> {
-  const asking = new Set<string>();
-  const ordinary = new Set<string>();
+export function modelCommandIds(
+  views: Array<Pick<AssignedExtension, 'name' | 'meta'>>,
+  providers: Array<Pick<AssignedExtension, 'meta'>>,
+): Set<string> {
+  const modelOf = new Map<string, string>();
+  const ordinary = new Set(
+    providers.map(({ meta }) => commandIdOf((meta as OmnibarProviderMeta | undefined)?.command)),
+  );
   for (const view of views) {
     const meta = view.meta as OmnibarViewMeta | undefined;
     const id = commandIdOf(meta?.command);
     if (!id || !meta.scopes?.includes('patient') || !speaksContractOf(view.name, meta)) {
       continue;
     }
-    const asks = meta.commandAsksModel === true && Array.isArray(meta.scopes) && modelNameOf(meta) !== undefined;
-    (asks ? asking : ordinary).add(id);
+    const model = meta.commandAsksModel === true && Array.isArray(meta.scopes) ? modelNameOf(meta) : undefined;
+    if (!model) {
+      ordinary.add(id);
+    } else {
+      modelOf.set(id, model);
+    }
   }
-  return new Set([...asking].filter((id) => !ordinary.has(id)));
+  return new Set([...modelOf.keys()].filter((id) => !ordinary.has(id)));
 }
 
 /**
@@ -60,10 +72,11 @@ export function useAsksModel(query: string, command?: string | null): string | n
   const { queryResults } = useConfig<OmnibarConfig>();
   const questionMinWords = queryResults?.questionMinWords;
   const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
+  const providers = useAssignedExtensions(omnibarProvidersSlot);
   return useMemo(() => {
     const hints = queryHints(query, questionMinWords);
     const question =
-      command && modelCommandIds(assigned).has(command)
+      command && modelCommandIds(assigned, providers).has(command)
         ? query.trim() !== '' && !hints.looksLikeIdentifier
         : hints.looksLikeQuestion;
     if (!question) {
@@ -81,5 +94,5 @@ export function useAsksModel(query: string, command?: string | null): string | n
       )
       .sort((a, b) => (a.meta.order ?? defaultViewOrder) - (b.meta.order ?? defaultViewOrder) || a.index - b.index);
     return asking[0] ? modelNameOf(asking[0].meta) : null;
-  }, [assigned, query, command, questionMinWords]);
+  }, [assigned, providers, query, command, questionMinWords]);
 }

@@ -12,6 +12,7 @@ import {
   useConfig,
   useLayoutType,
   usePatient,
+  usePrimaryIdentifierCode,
 } from '@openmrs/esm-framework';
 // The framework mock re-exports this module, so this is the store getSessionStore returns.
 import { mockSessionStore } from '@openmrs/esm-api/mock';
@@ -153,7 +154,7 @@ describe('slash commands in the bar', () => {
   });
   afterEach(() => window.history.pushState({}, '', '/'));
 
-  const builtIns = () => {
+  const builtIns = (viewList = views) => {
     const patients = recording('Patients', (query) => [
       row(`patient-${query || 'recent'}`, '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart'),
     ]);
@@ -177,7 +178,7 @@ describe('slash commands in the bar', () => {
           component: pages.component,
         },
       ],
-      views,
+      viewList,
     );
     return { patients, labs, pages };
   };
@@ -904,6 +905,86 @@ describe('slash commands in the bar', () => {
 
       expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'when did he start ART?' }));
       expect(takeSubmission(chartPatient, 'when did he start ART?', 'ask')).toBe(false);
+    });
+  });
+
+  describe('a view’s flag never makes a provider’s command ask a model', () => {
+    const flagging = (id: string, asksModel = 'Other model') => ({
+      name: `other-${id}-view`,
+      moduleName: '@openmrs/esm-other-app',
+      meta: {
+        scopes: ['patient'],
+        contract: 1,
+        command: { id, aliases: [id] },
+        asksModel,
+        commandAsksModel: true,
+      } as OmnibarViewMeta,
+    });
+
+    beforeEach(() => inChart());
+
+    it.each([
+      ['patient', 'mary smith', 'Patients'],
+      ['go', 'ward', 'Pages'],
+    ])('keeps /%s ordinary though another app’s only view under it sets the flag', async (id, query, label) => {
+      const user = userEvent.setup();
+      builtIns([...views, flagging(id)]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), `/${id} ${query}`);
+      expect(await screen.findByRole('button', { name: `Enter to see ${label} for “${query}”` })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Enter to ask/ })).not.toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: id, q: query }));
+      expect(takeSubmission(chartPatient, query, id)).toBe(false);
+    });
+
+    it('keeps /lab ordinary with the chart values view removed from the slot, since chart lookup declares it', async () => {
+      const user = userEvent.setup();
+      builtIns([flagging('lab')]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/lab cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to see Lab results for “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'lab', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'lab')).toBe(false);
+    });
+
+    it('still opens the highlighted patient for an ID-shaped query under /patient', async () => {
+      const user = userEvent.setup();
+      const scanned = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      vi.mocked(usePrimaryIdentifierCode).mockReturnValue({
+        primaryIdentifierCode: undefined,
+        isLoading: false,
+        error: undefined,
+      });
+      const patients = recording('Patients', (query) => [
+        {
+          ...row(`patient-${query}`, `/openmrs/spa/patient/${scanned}/chart`),
+          patient: { uuid: scanned, identifiers: [{ identifier: query }] },
+        } as OmnibarResult,
+      ]);
+      mount(
+        [
+          {
+            name: 'omnibar-patient-search-provider',
+            meta: metaFor('omnibar-patient-search-provider'),
+            component: patients.component,
+          },
+        ],
+        [...views, flagging('patient')],
+      );
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/patient 100GEJ');
+      expect(await screen.findByRole('option', { name: /patient-100GEJ/ })).toHaveAttribute('aria-selected', 'true');
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(`/openmrs/spa/patient/${scanned}/chart`);
+      expect(takeSubmission(chartPatient, '100GEJ', 'patient')).toBe(false);
     });
   });
 

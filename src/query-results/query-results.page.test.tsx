@@ -647,6 +647,18 @@ describe('the Query results page under a slash command', () => {
       expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=ask&q=cd4`);
       expect(seen.at(-1)).toMatchObject({ query: 'cd4', submitted: false });
     });
+
+    it.each(['patient', 'go', 'lab'])(
+      'never asks again under /%s, which a built-in provider declares, though the only view under it sets the flag',
+      async (id) => {
+        registerViews([exampleView(id, { commandAsksModel: true })]);
+
+        const title = await chooseEarlier(id);
+        expect(title).toBe('Run again');
+        expect(landedOn()).toBe(`/openmrs/spa/patient/${humprey}/chart/query-results?cmd=${id}&q=cd4`);
+        expect(seen.at(-1)).toMatchObject({ query: 'cd4', submitted: false });
+      },
+    );
   });
 
   it('shows an earlier query under a command the bar no longer knows as its text alone', () => {

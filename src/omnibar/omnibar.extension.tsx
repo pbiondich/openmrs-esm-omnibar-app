@@ -529,11 +529,10 @@ const Omnibar: React.FC = () => {
     Boolean(submittedQuery) &&
     !chosen &&
     !looksLikeIdentifier(submittedQuery);
-  // Only a plain query and a command whose view asks a model are marked as asked for just now, which is
-  // what lets a view call a model on its own. Query results mounts only the views declaring a command
-  // under it, so this is a second guard: no other command can cause a model call, whichever views
-  // declare it.
-  const modelCommands = useMemo(() => modelCommandIds(assignedViews), [assignedViews]);
+  // Only a plain query and a command whose views ask a model, and that no provider declares, are marked
+  // as asked for just now, which is what lets a view call a model on its own. Query results mounts only
+  // the views declaring a command under it, so no other view under that command gets the mark.
+  const modelCommands = useMemo(() => modelCommandIds(assignedViews, assigned), [assignedViews, assigned]);
   const marksSubmission = !activeCommandId || modelCommands.has(activeCommandId);
   // Said in the hint, so the user knows Enter will also ask a model about the chart.
   const modelForQuery = useAsksModel(submittedQuery, activeCommandId);

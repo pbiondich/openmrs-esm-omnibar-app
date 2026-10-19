@@ -95,14 +95,9 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   const { commands: commandConfig, queryResults } = useConfig<OmnibarConfig>();
   const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   // The bar's alias table, for whether a command is enabled here and for its label.
-  const commandTable = useCommandTable(
-    useAssignedExtensions(omnibarProvidersSlot),
-    assigned,
-    commandConfig,
-    i18n.language,
-    true,
-  );
-  const modelCommands = useMemo(() => modelCommandIds(assigned), [assigned]);
+  const providers = useAssignedExtensions(omnibarProvidersSlot);
+  const commandTable = useCommandTable(providers, assigned, commandConfig, i18n.language, true);
+  const modelCommands = useMemo(() => modelCommandIds(assigned, providers), [assigned, providers]);
   // As Enter in the bar: only a plain query or one under a command that asks a model is marked.
   const marks = (cmd?: string) => !cmd || modelCommands.has(cmd);
 
