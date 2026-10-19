@@ -163,13 +163,13 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 }
 ```
 
-- A Query results view may declare a command the same way, with aliases and its module's translations, as ChartSearch's answer view declares `/ask`. Its command joins the same table, and only in a chart; a command only views declare runs no providers in the bar, and Enter sends it to Query results.
+- A Query results view may declare a command the same way, with aliases and its module's translations, as ChartSearch's answer view declares `/ask`. Its command joins the same table, and only in a chart; a command only views declare runs no providers in the bar, and Enter sends it to Query results. A view that also sets `commandAsksModel: true`, with `asksModel` naming its model, makes Enter under its command ask that model, as `/ask` does; the omnibar treats no command id as special.
 - Aliases come from three places: the declaring provider's or view's `routes.json` (English defaults), its module's translations (`omnibarCommand.<id>.aliases`, `.label` and `.description`, loaded when the command list first opens), and implementer config (custom names, such as `/vl` for viral load). The shell merges them into one table for the user's locale and matches whole aliases, case-insensitively in that locale.
 - Any alias resolves to the id. The chip shows the command's label in the user's language, whichever alias was typed.
 - URLs carry the id, not the alias (`?cmd=lab&q=cd4`), so a bookmarked query works in any language.
 - When a command is given, only the providers that declare it run, and they learn which from `context.command`. More than one provider can declare the same command: chart lookup and the query store provider both answer `/lab`. The default highlight, dedupe and the fail-closed rules are the same as for plain text.
 - Inside a chart, Enter under a command sends it to Query results when a view there declares it, as the chart values view declares `lab`; otherwise Enter opens the highlighted row. An ID-shaped query, or a row the user arrowed to, opens as for plain text.
-- On Query results, under a command only the views that declare it mount, so `/lab` can never bring up the view that asks a model. A command the bar doesn't offer here, or that no view declares, fails closed: the page shows the query, says the command isn't available, and offers a plain search. Only a plain query or `/ask`, from whichever app declares it, lets a view ask a model on its own, and under `/ask` any text that isn't ID-shaped counts as a question; an ID still opens its patient on Enter.
+- On Query results, under a command only the views that declare it mount, so `/lab` can never bring up the view that asks a model. A command the bar doesn't offer here, or that no view declares, fails closed: the page shows the query, says the command isn't available, and offers a plain search. Only a plain query or a command whose view sets `commandAsksModel`, such as ChartSearch's `/ask`, lets a view ask a model on its own, and under such a command any text that isn't ID-shaped counts as a question; an ID still opens its patient on Enter.
 - History keeps each query with its command, and shows the command's chip beside the text.
 - If the same alias is claimed for two different commands, one set in config wins, then the first provider in slot order, then the first view, and the conflict is logged and returned by `getOmnibarCommandConflicts()` rather than silently shadowed.
 
@@ -264,7 +264,7 @@ Inside a chart, Enter opens Query results for what was typed. To compare it with
 
 `queryResults.maxValuesPerConcept` (default 50) sets how many values each chart value shows. `queryResults.questionMinWords` (default 3, a whole number of at least 2) is how many words make a query a question when it has no question word or question mark; the page passes the result to its views as `hints.looksLikeQuestion`, and the bar uses it for the "and ask …" hint.
 
-ChartSearch's answer section is configured in ChartSearch's app (`queryResultsAnswer.enabled`), or removed from the page with slot config: `"omnibar-query-results-slot": { "remove": ["chartsearch-query-results-view"] }`. `chartSearchSuggestion.*` and `queryResults.askChartSearch` are deprecated, with no effect in this release; they stay in the schema for this one release so an existing config still validates, then go.
+ChartSearch's answer section is configured in ChartSearch's app (`queryResultsAnswer.enabled`), or removed from the page with slot config: `"omnibar-query-results-slot": { "remove": ["chartsearch-query-results-view"] }`. The deprecated `chartSearchSuggestion.*` and `queryResults.askChartSearch` settings are gone from the omnibar's schema; a config that still sets them logs the framework's "Unknown config key … Ignoring." error and nothing else changes.
 
 ### Writing a provider
 
