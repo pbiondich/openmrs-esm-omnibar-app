@@ -1,6 +1,7 @@
 import { getRegisteredWorkspace2Names, useConfig, useSession, userHasAccess } from '@openmrs/esm-framework';
 import { type OmnibarConfig } from '../config-schema';
-import { looksLikeChartSearchQuestion, useChartSearchMaxQuestionLength } from '../providers/chartsearch-question';
+import { looksLikeQuestion } from '../omnibar-contract';
+import { useChartSearchMaxQuestionLength } from '../providers/chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
 
@@ -35,6 +36,6 @@ export function useChartSearchOffer(query: string, patientUuid: string | undefin
     // Not until ChartSearch's own limit has loaded: the default could be longer than the site's.
     maxQuestionLength !== null &&
     question.length <= maxQuestionLength &&
-    looksLikeChartSearchQuestion(question, chartSearchSuggestion?.minWords ?? 3)
+    looksLikeQuestion(question, chartSearchSuggestion?.minWords ?? 3)
   );
 }

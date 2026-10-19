@@ -4,12 +4,8 @@ import { getRegisteredWorkspace2Names, useConfig, usePatient, useSession, userHa
 import { type OmnibarConfig } from '../config-schema';
 import { type OmnibarProviderProps } from '../omnibar/types';
 import { askCommandId } from '../omnibar/commands';
-import { looksLikeIdentifier } from '../omnibar-contract';
-import {
-  defaultMaxQuestionLength,
-  looksLikeChartSearchQuestion,
-  useChartSearchMaxQuestionLength,
-} from './chartsearch-question';
+import { looksLikeIdentifier, looksLikeQuestion } from '../omnibar-contract';
+import { defaultMaxQuestionLength, useChartSearchMaxQuestionLength } from './chartsearch-question';
 
 const privilege = 'AI Query Patient Data';
 interface ChartSearchWorkspaceProps {
@@ -51,7 +47,7 @@ const ChartSearchSuggestionProvider: React.FC<OmnibarProviderProps> = ({ query, 
     chartGroupIsOpen &&
     (asked
       ? Boolean(query.trim()) && !looksLikeIdentifier(query)
-      : looksLikeChartSearchQuestion(query, chartSearchSuggestion.minWords));
+      : looksLikeQuestion(query, chartSearchSuggestion.minWords));
 
   useEffect(() => {
     const title = t('suggestions', 'Suggestions');

@@ -121,6 +121,11 @@ export interface OmnibarProviderMeta {
 export interface OmnibarQueryHints {
   /** See `looksLikeIdentifier`. */
   looksLikeIdentifier: boolean;
+  /**
+   * New in v1. See `looksLikeQuestion`, called with the host's own word count. Hosts from before it
+   * was added don't pass it; call `looksLikeQuestion(query)` then.
+   */
+  looksLikeQuestion?: boolean;
 }
 
 export type OmnibarTarget =
@@ -286,6 +291,15 @@ export interface OmnibarViewMeta {
    * Aliases are the bar's business, so a view gives only the id.
    */
   command?: { id: string };
+  /**
+   * New in v1. The view may call a model for a query the user just submitted, and this is the name the
+   * bar's hint uses: "Enter to see all results for '…' and ask ChartSearch". Shown as written, so it
+   * is a product name, not a sentence. The bar says it only while the view is assigned to the user and
+   * would be mounted for what was typed (not skipped for the query, and declaring the command when one
+   * is chosen), and the query looks like a question by the same test the host passes as
+   * `hints.looksLikeQuestion`.
+   */
+  asksModel?: string;
 }
 
 /** Props every Query results view receives. */
@@ -305,6 +319,12 @@ export interface OmnibarViewProps {
    * this is true, or when the clinician asks in the view.
    */
   submitted?: boolean;
+  /**
+   * New in v1. Aborted when the host moves past this mount: another query or chart, a rerun, the page
+   * closing. Hosts from before it was added don't pass it, so a view still aborts its own work when it
+   * unmounts.
+   */
+  signal?: AbortSignal;
 }
 
 /** Fired on window after the user picks a result, for bookkeeping such as recently viewed patients. */
