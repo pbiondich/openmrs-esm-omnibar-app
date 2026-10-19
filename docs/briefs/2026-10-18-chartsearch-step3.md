@@ -87,7 +87,7 @@ Why `signal`: the brief asked for it, and it makes "abort on query change" a hos
 
 ## 5. Not installed, no privilege, or the backend down
 
-- **Not installed, or the user lacks `AI Query Patient Data`:** the framework never assigns the extension, so the page has no answer section and nothing waits on one. With chart values empty too, the page says "Nothing in Humprey's chart matches", which is honest because an unmounted view doesn't count. The bar's hint says only "Enter to see all results", because no `asksModel` view is assigned. Nothing is logged.
+- **Not installed, or the user lacks `AI Query Patient Data`:** the framework never assigns the extension, so the page has no answer section and nothing waits on one. With chart values empty too, the page says "Nothing in this patient's chart matches", which is honest because an unmounted view doesn't count. The bar's hint says only "Enter to see all results", because no `asksModel` view is assigned. Nothing is logged.
 - **Not a question, or over the limit:** the view reports `empty` and renders nothing, as today; the page hides the section.
 - **Backend module down or unreachable:** the request fails, `isServerUnreachable` maps it to `unavailable`, and the section shows its heading, "Unavailable right now" and Try again, by the view contract. Any other failure: "ChartSearch couldn't answer this question." Never ChartSearch's message, and no console output: the view logs nothing today, and a port must keep that (see section 10). A single `console.debug` naming the extension and the state is the most it may add.
 - **A view that throws:** `withViewBoundary` shows "This section couldn't be shown." and reports `error`; the page carries on.
@@ -157,4 +157,4 @@ cd ~/projects/sidejobs/esm-chartsearchai
 git switch -c feat/query-results-answer fix/no-chart-open-warmup
 ```
 
-This is a significant feature under the review policy (contract surface, a model call, data access), so each side gets independent adversarial code and security reviews, logged in FIXES.md, before either build goes near o3.
+Each side is built by Claude and gets one Grok code review, logged in FIXES.md, before either build goes near o3.
