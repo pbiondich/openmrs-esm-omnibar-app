@@ -110,8 +110,9 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   const questionMinWords = queryResults?.questionMinWords;
   const hints = useMemo(() => queryHints(query, questionMinWords), [query, questionMinWords]);
 
-  // With a command, only the views that declare it mount, so `/lab` never brings up a view that asks a
-  // model; a view with no command mounts only for plain queries. A command must also be one the bar
+  // With a command, only the views that declare it mount. A view that declares `lab` and sets
+  // `commandAsksModel` does mount under `/lab`, but a provider declares `lab`, so it is never told it was
+  // asked. A view with no command mounts only for plain queries. A command must also be one the bar
   // offers here (declared by a provider or view this user has, enabled, for a chart) and declared by a view
   // this user can see. Otherwise the page fails closed: it shows nothing but the query, a line saying
   // so, and a link to search the text plainly. It never runs another set of views instead.
