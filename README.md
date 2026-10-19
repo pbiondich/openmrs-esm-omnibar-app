@@ -4,23 +4,23 @@ A contextually-aware “omnibar” for OpenMRS 3: one always-visible field where
 
 **Status:** prototype, running live on an O3 3.8.0-rc.2 sandbox at [o3.pgb.md](https://o3.pgb.md/openmrs/spa). It type-checks, lints, builds and passes its unit tests.
 
-To illustrate how other apps plug in, I've adapted three of them on my own forks and branches, as worked examples of the contract rather than finished features: the [Cohort Builder](https://github.com/pbiondich/openmrs-esm-cohortbuilder-app) answers population questions with a count row, ChartSearch answers clinical questions on the Query results page, and a [query store app](https://github.com/pbiondich/openmrs-esm-querystore-app) looks up chart values from an index. Each registers a provider or a view from its own `routes.json`; none of it is upstream yet, and the omnibar itself knows none of them by name.
+To illustrate how other O3 ESM apps plug in, I've adapted three of them on my own forks and branches, as worked examples of the contract rather than finished features: the [Cohort Builder](https://github.com/pbiondich/openmrs-esm-cohortbuilder-app) answers population questions with a count row, [ChartSearch](https://github.com/pbiondich/openmrs-esm-chartsearchai) answers clinical questions on the Query results page, and a [super simple results viewer leveraging query store](https://github.com/pbiondich/openmrs-esm-querystore-app) looks up chart values from an index. Each registers a provider or a view from its own `routes.json`; none of it is upstream yet, and the omnibar itself is naive to all of them.
 
 <!-- Add a short screen recording here once you get around to it :) -->
 
 ## Why
 
-Today the O3 user experience is mouse- and application-oriented. You find a patient, then click through the app to get what you want. That's hardly unique to OpenMRS: most EMRs have spent decades building sophisticated interfaces that try to anticipate how users will want to reach their data, and every new need becomes another screen, tab or menu.
+Today, the O3 user experience is mouse- and application-oriented. You find a patient, then click through the app to get what you want. That's hardly unique to OpenMRS: most EMRs have spent decades building sophisticated interfaces that try to anticipate how users will want to reach their data, and every new need becomes another screen, tab or menu.
 
 In the age of AI, I think it's worth stepping back and reconsidering what an EMR is and how it should work. My gut tells me that we should build the next generation of OpenMRS UX around a simple presumption:
 
 **A user can simply ask the EMR for what they want, rather than navigate an interface to find it.**
 
-There are very few places in OpenMRS today to ask an open-ended question. The most natural pattern for that kind of interaction is a prompt box: a browser address bar, an LLM chat prompt. OpenMRS has one, but it's hidden behind a magnifier icon and only used to look up patients.
+There are very few places in O3 today to ask an open-ended question. The most natural pattern for that kind of interaction is a prompt box: ie, a browser address bar, or a LLM chat prompt. OpenMRS actually has one, but it's hidden behind a magnifier icon and is only used today to look up patients.
 
-I propose we unbridle that prompt. Let's borrow the omnibar that browsers adopted years ago, let users simply ask for what they're after, and use contextual clues to interpret those requests intelligently. The most important clue is where the user is. Inside a patient's record, the most likely questions are about that patient: "cd4" means their latest CD4 count, and "when did she start ART?" means her history. Outside a patient record, the same box is more likely being used to find a patient ("Mary Achieng") or to ask a question about a population ("women aged 15-49 enrolled in HIV").
+I propose we unbridle that prompt! Let's borrow the [omnibar that browsers adopted years ago](https://www.digitaltrends.com/computing/history-of-google-chrome/), let users simply ask for what they're after, and use contextual clues to interpret those requests intelligently. The most important clue is where the user is. Inside a patient's record, the most likely questions are about that patient: "cd4" means their latest CD4 count, and "when did she start ART?" means her history. Outside a patient record, the same box is more likely being used to find a patient ("Mary Achieng") or to ask a question about a population ("women aged 15-49 enrolled in HIV").
 
-Asking doesn't mean everything goes through a language model. Many requests can be answered directly and deterministically, for example from the concept dictionary's names and synonyms, and anything generated has to show the records it came from. The omnibar is deliberately not a chatbot, and nothing typed into it changes the record.
+Asking doesn't necessarily mean that everything has to go through a language model. Many requests can be answered directly and deterministically, for example from the concept dictionary's names and synonyms, and anything generated has to show the records it came from. The omnibar is deliberately not a chatbot, and nothing typed into it changes the record.  There's lots of experimentation that we'll have to do, to get this right!
 
 This is a prototype of an O3 omnibar. :)
 
@@ -35,7 +35,7 @@ A few scenarios, to make the idea concrete. **Built** means the code exists, and
 | nothing yet | Recently viewed patients. | Built |
 | `Mary Achieng`, or an ID | Matching patients, plus a link to the full search page. | Built |
 | `how many women aged 15-49 enrolled in HIV?` | A count row: "Counting…", then "1,204 patients", with what was counted in the Cohort Builder's own words underneath. Enter opens the Cohort Builder with the same definition, ready to refine. It reads a phrase table (age groups like "women of reproductive age", comparators, number words) and the server's own program and encounter-type names, so "enrolled in HIV care" works without config. A question it can't fully read gives no row rather than a wrong number. | Built, in the Cohort Builder's app |
-| `patients over 40 on ART` | The same, once the Cohort Builder's drug-order criterion is live on the server. | Planned |
+| `patients over 40 on ART` | The same, once the Cohort Builder's drug-order criterion is live on the server. | Building |
 | `how do I print labels?` | An answer from a knowledge base. | Planned |
 
 ### Inside a patient record
@@ -82,7 +82,7 @@ The field is visible in the header on desktop. On tablet and phone it's a field-
 
 ### A light omnibar
 
-The omnibar is a thin shell, and capabilities live in the apps that own the data. The shell knows nothing clinical: it owns the header field and the tablet and phone sheet, the scope (`global` or `patient`, decided only by the host), ranking and the keyboard, the standard patient row, and the provider contract. Nothing in its source names ChartSearch, the Cohort Builder or the query store.
+The omnibar is a thin shell, and capabilities live in the ESM apps that own/understand the data. The omnibar shell knows nothing clinical: it owns the header field and the tablet and phone sheet, the scope (`global` or `patient`, decided only by the host), ranking and the keyboard, the standard patient row, and the provider contract. Nothing in its source names ChartSearch, the Cohort Builder or the query store.
 
 Every capability is a **provider**: an ordinary O3 extension, registered in `omnibar-providers-slot`, that renders nothing. While the panel is open, the shell mounts the providers that declare the current scope and passes each one the debounced `query`, the `context` (scope, patient, locale, the open side panel) and a `report` function. The provider calls `report` whenever it has something to say. Because providers are extensions, they get lazy loading, privilege gating, feature flags, config and translations from the existing framework for free, and nothing new is asked of esm-framework. Query results works the same way: each section is a **view** registered in `omnibar-query-results-slot`.
 
