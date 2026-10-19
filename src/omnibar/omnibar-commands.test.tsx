@@ -12,6 +12,7 @@ import {
   useConfig,
   useLayoutType,
   usePatient,
+  usePrimaryIdentifierCode,
 } from '@openmrs/esm-framework';
 // The framework mock re-exports this module, so this is the store getSessionStore returns.
 import { mockSessionStore } from '@openmrs/esm-api/mock';
@@ -153,7 +154,7 @@ describe('slash commands in the bar', () => {
   });
   afterEach(() => window.history.pushState({}, '', '/'));
 
-  const builtIns = () => {
+  const builtIns = (viewList = views) => {
     const patients = recording('Patients', (query) => [
       row(`patient-${query || 'recent'}`, '/openmrs/spa/patient/0c1d2e3f-4a5b-4c6d-8e7f-901234567890/chart'),
     ]);
@@ -177,7 +178,7 @@ describe('slash commands in the bar', () => {
           component: pages.component,
         },
       ],
-      views,
+      viewList,
     );
     return { patients, labs, pages };
   };
@@ -198,8 +199,8 @@ describe('slash commands in the bar', () => {
           .map((option) => option.textContent),
       ).toEqual([
         expect.stringContaining('Patients'),
-        expect.stringContaining('Lab results'),
         expect.stringContaining('Pages'),
+        expect.stringContaining('Lab results'),
       ]);
       expect(screen.getByText('↑ ↓ to move, Enter or Tab to choose a command, Esc to close')).toBeInTheDocument();
     });
@@ -308,6 +309,91 @@ describe('slash commands in the bar', () => {
       await user.keyboard('{Tab}');
       expect(screen.getByText('Pages')).toBeInTheDocument();
       expect(field).toHaveFocus();
+    });
+
+    describe('order', () => {
+      // As on o3: another app's navigate-lane provider is assigned before the omnibar's own.
+      const withCohorts = () => {
+        const { patients, labs, pages } = builtIns();
+        const cohorts = recording('Cohorts');
+        mount(
+          [
+            {
+              name: 'omnibar-cohort-count-provider',
+              moduleName: '@openmrs/esm-cohort-builder-app',
+              meta: {
+                lane: 'navigate',
+                scopes: ['global'],
+                order: 20,
+                contract: 1,
+                command: { id: 'cohort', aliases: ['cohort', 'count'] },
+              } as OmnibarProviderMeta,
+              component: cohorts.component,
+            },
+            {
+              name: 'omnibar-patient-search-provider',
+              meta: metaFor('omnibar-patient-search-provider'),
+              component: patients.component,
+            },
+            {
+              name: 'omnibar-chart-lookup-provider',
+              meta: metaFor('omnibar-chart-lookup-provider'),
+              component: labs.component,
+            },
+            {
+              name: 'omnibar-destinations-provider',
+              meta: metaFor('omnibar-destinations-provider'),
+              component: pages.component,
+            },
+          ],
+          views,
+        );
+      };
+      const listed = () =>
+        within(screen.getByRole('listbox', { name: 'Commands' }))
+          .getAllByRole('option')
+          .map((option) => [
+            ['Patients', 'cohort', 'Pages', 'Lab results'].find((label) => option.textContent.startsWith(label)),
+            option.getAttribute('aria-disabled'),
+          ]);
+
+      it('lists available commands first, Patients above Cohorts, and greyed ones after, outside a chart', async () => {
+        const user = userEvent.setup();
+        withCohorts();
+        render(<Omnibar />);
+
+        await user.keyboard('/');
+        expect(listed()).toEqual([
+          ['Patients', 'false'],
+          ['cohort', 'false'],
+          ['Pages', 'false'],
+          ['Lab results', 'true'],
+        ]);
+        expect(screen.getByRole('option', { name: /patients/i })).toHaveAttribute('aria-selected', 'true');
+        await user.keyboard('{ArrowDown}{Enter}');
+        expect(screen.queryByRole('listbox', { name: 'Commands' })).not.toBeInTheDocument();
+        expect(screen.getByText('cohort')).toBeInTheDocument();
+        expect(screen.getByRole('combobox')).toHaveValue('');
+      });
+
+      it('lists Cohorts, greyed, after every available command in a chart', async () => {
+        const user = userEvent.setup();
+        withCohorts();
+        inChart();
+        render(<Omnibar />);
+
+        await user.type(screen.getByRole('combobox'), '/');
+        expect(listed()).toEqual([
+          ['Patients', 'false'],
+          ['Lab results', 'false'],
+          ['Pages', 'false'],
+          ['cohort', 'true'],
+        ]);
+        await user.keyboard('{ArrowUp}{Enter}');
+        expect(screen.queryByRole('listbox', { name: 'Commands' })).not.toBeInTheDocument();
+        expect(screen.getByText('Pages')).toBeInTheDocument();
+        expect(screen.getByRole('combobox')).toHaveValue('');
+      });
     });
   });
 
@@ -571,6 +657,7 @@ describe('slash commands in the bar', () => {
         skipIdentifierQueries: true,
         command: { id: 'ask', aliases: ['ask', 'question'] },
         asksModel: 'ChartSearch',
+        commandAsksModel: true,
       } as OmnibarViewMeta,
     };
     const chartSearchTranslations: Record<string, string> = {
@@ -702,6 +789,214 @@ describe('slash commands in the bar', () => {
       await user.type(screen.getByRole('combobox'), 'ask cd4');
       expect(screen.getByText('No command /ask')).toBeInTheDocument();
       expect(screen.queryByText('Ask ChartSearch')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('a command asks a model because its view says so, not because of its id', () => {
+    const consultView = {
+      name: 'example-consult-view',
+      moduleName: '@openmrs/esm-example-app',
+      meta: {
+        scopes: ['patient'],
+        contract: 1,
+        command: { id: 'consult', aliases: ['consult'] },
+        asksModel: 'Example model',
+        commandAsksModel: true,
+      } as OmnibarViewMeta,
+    };
+    const unflaggedAskView = {
+      name: 'example-ask-view',
+      moduleName: '@openmrs/esm-example-app',
+      meta: {
+        scopes: ['patient'],
+        contract: 1,
+        command: { id: 'ask', aliases: ['ask'] },
+        asksModel: 'Example model',
+      } as OmnibarViewMeta,
+    };
+
+    beforeEach(() => inChart());
+
+    it('lists and chooses a made-up command whose view sets commandAsksModel', async () => {
+      const user = userEvent.setup();
+      mount([], [...views, consultView]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/');
+      expect(
+        within(screen.getByRole('listbox', { name: 'Commands' })).getByRole('option', { name: /consult/ }),
+      ).toBeInTheDocument();
+
+      await user.type(screen.getByRole('combobox'), 'consult what changed?');
+      expect(screen.getByRole('combobox')).toHaveValue('what changed?');
+    });
+
+    it('says Enter asks its model about any text, sends cmd=consult to Query results and marks it', async () => {
+      const user = userEvent.setup();
+      mount([], [...views, consultView]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to ask Example model “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'consult', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(true);
+    });
+
+    it('says the shorter hint on a tablet', async () => {
+      const user = userEvent.setup();
+      vi.mocked(useLayoutType).mockReturnValue('tablet');
+      mount([], [...views, consultView]);
+      render(<Omnibar />);
+
+      await user.click(screen.getByRole('button', { name: /search this chart/i }));
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      await user.click(await screen.findByRole('button', { name: 'Ask Example model “cd4”' }));
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'consult', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(true);
+    });
+
+    it('names the model on one line, without direction controls, and cut to 40 characters', async () => {
+      const user = userEvent.setup();
+      const spoofing = { ...consultView, meta: { ...consultView.meta, asksModel: ' Example\u202E\n  model ' } };
+      mount([], [...views, spoofing]);
+      const { unmount } = render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to ask Example model “cd4”' })).toBeInTheDocument();
+      unmount();
+
+      const long = { ...consultView, meta: { ...consultView.meta, asksModel: 'M'.repeat(60) } };
+      mount([], [...views, long]);
+      render(<Omnibar />);
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: `Enter to ask ${'M'.repeat(39)}… “cd4”` })).toBeInTheDocument();
+    });
+
+    it('keeps the command ordinary when another app’s view under the same id doesn’t set the flag', async () => {
+      const user = userEvent.setup();
+      const otherApp = {
+        name: 'other-consult-view',
+        moduleName: '@openmrs/esm-other-app',
+        meta: { ...consultView.meta, asksModel: 'Other model', commandAsksModel: undefined, order: 50 },
+      };
+      mount([], [...views, consultView, otherApp]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to see consult for “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'consult', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(false);
+    });
+
+    it('treats an `ask` view without the flag as an ordinary command', async () => {
+      const user = userEvent.setup();
+      mount([], [...views, unflaggedAskView]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/ask when did he start ART?');
+      expect(
+        await screen.findByRole('button', { name: 'Enter to see ask for “when did he start ART?”' }),
+      ).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'ask', q: 'when did he start ART?' }));
+      expect(takeSubmission(chartPatient, 'when did he start ART?', 'ask')).toBe(false);
+    });
+  });
+
+  describe('a view’s flag never makes a provider’s command ask a model', () => {
+    const flagging = (id: string, asksModel = 'Other model') => ({
+      name: `other-${id}-view`,
+      moduleName: '@openmrs/esm-other-app',
+      meta: {
+        scopes: ['patient'],
+        contract: 1,
+        command: { id, aliases: [id] },
+        asksModel,
+        commandAsksModel: true,
+      } as OmnibarViewMeta,
+    });
+
+    beforeEach(() => inChart());
+
+    it.each([
+      ['patient', 'mary smith', 'Patients'],
+      ['go', 'ward', 'Pages'],
+    ])('keeps /%s ordinary though another app’s only view under it sets the flag', async (id, query, label) => {
+      const user = userEvent.setup();
+      builtIns([...views, flagging(id)]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), `/${id} ${query}`);
+      expect(await screen.findByRole('button', { name: `Enter to see ${label} for “${query}”` })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Enter to ask/ })).not.toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: id, q: query }));
+      expect(takeSubmission(chartPatient, query, id)).toBe(false);
+    });
+
+    it('keeps /lab ordinary with the chart values view removed from the slot, since chart lookup declares it', async () => {
+      const user = userEvent.setup();
+      builtIns([flagging('lab')]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/lab cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to see Lab results for “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(queryResultsFor({ cmd: 'lab', q: 'cd4' }));
+      expect(takeSubmission(chartPatient, 'cd4', 'lab')).toBe(false);
+    });
+
+    it('still opens the highlighted patient for an ID-shaped query under /patient', async () => {
+      const user = userEvent.setup();
+      const scanned = '0c1d2e3f-4a5b-4c6d-8e7f-901234567890';
+      vi.mocked(usePrimaryIdentifierCode).mockReturnValue({
+        primaryIdentifierCode: undefined,
+        isLoading: false,
+        error: undefined,
+      });
+      const patients = recording('Patients', (query) => [
+        {
+          ...row(`patient-${query}`, `/openmrs/spa/patient/${scanned}/chart`),
+          patient: { uuid: scanned, identifiers: [{ identifier: query }] },
+        } as OmnibarResult,
+      ]);
+      mount(
+        [
+          {
+            name: 'omnibar-patient-search-provider',
+            meta: metaFor('omnibar-patient-search-provider'),
+            component: patients.component,
+          },
+        ],
+        [...views, flagging('patient')],
+      );
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/patient 100GEJ');
+      expect(await screen.findByRole('option', { name: /patient-100GEJ/ })).toHaveAttribute('aria-selected', 'true');
+      await user.keyboard('{Enter}');
+
+      expect(landedOn()).toBe(`/openmrs/spa/patient/${scanned}/chart`);
+      expect(takeSubmission(chartPatient, '100GEJ', 'patient')).toBe(false);
+    });
+
+    it('keeps a view-only command ordinary when its flagged views name different models', async () => {
+      const user = userEvent.setup();
+      builtIns([...views, flagging('consult', 'Model A'), { ...flagging('consult', 'Model B'), name: 'third-view' }]);
+      render(<Omnibar />);
+
+      await user.type(screen.getByRole('combobox'), '/consult cd4');
+      expect(await screen.findByRole('button', { name: 'Enter to see consult for “cd4”' })).toBeInTheDocument();
+      await user.keyboard('{Enter}');
+
+      expect(takeSubmission(chartPatient, 'cd4', 'consult')).toBe(false);
     });
   });
 

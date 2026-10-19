@@ -114,7 +114,7 @@ A provider may declare the command it answers in `meta.command`. `id` is stable 
 - A [Query results view](#query-results-views-new-in-v1) may declare a command too, with `aliases` and its module's translations exactly as above. The host adds it to the table while the view is assigned to the user, for a patient, on a contract it speaks; the command is available in a chart only. A view's declaration merges with any provider's of the same id, after them, so a provider's label and aliases come first. A command only views declare mounts no providers in the bar: the bar lists it, shows its chip and hint, and Enter sends it to Query results.
 - A command is listed, greyed out, but can't be chosen in a scope none of its providers declares. Commands never widen the scope.
 - The default highlight, dedupe and the fail-closed rules are the same as for plain text.
-- Inside a chart, Enter sends the command to Query results (`?cmd=<id>&q=<query>`) only when a [view](#query-results-views-new-in-v1) declares it; otherwise Enter opens the highlighted row. Only a plain query or `ask` marks the submission, so no other command lets a view call a model on its own. That makes `ask` special: a provider that declares it receives text the user is about to send to ChartSearch, an AI, so declare it only for a provider that is part of asking a model. The same goes for a view: one that declares `ask` gets `submitted: true` for what the user sent with `/ask`, and must follow the rules above for calling a model.
+- Inside a chart, Enter sends the command to Query results (`?cmd=<id>&q=<query>`) only when a [view](#query-results-views-new-in-v1) declares it; otherwise Enter opens the highlighted row. Only a plain query or a command whose view sets `commandAsksModel` (see [Query results views](#query-results-views-new-in-v1)) marks the submission, so no other command lets a view call a model on its own. The id itself means nothing: `ask` without the flag is an ordinary command, and any other id with it asks, unless a provider declares that id. A command a provider declares, such as `patient`, `go` or `lab`, is always ordinary, whatever the views under it set, so what the user types under it never goes to a model. A view that sets the flag gets `submitted: true` for what the user sent under its command, and must follow the rules above for calling a model.
 - Implementers add, replace or disable aliases by id in the omnibar's `commands` config. The config applies to a view-declared id as to any other. An alias claimed for two ids goes to the one set in config, then to the first provider in slot order, then to the first view; the conflict is logged and listed by `getOmnibarCommandConflicts()`.
 
 ### `hints` (`OmnibarQueryHints`)
@@ -136,6 +136,7 @@ Both functions are in the contract folder too, for providers and views on older 
 | `results` | `Array<OmnibarResult>` | Record and navigate lanes. The host reads the first 200, dedupes them, then shows the first 50 of each group. A report whose `results` isn't a list is ignored |
 | `answer` | `OmnibarAnswer` | Answer lane only: `{ text, streaming, sources }`. A finished answer with no sources is hidden, and missing `sources` count as none |
 | `detail` | `{ state, note? }` | *New in v1.* The state of the source behind the results. See below |
+| `completions` | `Array<OmnibarCompletion>` | *New in v1.* Up to 5 completions (the host keeps at most 5, in order, and ignores the rest). See below |
 
 ### `detail` (`OmnibarReportDetail`)
 
@@ -151,6 +152,31 @@ Drawn as one quiet line under the heading: plain text, not a live region, and it
 `note`, when set, replaces the host's line for `projecting` and `unavailable`. It is shown as plain text, cut to 200 characters (199 and an ellipsis), and a long word wraps, so it must already be translated, and it must never carry a server's message: that can quote the query or the record. A `failed` group ignores `note` and always says "Couldn't load results", as for any error. A `note` that isn't text is ignored.
 
 **When the server is out of reach**, report `status: 'error'` with `detail: { state: 'unavailable' }`. There is no separate status for it. `isServerUnreachable(error)` in the contract folder decides: a `TypeError` from fetch (as when offline), or a response with status 0, 502, 503 or 504. Any other failure is a plain `status: 'error'`. The built-in patient search and chart lookup follow this rule.
+
+### Completions (`OmnibarCompletion`)
+
+Completions answer the query the provider was given. While the field is ahead of it, within the debounce or before a chosen command settles, the host hides them, and Tab moves focus as usual; the host also applies a completion to that query, never to newer text, and refuses any result that would begin with "/".
+
+A completion is a suggested replacement for what the user has typed. The host picks the completions from the **first provider by lane and order** that reports any, and ignores those from all others. The host keeps at most 5 per report, in order.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `insert` | `string` | The text to append (or partially replace). 1–120 Unicode chars, one line, no control characters (C0, DEL, C1). Direction controls and other invisible format characters are stripped. Required |
+| `replace` | `number` | Whole number, 0 to `query.length`. The host removes the last `replace` characters of the current query and appends `insert`. A `replace` of 0 appends without removing anything. The result must not start with `/` and must not be identical to the current query. Counted as JavaScript string length (UTF-16 code units). Required |
+| `label` | `string` | One line, ≤200 chars. What the strip shows. Defaults to `insert`. Optional |
+| `detail` | `string` | One line, ≤200 chars. Secondary text shown beside the label in the strip. Optional |
+
+**How the host shows completions:**
+
+- A completions strip appears just below the field, inside the open panel, when a provider reports any. The first item is the Tab target; a keyboard hint (`Tab` or similar) marks it. The rest are clickable buttons.
+- Ghost text: when the result of the first completion is an extension of the current query (same prefix, case-insensitive), the host shows the suffix in muted colour, overlaid on the field, as a visual cue.
+- **Tab** (when not composing, not Shift+Tab, and not in the slash-command list) applies the first completion: the field value becomes the result of `query.slice(0, query.length - replace) + insert`, and the query is submitted again.
+- **Escape** (when the strip is showing) dismisses the completions for the current query. A second Escape closes the bar.
+- **Click or tap** on any strip item applies that completion.
+- The strip and ghost text are dismissed when the query changes (new completions or none from the next report).
+- A completion must not result in text that starts with `/`, so it can never silently launch a command.
+
+**First-provider-wins:** only the completions from the highest-ranked provider (by lane, then order) that reports at least one are shown. Later providers' completions are ignored for that query.
 
 ## Results (`OmnibarResult`)
 
@@ -238,7 +264,8 @@ Pressing Enter on a query inside a chart opens the chart's **Query results** sec
 | `contract` | As for providers: missing means 1, and a host mounts only versions it speaks |
 | `skipIdentifierQueries` | As for providers: not mounted while the query looks like a patient identifier |
 | `command` | `{ id: string; aliases?: Array<string> }`. The slash command this view shows results for. `aliases` (*new in v1*, optional) and the view module's `omnibarCommand.<id>.*` translations put the command in the bar's list as a provider's declaration does (see [slash commands](#slash-commands)); a view that gives only the id adds aliases only if its module translates them. The bar sends a command to Query results only when a view declares it. Under `?cmd=<id>` only the views declaring it mount, with `context.command`; a view without one mounts only for plain queries. A command the bar doesn't offer here (disabled, or no provider or view this user has declares it) or that no view this user can see declares fails closed: the page shows the query, "That command isn't available here.", and a link to search the text plainly. Built in: chart values declares `lab` |
-| `asksModel` | *New in v1.* The view may call a model for a query the user just submitted, and this is that model's name, such as `"ChartSearch"`. The bar's hint then says "Enter to see all results for '…' and ask ChartSearch", and an earlier query's tooltip "Run again and ask ChartSearch", but only while the view is assigned to the user (the framework has applied its privileges), isn't skipped for the query, a plain query looks like a question by the host's `looksLikeQuestion` (under `ask`, any text that isn't ID-shaped counts), the view would mount for the input (under a command, only a view declaring it), and Enter marks the submission: for plain text and under `ask`, never under another command such as `lab`. Shown as written, so it is a product name, not a sentence. If several views declare it, the first in page order names it |
+| `asksModel` | *New in v1.* The view may call a model for a query the user just submitted, and this is that model's name, such as `"ChartSearch"`. The bar's hint then says "Enter to see all results for '…' and ask ChartSearch", and an earlier query's tooltip "Run again and ask ChartSearch", but only while the view is assigned to the user (the framework has applied its privileges), isn't skipped for the query, a plain query looks like a question by the host's `looksLikeQuestion` (under a command that asks a model, any text that isn't ID-shaped counts), the view would mount for the input (under a command, only a view declaring it), and Enter marks the submission: for plain text and under a command that asks a model, never under another command such as `lab`. Shown on one line, without direction controls and cut to 40 characters, so it is a product name, not a sentence. If several views declare it, the first in page order names it |
+| `commandAsksModel` | *New in v1*, optional. `true` makes Enter under this view's `command` ask the view's model, as Enter on a plain question does: the host marks the submission, any text that isn't ID-shaped counts as a question, and the hint names the model, "Enter to ask ChartSearch '…'". It counts only when it is exactly `true` and the view also declares a valid `command` and a non-empty `asksModel`, with the `patient` scope, on a contract the host speaks, every other view the page would mount under that command sets it too and names the same model, so one app's flag never hands `submitted: true` to another app's view and the hint never names the wrong model, and no provider assigned to the user declares the command. Otherwise the command is ordinary, whatever its id. ChartSearch's answer view sets it for `ask` |
 
 **Props (`OmnibarViewProps`)**
 
@@ -267,7 +294,7 @@ The hint can promise more than a view keeps: a question longer than a model's ow
 
 **History.** The page, not the views, keeps this session's queries for each patient, in `sessionStorage`, and only their text and slash command id, if any. Choosing one runs it again, under its command; nothing a view showed is stored.
 
-**`submitted` under a command.** The mark is made for one patient, one query and its command, and taken only by a page showing that same command, or none. Only a plain query or `/ask` is ever marked, by Enter or by choosing an earlier query, so no other command lets a view call a model on its own. A page that fails closed drops any mark, and its plain-search link isn't marked. Under `/ask`, a view that asks a model may take any text that isn't ID-shaped as a question.
+**`submitted` under a command.** The mark is made for one patient, one query and its command, and taken only by a page showing that same command, or none. Only a plain query or a command whose view sets `commandAsksModel` is ever marked, by Enter or by choosing an earlier query, so no other command lets a view call a model on its own. A page that fails closed drops any mark, and its plain-search link isn't marked. Under such a command, a view that asks a model may take any text that isn't ID-shaped as a question.
 
 ## Errors
 
@@ -287,8 +314,8 @@ The host ranks by lane, then by `order`. Now that several apps pick numbers, thi
 | Order | Use |
 | --- | --- |
 | 10 | Core record providers: patients, chart values in a chart. Destinations in the navigate lane |
-| 15 | Querystore chart search (record lane, after the REST chart values) |
-| 20-50 | Cohort Builder: criteria 20, builder 30, saved cohorts 40, saved queries 50 |
+| 15 | Querystore chart search (record lane, after the REST chart values), from [`openmrs-esm-querystore-app`](https://github.com/pbiondich/openmrs-esm-querystore-app) |
+| 20-50 | Cohort Builder: count 20 (`omnibar-cohort-count-provider`, which replaced the "Build cohort" criteria row), builder 30, saved cohorts 40, saved queries 50. All navigate lane, global scope |
 | 100 | ChartSearch's answer section (Query results view, registered from ChartSearch's app) |
 
 ## Command registry
@@ -298,15 +325,18 @@ Command ids, like dedupe keys, are shared across apps. Register new ones here.
 | Id | Default aliases | Providers | Views |
 | --- | --- | --- | --- |
 | `patient` | patient, pt, find | Patient search | none |
-| `lab` | lab, labs, results, obs, value | Chart lookup, query store chart | Chart values |
+| `lab` | lab, labs, results, obs, value | Chart lookup, query store chart (from [its own app](https://github.com/pbiondich/openmrs-esm-querystore-app)) | Chart values |
 | `go` | go, open, page | Destinations | none |
-| `ask` | ask, question | None | ChartSearch's answer view (`chartsearch-query-results-view`, from its own app), which declares the command with its aliases and translations. Without it, `/ask` is absent |
+| `ask` | ask, question | None | ChartSearch's answer view (`chartsearch-query-results-view`, from its own app), which declares the command with its aliases and translations and sets `commandAsksModel`. Without it, `/ask` is absent |
+| `cohort` | cohort, count | The Cohort Builder's count row (`omnibar-cohort-count-provider`, from its own app), global scope only. Inside a chart, or without that app or its privileges, `/cohort` is absent | none |
 
 ## Dedupe keys
 
 | Key | `dedupeId` | Providers |
 | --- | --- | --- |
-| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search (order 15, `defaultInChart`, allowed because it ranks after chart lookup and stays on the open chart) |
+| `chart-values` | `obs:<obs uuid>` | Chart lookup (built in, order 10, `defaultInChart`, keeps the copy), querystore chart search ([its own app](https://github.com/pbiondich/openmrs-esm-querystore-app), order 15, `defaultInChart`, allowed because it ranks after chart lookup and stays on the open chart) |
+
+The Cohort Builder's rows (count, builder, saved cohorts, saved queries) share no key: no two of them can show the same record.
 
 ## Copying the contract folder
 
@@ -327,8 +357,8 @@ The folder holds everything another app needs:
 3. Don't edit the copy. Fix the original and copy it again.
 4. Declare `"contract": 1` in the provider's meta.
 
-The omnibar keeps two guards on the folder: `src/conformance/contract-folder.test.ts` fails if the folder imports anything else, and `src/conformance/conformance.test.tsx` mounts a provider built only on the folder, the way another app would, through the slot. It checks the navigate result, `contractVersion`, `hints`, dedupe against the built-in chart lookup, the unavailable line, `skipIdentifierQueries` and the version check. It also mounts a Query results view built only on the folder on the Query results page, and checks its props, the page's empty state, the view boundary and the version check, and a view that declares `asksModel`, for the bar's hint, `hints.looksLikeQuestion`, and a `signal` aborted on a rerun, a chart change and the page closing. Providers and views in other apps should keep a test of their own against their copy.
+The omnibar keeps two guards on the folder: `src/conformance/contract-folder.test.ts` fails if the folder imports anything else, and `src/conformance/conformance.test.tsx` mounts a provider built only on the folder, the way another app would, through the slot. It checks the navigate result, `contractVersion`, `hints`, dedupe against the built-in chart lookup, the unavailable line, `skipIdentifierQueries` and the version check. It also mounts a Query results view built only on the folder on the Query results page, and checks its props, the page's empty state, the view boundary and the version check, and a view that declares `asksModel`, for the bar's hint, `hints.looksLikeQuestion`, a `signal` aborted on a rerun, a chart change and the page closing, and its own command with `commandAsksModel` getting `/ask`'s behaviour, and no model call without the flag. `src/conformance/chart-values-source.test.tsx` mounts a second chart-values provider from a fixture app (`external-app/chart-index.provider.tsx`, registered at order 15 like the query store's) and checks the host's waits, highlight hand-offs, indexing cap and dedupe against chart lookup, and `slot-config.test.ts` runs both apps' `routes.json` through the framework's own registration and slot config. Providers and views in other apps should keep a test of their own against their copy.
 
-The view types and `view-boundary.tsx` were added to the folder on `feat/query-results`. Apps that copied the folder before then need to copy it again to write a view; their providers keep working without it. `asksModel`, `hints.looksLikeQuestion`, `signal`, `looksLikeQuestion` and a view's `command.aliases` were added on `feat/chartsearch-step3`, all optional, so the number stays 1.
+The view types and `view-boundary.tsx` were added to the folder on `feat/query-results`. Apps that copied the folder before then need to copy it again to write a view; their providers keep working without it. `asksModel`, `hints.looksLikeQuestion`, `signal`, `looksLikeQuestion` and a view's `command.aliases` were added on `feat/chartsearch-step3`, and `commandAsksModel` on `feat/thin-pass`, all optional, so the number stays 1. A view that declared `ask` before `commandAsksModel` existed needs the flag added to its `routes.json` to keep asking under `/ask`.
 
 A published package (`@openmrs/esm-omnibar-contract`) can replace the copy later, with the same contents.

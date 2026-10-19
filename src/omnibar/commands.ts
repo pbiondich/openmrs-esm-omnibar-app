@@ -18,9 +18,6 @@ import { type OmnibarProviderMeta, type OmnibarScope, type OmnibarViewMeta } fro
 /** Where providers, and so their commands, are registered. */
 export const omnibarProvidersSlot = 'omnibar-providers-slot';
 
-/** The command whose Enter asks ChartSearch on Query results, as Enter on a plain question does. */
-export const askCommandId = 'ask';
-
 /** One word in any script, without the slash. */
 const aliasPattern = /^[\p{L}\p{M}\p{N}_-]+$/u;
 const maxAliasLength = 32;
@@ -63,7 +60,7 @@ const cleanAliases = (aliases: unknown): Array<string> =>
         .filter((alias): alias is string => Boolean(alias))
     : [];
 
-function cleanText(text: unknown, maxLength: number): string | undefined {
+export function cleanText(text: unknown, maxLength: number): string | undefined {
   if (typeof text !== 'string') {
     return undefined;
   }
@@ -98,7 +95,11 @@ export interface OmnibarCommandConflict {
 }
 
 export interface CommandTable {
-  /** In slot order of each command's first provider. */
+  /**
+   * Record lane commands first, then navigate, then answer, then those only views declare; within
+   * each, in slot order of each command's first provider. A command takes the earliest lane of its
+   * providers.
+   */
   commands: Array<OmnibarCommandEntry>;
   /** The command an alias typed after the slash names, matched exactly in the user's language. */
   resolve: (typed: string) => OmnibarCommandEntry | undefined;
@@ -153,7 +154,13 @@ interface Draft {
   scopes: Set<OmnibarScope>;
   modules: Set<string>;
   enabled: boolean;
+  /** The earliest lane rank of its providers; a command only views declare comes after them all. */
+  rank: number;
 }
+
+/** Commands list in the order the bar shows results: records, then pages, then answers. */
+const commandLaneRank: Record<string, number> = { record: 0, navigate: 1, answer: 2 };
+const viewOnlyRank = 3;
 
 /**
  * Builds the alias table. Sources, lowest precedence first: each assigned provider's `meta.command`,
@@ -183,6 +190,7 @@ export function buildCommandTable(
     id: string,
     aliases: unknown,
     declaredScopes: Array<OmnibarScope>,
+    rank: number,
   ) => {
     let draft = drafts.get(id);
     if (!draft) {
@@ -193,9 +201,11 @@ export function buildCommandTable(
         scopes: new Set(),
         modules: new Set(),
         enabled: true,
+        rank,
       };
       drafts.set(id, draft);
     }
+    draft.rank = Math.min(draft.rank, rank);
     draft.providerAliases.push(...cleanAliases(aliases));
     for (const scope of Array.isArray(declaredScopes) ? declaredScopes : []) {
       if (scopes.includes(scope)) {
@@ -216,7 +226,14 @@ export function buildCommandTable(
     const meta: unknown = extension.meta;
     const id = isProviderMeta(meta) && speaksContractOf(extension.name, meta) ? commandIdOf(meta.command) : undefined;
     if (id) {
-      declare(extension, id, (meta as OmnibarProviderMeta).command.aliases, (meta as OmnibarProviderMeta).scopes);
+      const providerMeta = meta as OmnibarProviderMeta;
+      declare(
+        extension,
+        id,
+        providerMeta.command.aliases,
+        providerMeta.scopes,
+        commandLaneRank[providerMeta.lane] ?? viewOnlyRank,
+      );
     }
   }
   // Query results is only in a chart, so a view's command is available there and nowhere else.
@@ -224,7 +241,7 @@ export function buildCommandTable(
     const meta: unknown = view.meta;
     const id = isPatientViewMeta(meta) && speaksContractOf(view.name, meta) ? commandIdOf(meta.command) : undefined;
     if (id) {
-      declare(view, id, (meta as OmnibarViewMeta).command.aliases, ['patient']);
+      declare(view, id, (meta as OmnibarViewMeta).command.aliases, ['patient'], viewOnlyRank);
     }
   }
 
@@ -259,7 +276,9 @@ export function buildCommandTable(
   enabled.forEach((draft) => draft.providerAliases.forEach((alias) => claim(draft, alias)));
 
   const commands: Array<OmnibarCommandEntry> = [];
-  for (const draft of enabled) {
+  // Claims above keep declaration order; only the listing is by lane. The sort is stable, so slot
+  // order holds within a lane.
+  for (const draft of [...enabled].sort((a, b) => a.rank - b.rank)) {
     const seen = new Set<string>();
     const aliases = [...draft.providerAliases, ...draft.configAliases].filter((alias) => {
       const key = normalizeAlias(alias, locale);
@@ -307,6 +326,17 @@ export function buildCommandTable(
       );
     },
   };
+}
+
+/**
+ * The commands as the "/" list shows them: those available here first, then the greyed out ones,
+ * each group in table order.
+ */
+export function orderForListing(
+  commands: Array<OmnibarCommandEntry>,
+  isAvailable: (command: OmnibarCommandEntry) => boolean,
+): Array<OmnibarCommandEntry> {
+  return [...commands.filter(isAvailable), ...commands.filter((command) => !isAvailable(command))];
 }
 
 /**

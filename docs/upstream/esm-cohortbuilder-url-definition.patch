@@ -1,0 +1,2981 @@
+diff --git a/README.md b/README.md
+index 0f27914..97f884c 100644
+--- a/README.md
++++ b/README.md
+@@ -16,3 +16,67 @@ Once it is running, a browser window
+ should open with the OpenMRS 3 application. Log in and then navigate to
+ `/openmrs/spa/cohort-builder`.
+ 
++## Opening the builder with a pre-filled definition
++
++Links can open the builder with a search already run. The page reads one of these query parameters:
++
++| Parameter | What it does |
++| --- | --- |
++| `?definition=<base64url JSON>` | Runs each criterion as a search, then (for 2 or more) a composition that ANDs them. Each history entry is described in the builder's own words, as its search tab would describe it |
++| `?cohort=<uuid>` | Shows the members of a saved cohort (the first 200 active members; a note says when there are more, or when some could not be loaded). It is not added to the search history. |
++| `?query=<uuid>` | Runs a saved query |
++
++If several are given, `definition` wins over `cohort`, which wins over `query`; the others are ignored with a console warning. The parameter is removed from the URL (with `history.replaceState`) as soon as it is read, so reloading the page does not run it again. A link opened while the builder is already shown (for example from the omnibar) runs too; if one is still running, the newest waiting link runs after it.
++
++### The definition
++
++```json
++{
++  "v": 1,
++  "label": "Women aged 15-49 on ARVs",
++  "criteria": [
++    { "type": "demographics", "gender": "female", "minAge": 15, "maxAge": 49 },
++    { "type": "enrollment", "programs": ["<program uuid>"], "enrolledOnOrAfter": "2024-01-01" },
++    { "type": "drugOrder", "drugs": ["<drug uuid>"], "activeOnOrAfter": "today" },
++    { "type": "encounter", "encounterTypes": ["<encounter type uuid>"] }
++  ]
++}
++```
++
++- `v` must be `1`. `label` is optional text (up to 200 characters). It is accepted for links made before, and never shown: the history describes what was searched in the builder's own words, so a link can't call one population another.
++- `criteria` has 1 to 5 items, ANDed together:
++  - `demographics`: `gender` is `"male"`, `"female"` or `"any"` (the default); `minAge` is a whole number from 0 to 150 and `maxAge` from 1 to 150, with `minAge` not above `maxAge`. Give at least a gender other than `"any"`, `minAge` or `maxAge`. Only living patients are found, as in the Demographics tab.
++  - `enrollment`: `programs` lists 1 to 10 program uuids; optional `enrolledOnOrAfter` and `enrolledOnOrBefore` are `YYYY-MM-DD` dates.
++  - `drugOrder`: `drugs` lists 1 to 50 drug (`org.openmrs.Drug`, not concept) uuids; optional `activeOnOrAfter` and `activeOnOrBefore` are `YYYY-MM-DD` dates or `"today"`, which is worked out when the link is opened, so shared links stay relative.
++  - `encounter`: `encounterTypes` lists 1 to 10 encounter type uuids. It finds patients with at least one encounter of any of them, at any time and place, as the Encounters tab does with only types chosen.
++- Uuids are standard uuids or 36-character ids such as CIEL's `1065AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`.
++- The encoded definition is [base64url](https://www.rfc-editor.org/rfc/rfc4648#section-5) of UTF-8 JSON, with or without `=` padding, and at most 4096 bytes once decoded.
++
++Anything else (unknown keys, wrong types, out-of-range values, bad base64url, too large) rejects the whole link: an error notification says "This link isn't a valid cohort query", nothing is run, and the builder works as usual. It never says which part was wrong, since that could quote the link, and anyone can write a link. Each criterion becomes a search through its tab's own query builder; nothing from the link reaches the server except validated uuids, ages and dates. If a linked saved cohort or query cannot be loaded, the same notification says so. If one of the searches fails on the server, the entries the link added are removed from the search history (searches you ran meanwhile stay) and the notification says which search failed.
++
++To make a link, encode the JSON with either of these one-liners and append it to `/openmrs/spa/cohort-builder?definition=`:
++
++```sh
++node -e 'console.log(Buffer.from(process.argv[1]).toString("base64url"))' '{"v":1,"label":"Women aged 15-49","criteria":[{"type":"demographics","gender":"female","minAge":15,"maxAge":49}]}'
++printf '%s' '{"v":1,"label":"Women aged 15-49","criteria":[{"type":"demographics","gender":"female","minAge":15,"maxAge":49}]}' | base64 | tr '+/' '-_' | tr -d '=\n'
++```
++
++Both print `eyJ2IjoxLCJsYWJlbCI6IldvbWVuIGFnZWQgMTUtNDkiLCJjcml0ZXJpYSI6W3sidHlwZSI6ImRlbW9ncmFwaGljcyIsImdlbmRlciI6ImZlbWFsZSIsIm1pbkFnZSI6MTUsIm1heEFnZSI6NDl9XX0`.
++
++### Drug order searches need a server-side definition
++
++The Drug Order tab and `drugOrder` criteria search with the reporting definition library key in the `drugOrderSearchDefinitionKey` config option, which defaults to `reporting.library.cohortDefinition.builtIn.drugOrderSearch`. Released reporting modules (up to 2.2.0) do not define that key, so on a stock server these searches fail. A link with a `drugOrder` criterion then shows the error notification and keeps nothing from the link.
++
++Until the reporting module ships that definition, a site can provide its own without a module release:
++
++1. Add a serialized `DrugOrderCohortDefinition` to `<application data directory>/configuration/reporting/definitionLibraries/cohort/drugOrderSearch.reportingserializerxml`. Its parameters must use the names the builder sends: `drugs` (list of Drug), `careSetting`, `activeOnOrAfter`, `activeOnOrBefore`, `activatedOnOrAfter` and `activatedOnOrBefore` (dates).
++2. Point the builder at it in the frontend configuration:
++
++   ```json
++   {
++     "@openmrs/esm-cohort-builder-app": {
++       "drugOrderSearchDefinitionKey": "configuration.definitionlibrary.cohort.drugOrderSearch"
++     }
++   }
++   ```
++
+diff --git a/src/cohort-builder.component.tsx b/src/cohort-builder.component.tsx
+index 8097d56..3f0ff75 100644
+--- a/src/cohort-builder.component.tsx
++++ b/src/cohort-builder.component.tsx
+@@ -1,11 +1,12 @@
+ import React, { useState } from 'react';
+ import classNames from 'classnames';
+-import { Tab, Tabs, TabPanels, TabPanel, TabList } from '@carbon/react';
++import { InlineNotification, Tab, Tabs, TabPanels, TabPanel, TabList } from '@carbon/react';
+ import { useTranslation } from 'react-i18next';
+ import { CohortsPictogram, PageHeader, PageHeaderContent, showSnackbar, useLayoutType } from '@openmrs/esm-framework';
+-import { getCohortMembers, getDataSet, search } from './cohort-builder.resources';
++import { getCohortMembers, getDataSet, MAX_COHORT_MEMBERS_SHOWN, search } from './cohort-builder.resources';
+ import { addToHistory } from './cohort-builder.utils';
+ import type { Patient, SearchParams } from './types';
++import { useUrlDefinition } from './url-definition/use-url-definition';
+ import Composition from './components/composition/composition.component';
+ import SavedCohorts from './components/saved-cohorts/saved-cohorts.component';
+ import SavedQueries from './components/saved-queries/saved-queries.component';
+@@ -29,11 +30,13 @@ const CohortBuilder: React.FC = () => {
+   const { t } = useTranslation();
+   const [patients, setPatients] = useState<Patient[]>([]);
+   const [isHistoryUpdated, setIsHistoryUpdated] = useState(true);
++  const [cohortMemberCounts, setCohortMemberCounts] = useState<{ total: number; unavailable: number } | null>(null);
+   const isLayoutTablet = useLayoutType() === 'tablet';
+ 
+   const runSearch = (searchParams: SearchParams, queryDescription: string): Promise<boolean> => {
+     return new Promise((resolve) => {
+       setPatients([]);
++      setCohortMemberCounts(null);
+       search(searchParams)
+         .then(({ data: { rows } }) => {
+           rows.map((patient: Patient) => {
+@@ -60,7 +63,7 @@ const CohortBuilder: React.FC = () => {
+             isLowContrast: false,
+             subtitle: error?.message,
+           });
+-          resolve(true);
++          resolve(false);
+         });
+     });
+   };
+@@ -69,6 +72,7 @@ const CohortBuilder: React.FC = () => {
+     try {
+       const patients = await getDataSet(queryId);
+       setPatients(patients);
++      setCohortMemberCounts(null);
+       showSnackbar({
+         title: t('searchCompleted', 'Search completed'),
+         kind: 'success',
+@@ -77,6 +81,7 @@ const CohortBuilder: React.FC = () => {
+           count: patients.length,
+         }),
+       });
++      return true;
+     } catch (error) {
+       showSnackbar({
+         title: t('error', 'Error'),
+@@ -84,13 +89,15 @@ const CohortBuilder: React.FC = () => {
+         isLowContrast: false,
+         subtitle: error?.message,
+       });
++      return false;
+     }
+   };
+ 
+   const getCohortResults = async (cohortId: string) => {
+     try {
+-      const patients = await getCohortMembers(cohortId);
++      const { patients, total, unavailable } = await getCohortMembers(cohortId);
+       setPatients(patients);
++      setCohortMemberCounts({ total, unavailable });
+       showSnackbar({
+         title: t('searchCompleted', 'Search completed'),
+         kind: 'success',
+@@ -99,6 +106,7 @@ const CohortBuilder: React.FC = () => {
+           count: patients.length,
+         }),
+       });
++      return true;
+     } catch (error) {
+       showSnackbar({
+         title: t('error', 'Error'),
+@@ -106,9 +114,17 @@ const CohortBuilder: React.FC = () => {
+         isLowContrast: false,
+         subtitle: error?.message,
+       });
++      return false;
+     }
+   };
+ 
++  const urlDefinitionError = useUrlDefinition({
++    runSearch,
++    showCohort: getCohortResults,
++    showQuery: getQueryResults,
++    onHistoryChange: () => setIsHistoryUpdated(true),
++  });
++
+   const tabs: TabItem[] = [
+     {
+       name: t('concepts', 'Concepts'),
+@@ -158,6 +174,14 @@ const CohortBuilder: React.FC = () => {
+         <PageHeaderContent illustration={<CohortsPictogram />} title={t('cohortBuilder', 'Cohort Builder')} />
+       </PageHeader>
+       <div className={classNames(styles.mainContainer, styles.cohortBuilder)}>
++        {urlDefinitionError && (
++          <InlineNotification
++            kind="error"
++            lowContrast
++            title={t('cohortBuilderLinkError', 'This cohort builder link could not be opened')}
++            subtitle={urlDefinitionError}
++          />
++        )}
+         <div className={classNames(isLayoutTablet ? styles.tabletContainer : styles.desktopContainer)}>
+           <div className={styles.tabContainer}>
+             <p className={styles.heading}>{t('searchCriteria', 'Search Criteria')}</p>
+@@ -178,6 +202,27 @@ const CohortBuilder: React.FC = () => {
+               </Tabs>
+             </div>
+           </div>
++          {cohortMemberCounts?.total > MAX_COHORT_MEMBERS_SHOWN && (
++            <InlineNotification
++              kind="info"
++              lowContrast
++              hideCloseButton
++              title={t('cohortMembersLimited', 'Showing the first {{shown}} of {{total}} members', {
++                shown: MAX_COHORT_MEMBERS_SHOWN,
++                total: cohortMemberCounts.total,
++              })}
++            />
++          )}
++          {cohortMemberCounts?.unavailable > 0 && (
++            <InlineNotification
++              kind="warning"
++              lowContrast
++              hideCloseButton
++              title={t('cohortMembersUnavailable', '{{count}} members could not be shown', {
++                count: cohortMemberCounts.unavailable,
++              })}
++            />
++          )}
+           <SearchResultsTable patients={patients} />
+           <SearchHistory isHistoryUpdated={isHistoryUpdated} setIsHistoryUpdated={setIsHistoryUpdated} />
+         </div>
+diff --git a/src/cohort-builder.resources.test.ts b/src/cohort-builder.resources.test.ts
+new file mode 100644
+index 0000000..412d553
+--- /dev/null
++++ b/src/cohort-builder.resources.test.ts
+@@ -0,0 +1,149 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { openmrsFetch } from '@openmrs/esm-framework';
++import { getCohortMembers, MAX_COHORT_MEMBERS_SHOWN } from './cohort-builder.resources';
++
++const mockOpenmrsFetch = vi.mocked(openmrsFetch);
++const cohortUuid = 'f4c0b5a2-3c84-4c76-bb7e-6c1b1b2e5a11';
++
++const patientUuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
++const membership = (n: number, overrides = {}) => ({
++  uuid: `membership-${n}`,
++  patientUuid: patientUuid(n),
++  startDate: '2020-01-01T00:00:00.000+0000',
++  endDate: null,
++  voided: false,
++  ...overrides,
++});
++const details = (n: number) => ({
++  patientId: n,
++  person: { gender: 'F', age: 30, preferredName: { givenName: 'Patient', familyName: `${n}` } },
++});
++
++let membershipPages: Array<ReturnType<typeof membership>[]>;
++let patientDetails: (n: number) => Promise<unknown>;
++
++beforeEach(() => {
++  vi.useFakeTimers({ toFake: ['Date'] });
++  vi.setSystemTime(new Date('2026-10-17T12:00:00Z'));
++  patientDetails = async (n) => details(n);
++  mockOpenmrsFetch.mockImplementation(async (url: string) => {
++    if (url.includes('/membership')) {
++      const page = Number(new URL(url, 'http://x').searchParams.get('startIndex')) / 100;
++      const results = membershipPages[page] ?? [];
++      const links = page < membershipPages.length - 1 ? [{ rel: 'next' }] : [];
++      return { data: { results, links } } as never;
++    }
++    const n = Number(url.match(/patient\/0{8}-0{4}-4000-8000-(\d{12})/)[1]);
++    return { data: await patientDetails(n) } as never;
++  });
++});
++
++const fetchedPatients = () => mockOpenmrsFetch.mock.calls.filter(([url]) => url.includes('/patient/')).length;
++
++describe('getCohortMembers', () => {
++  it('reads every membership page and shows active members', async () => {
++    const firstPage = Array.from({ length: 100 }, (_, i) => membership(i + 1));
++    membershipPages = [firstPage, [membership(101)]];
++
++    const { patients, total } = await getCohortMembers(cohortUuid);
++
++    expect(total).toBe(101);
++    expect(patients).toHaveLength(101);
++    expect(patients[100]).toEqual({
++      id: '101',
++      patientId: 101,
++      name: 'Patient 101',
++      firstname: 'Patient',
++      lastname: '101',
++      age: 30,
++      gender: 'F',
++    });
++    expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining('&startIndex=100'));
++  });
++
++  it(`loads at most ${MAX_COHORT_MEMBERS_SHOWN} members, 6 at a time`, async () => {
++    membershipPages = [0, 1, 2].map((page) => Array.from({ length: 100 }, (_, i) => membership(page * 100 + i + 1)));
++    let inFlight = 0;
++    let mostInFlight = 0;
++    patientDetails = async (n) => {
++      inFlight++;
++      mostInFlight = Math.max(mostInFlight, inFlight);
++      await Promise.resolve();
++      inFlight--;
++      return details(n);
++    };
++
++    const { patients, total } = await getCohortMembers(cohortUuid);
++
++    expect(total).toBe(300);
++    expect(patients).toHaveLength(MAX_COHORT_MEMBERS_SHOWN);
++    expect(fetchedPatients()).toBe(MAX_COHORT_MEMBERS_SHOWN);
++    expect(mostInFlight).toBe(6);
++  });
++
++  it('stops paging when a page adds no new memberships', async () => {
++    const samePage = Array.from({ length: 100 }, (_, i) => membership(i + 1));
++    // A server that ignores startIndex returns the same page with a "next" link forever.
++    membershipPages = Array(50).fill(samePage);
++
++    const { total } = await getCohortMembers(cohortUuid);
++
++    expect(total).toBe(100);
++    expect(mockOpenmrsFetch.mock.calls.filter(([url]) => url.includes('/membership'))).toHaveLength(2);
++  });
++
++  it('leaves out voided, not yet started and ended memberships', async () => {
++    membershipPages = [
++      [
++        membership(1),
++        membership(2, { voided: true }),
++        membership(3, { startDate: '2026-10-18T00:00:00.000+0000' }),
++        membership(4, { endDate: '2026-10-16T00:00:00.000+0000' }),
++        membership(5, { endDate: '2026-10-17T12:00:00.000+0000' }),
++        membership(6, { startDate: null }),
++      ],
++    ];
++
++    const { patients, total } = await getCohortMembers(cohortUuid);
++
++    expect(patients.map(({ patientId }) => patientId)).toEqual([1, 5, 6]);
++    expect(total).toBe(3);
++  });
++
++  it('skips members that cannot be loaded or shown', async () => {
++    membershipPages = [[membership(1), membership(2), membership(3), membership(4, { patientUuid: '../../user' })]];
++    patientDetails = async (n) => {
++      if (n === 2) {
++        throw new Error('Not found');
++      }
++      return n === 3 ? { ...details(3), person: { ...details(3).person, preferredName: null } } : details(n);
++    };
++
++    const { patients, total, unavailable } = await getCohortMembers(cohortUuid);
++
++    expect(patients.map(({ patientId }) => patientId)).toEqual([1]);
++    expect(total).toBe(3);
++    expect(unavailable).toBe(2);
++    expect(fetchedPatients()).toBe(3);
++  });
++
++  it('fails when the cohort has active members but none can be shown', async () => {
++    membershipPages = [[membership(1), membership(2)]];
++    patientDetails = async () => {
++      throw new Error('Not found');
++    };
++
++    await expect(getCohortMembers(cohortUuid)).rejects.toThrow("None of the cohort's members could be loaded");
++  });
++
++  it('shows an empty cohort as no members', async () => {
++    membershipPages = [[membership(1, { voided: true })]];
++
++    expect(await getCohortMembers(cohortUuid)).toEqual({ patients: [], total: 0, unavailable: 0 });
++  });
++
++  it('refuses a cohort id that is not a uuid before fetching anything', async () => {
++    await expect(getCohortMembers('../../user')).rejects.toThrow('Not a cohort uuid');
++    expect(mockOpenmrsFetch).not.toHaveBeenCalled();
++  });
++});
+diff --git a/src/cohort-builder.resources.ts b/src/cohort-builder.resources.ts
+index 8077e2a..40a3d2b 100644
+--- a/src/cohort-builder.resources.ts
++++ b/src/cohort-builder.resources.ts
+@@ -1,6 +1,7 @@
+ import useSWRImmutable from 'swr/immutable';
+ import { openmrsFetch, restBaseUrl, type FetchResponse } from '@openmrs/esm-framework';
+ import type { Patient, SearchParams, DropdownValue, Response } from './types';
++import { isUuid } from './url-definition/url-definition';
+ 
+ /**
+  * @param searchParams query details
+@@ -61,17 +62,115 @@ export const getDataSet = async (queryID: string) => {
+   return dataset;
+ };
+ 
+-export const getCohortMembers = async (cohortId: string) => {
+-  const results: FetchResponse<SearchResults> = await openmrsFetch(`${restBaseUrl}/cohort/${cohortId}/member?v=full`, {
+-    method: 'GET',
+-  });
++interface CohortMembership {
++  uuid: string;
++  patientUuid: string;
++  startDate: string | null;
++  endDate: string | null;
++  voided: boolean;
++}
+ 
+-  const dataset = results.data.rows.map((patient: Patient) => {
+-    patient.id = patient.patientId.toString();
+-    patient.name = `${patient.firstname} ${patient.lastname}`;
++interface CohortMembershipPage {
++  results: CohortMembership[];
++  links?: Array<{ rel: string }>;
++}
+ 
+-    return patient;
+-  });
++interface CohortMemberDetails {
++  patientId: number;
++  person: { gender: string; age: number; preferredName: { givenName: string; familyName: string } | null };
++}
+ 
+-  return dataset;
++export const MAX_COHORT_MEMBERS_SHOWN = 200;
++const MEMBERSHIP_PAGE_SIZE = 100;
++const MAX_MEMBERSHIP_PAGES = 1000;
++const PATIENT_FETCH_CONCURRENCY = 6;
++
++/**
++ * webservices.rest has no cohort members endpoint, only the paged `cohort/{uuid}/membership`
++ * subresource, which gives patient uuids. The first MAX_COHORT_MEMBERS_SHOWN active members are
++ * then loaded for the results table. `total` counts active members and `unavailable` those of the
++ * loaded ones that could not be shown. Throws when there are active members but none could be shown.
++ */
++export const getCohortMembers = async (
++  cohortId: string,
++): Promise<{ patients: Patient[]; total: number; unavailable: number }> => {
++  if (!isUuid(cohortId)) {
++    throw new Error(`Not a cohort uuid: ${cohortId}`);
++  }
++  const memberships = await getAllMemberships(cohortId);
++  const now = new Date();
++  const activePatientUuids = memberships
++    .filter((membership) => isActiveMembership(membership, now))
++    .map((membership) => membership.patientUuid)
++    .filter(isUuid);
++
++  const membersToShow = activePatientUuids.slice(0, MAX_COHORT_MEMBERS_SHOWN);
++  const patients = (await mapWithConcurrency(membersToShow, PATIENT_FETCH_CONCURRENCY, getCohortMember)).filter(
++    Boolean,
++  );
++  if (membersToShow.length > 0 && patients.length === 0) {
++    throw new Error("None of the cohort's members could be loaded");
++  }
++  return { patients, total: activePatientUuids.length, unavailable: membersToShow.length - patients.length };
+ };
++
++async function getAllMemberships(cohortId: string) {
++  const memberships = new Map<string, CohortMembership>();
++  for (let page = 0; page < MAX_MEMBERSHIP_PAGES; page++) {
++    const { data }: FetchResponse<CohortMembershipPage> = await openmrsFetch(
++      `${restBaseUrl}/cohort/${cohortId}/membership?v=custom:(uuid,patientUuid,startDate,endDate,voided)&limit=${MEMBERSHIP_PAGE_SIZE}&startIndex=${memberships.size}`,
++    );
++    const sizeBefore = memberships.size;
++    data.results.forEach((membership) => memberships.set(membership.uuid, membership));
++    const hasNextPage = data.links?.some((link) => link.rel === 'next');
++    // Also stops if the server ignores startIndex and keeps returning the same page.
++    if (!hasNextPage || memberships.size === sizeBefore) {
++      break;
++    }
++  }
++  return [...memberships.values()];
++}
++
++/** Same rule as core's CohortMembership.isActive: not voided, started, and not yet ended. */
++function isActiveMembership({ voided, startDate, endDate }: CohortMembership, now: Date) {
++  return !voided && (!startDate || new Date(startDate) <= now) && (!endDate || new Date(endDate) >= now);
++}
++
++/** Loads one member for the results table, or null if it cannot be shown. */
++async function getCohortMember(patientUuid: string): Promise<Patient | null> {
++  try {
++    const {
++      data: { patientId, person },
++    }: FetchResponse<CohortMemberDetails> = await openmrsFetch(
++      `${restBaseUrl}/patient/${patientUuid}?v=custom:(patientId,person:(gender,age,preferredName:(givenName,familyName)))`,
++    );
++    if (!person?.preferredName) {
++      return null;
++    }
++    const { givenName, familyName } = person.preferredName;
++    return {
++      id: patientId.toString(),
++      patientId,
++      name: `${givenName} ${familyName}`,
++      firstname: givenName,
++      lastname: familyName,
++      age: person.age,
++      gender: person.gender,
++    };
++  } catch {
++    return null;
++  }
++}
++
++async function mapWithConcurrency<T, R>(items: T[], limit: number, mapItem: (item: T) => Promise<R>) {
++  const results: R[] = [];
++  let nextIndex = 0;
++  const worker = async () => {
++    while (nextIndex < items.length) {
++      const index = nextIndex++;
++      results[index] = await mapItem(items[index]);
++    }
++  };
++  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
++  return results;
++}
+diff --git a/src/components/saved-cohorts/saved-cohorts-options/saved-cohorts-options.component.tsx b/src/components/saved-cohorts/saved-cohorts-options/saved-cohorts-options.component.tsx
+index f25f00a..13557e0 100644
+--- a/src/components/saved-cohorts/saved-cohorts-options/saved-cohorts-options.component.tsx
++++ b/src/components/saved-cohorts/saved-cohorts-options/saved-cohorts-options.component.tsx
+@@ -12,7 +12,7 @@ const Options = {
+ 
+ interface SavedCohortsOptionsProps {
+   cohort: DefinitionDataRow;
+-  onViewCohort: (cohortId: string) => Promise<void>;
++  onViewCohort: (cohortId: string) => Promise<boolean>;
+   onDeleteCohort: (cohortId: string) => Promise<void>;
+ }
+ 
+diff --git a/src/components/saved-cohorts/saved-cohorts.component.tsx b/src/components/saved-cohorts/saved-cohorts.component.tsx
+index cc38a48..80f4ead 100644
+--- a/src/components/saved-cohorts/saved-cohorts.component.tsx
++++ b/src/components/saved-cohorts/saved-cohorts.component.tsx
+@@ -10,7 +10,7 @@ import mainStyles from '../../cohort-builder.scss';
+ import styles from './saved-cohorts.scss';
+ 
+ interface SavedCohortsProps {
+-  onViewCohort: (queryId: string) => Promise<void>;
++  onViewCohort: (queryId: string) => Promise<boolean>;
+ }
+ 
+ const SavedCohorts: React.FC<SavedCohortsProps> = ({ onViewCohort }) => {
+diff --git a/src/components/saved-queries/saved-queries-options/saved-queries-options.component.tsx b/src/components/saved-queries/saved-queries-options/saved-queries-options.component.tsx
+index 307c6f5..58eb33c 100644
+--- a/src/components/saved-queries/saved-queries-options/saved-queries-options.component.tsx
++++ b/src/components/saved-queries/saved-queries-options/saved-queries-options.component.tsx
+@@ -14,7 +14,7 @@ type OptionType = (typeof Options)[keyof typeof Options];
+ 
+ interface SavedQueriesOptionsProps {
+   query: DefinitionDataRow;
+-  onViewQuery: (queryId: string) => Promise<void>;
++  onViewQuery: (queryId: string) => Promise<boolean>;
+   deleteQuery: (queryId: string) => Promise<void>;
+ }
+ 
+diff --git a/src/components/saved-queries/saved-queries.component.tsx b/src/components/saved-queries/saved-queries.component.tsx
+index c120d51..29eefa8 100644
+--- a/src/components/saved-queries/saved-queries.component.tsx
++++ b/src/components/saved-queries/saved-queries.component.tsx
+@@ -10,7 +10,7 @@ import mainStyles from '../../cohort-builder.scss';
+ import styles from './saved-queries.scss';
+ 
+ interface SavedQueriesProps {
+-  onViewQuery: (queryId: string) => Promise<void>;
++  onViewQuery: (queryId: string) => Promise<boolean>;
+ }
+ 
+ const SavedQueries: React.FC<SavedQueriesProps> = ({ onViewQuery }) => {
+diff --git a/src/components/search-by-drug-orders/search-by-drug-orders.component.tsx b/src/components/search-by-drug-orders/search-by-drug-orders.component.tsx
+index a2d5d58..f782f49 100644
+--- a/src/components/search-by-drug-orders/search-by-drug-orders.component.tsx
++++ b/src/components/search-by-drug-orders/search-by-drug-orders.component.tsx
+@@ -1,8 +1,9 @@
+-import React, { useState } from 'react';
++import React, { useEffect, useState } from 'react';
+ import dayjs from 'dayjs';
+ import { Column, DatePicker, DatePickerInput, Dropdown, MultiSelect } from '@carbon/react';
+ import { useTranslation } from 'react-i18next';
+-import { showSnackbar } from '@openmrs/esm-framework';
++import { showSnackbar, useConfig } from '@openmrs/esm-framework';
++import { type ConfigObject } from '../../config-schema';
+ import type { DropdownValue, DrugOrderDetails, SearchByProps } from '../../types';
+ import { getDescription, getQueryDetails } from './search-by-drug-orders.utils';
+ import { useCareSettings, useDrugs } from './search-by-drug-orders.resources';
+@@ -11,6 +12,7 @@ import styles from './search-by-drug-orders.style.scss';
+ 
+ const SearchByDrugOrder: React.FC<SearchByProps> = ({ onSubmit }) => {
+   const { t } = useTranslation();
++  const { drugOrderSearchDefinitionKey } = useConfig<ConfigObject>();
+   const { drugs, drugsError } = useDrugs();
+   const { careSettings, careSettingsError } = useCareSettings();
+   const [activeOnOrAfter, setActiveOnOrAfter] = useState('');
+@@ -21,23 +23,27 @@ const SearchByDrugOrder: React.FC<SearchByProps> = ({ onSubmit }) => {
+   const [selectedCareSetting, setSelectedCareSetting] = useState<DropdownValue>(null);
+   const [isLoading, setIsLoading] = useState(false);
+ 
+-  if (drugsError) {
+-    showSnackbar({
+-      title: t('error', 'Error'),
+-      kind: 'error',
+-      isLowContrast: false,
+-      subtitle: drugsError?.message,
+-    });
+-  }
++  useEffect(() => {
++    if (drugsError) {
++      showSnackbar({
++        title: t('error', 'Error'),
++        kind: 'error',
++        isLowContrast: false,
++        subtitle: drugsError?.message,
++      });
++    }
++  }, [drugsError, t]);
+ 
+-  if (careSettingsError) {
+-    showSnackbar({
+-      title: t('error', 'Error'),
+-      kind: 'error',
+-      isLowContrast: false,
+-      subtitle: careSettingsError?.message,
+-    });
+-  }
++  useEffect(() => {
++    if (careSettingsError) {
++      showSnackbar({
++        title: t('error', 'Error'),
++        kind: 'error',
++        isLowContrast: false,
++        subtitle: careSettingsError?.message,
++      });
++    }
++  }, [careSettingsError, t]);
+ 
+   const handleResetInputs = () => {
+     setSelectedDrugs(null);
+@@ -58,7 +64,7 @@ const SearchByDrugOrder: React.FC<SearchByProps> = ({ onSubmit }) => {
+       activatedOnOrAfter,
+       activatedOnOrBefore,
+     };
+-    await onSubmit(getQueryDetails(drugOrderParams), getDescription(drugOrderParams));
++    await onSubmit(getQueryDetails(drugOrderParams, drugOrderSearchDefinitionKey), getDescription(drugOrderParams));
+     setIsLoading(false);
+   };
+ 
+diff --git a/src/components/search-by-drug-orders/search-by-drug-orders.test.tsx b/src/components/search-by-drug-orders/search-by-drug-orders.test.tsx
+index 0a8a84c..aaf71f7 100644
+--- a/src/components/search-by-drug-orders/search-by-drug-orders.test.tsx
++++ b/src/components/search-by-drug-orders/search-by-drug-orders.test.tsx
+@@ -1,7 +1,8 @@
+ import React from 'react';
+ import { vi, describe, it, expect, type Mock } from 'vitest';
+ import userEvent from '@testing-library/user-event';
+-import { openmrsFetch } from '@openmrs/esm-framework';
++import { getDefaultsFromConfigSchema, openmrsFetch, showSnackbar, useConfig } from '@openmrs/esm-framework';
++import { type ConfigObject, configSchema } from '../../config-schema';
+ import { render, screen } from '@testing-library/react';
+ import { useCareSettings, useDrugs } from './search-by-drug-orders.resources';
+ import type * as SearchByDrugOrdersResources from './search-by-drug-orders.resources';
+@@ -99,10 +100,12 @@ vi.mock('./search-by-drug-orders.resources', async (importOriginal) => {
+ const mockOpenmrsFetch = openmrsFetch as Mock;
+ const mockUseCareSettings = vi.mocked(useCareSettings);
+ const mockUseDrugs = vi.mocked(useDrugs);
++const mockUseConfig = vi.mocked(useConfig<ConfigObject>);
+ 
+ describe('Test the search by drug orders component', () => {
+   it('should be able to select input values', async () => {
+     const user = userEvent.setup();
++    mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema));
+ 
+     mockUseCareSettings.mockImplementation(() => ({
+       careSettings: mockCareSettings,
+@@ -140,4 +143,22 @@ describe('Test the search by drug orders component', () => {
+       `Patients who taking ${mockDrugs[1].label} and ${mockDrugs[2].label} from Pharmacy`,
+     );
+   });
++
++  it('shows a failed drug list once, not on every render', () => {
++    // SWR keeps returning the same error object until the request is retried.
++    const listError = new Error('Forbidden');
++    mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema));
++    mockUseCareSettings.mockImplementation(() => ({
++      careSettings: [],
++      isLoading: false,
++      careSettingsError: undefined,
++    }));
++    mockUseDrugs.mockImplementation(() => ({ drugs: [], isLoading: false, drugsError: listError }));
++
++    const { rerender } = render(<SearchByDrugOrder onSubmit={vi.fn()} />);
++    rerender(<SearchByDrugOrder onSubmit={vi.fn()} />);
++
++    expect(showSnackbar).toHaveBeenCalledTimes(1);
++    expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'error', subtitle: 'Forbidden' }));
++  });
+ });
+diff --git a/src/components/search-by-drug-orders/search-by-drug-orders.utils.test.ts b/src/components/search-by-drug-orders/search-by-drug-orders.utils.test.ts
+new file mode 100644
+index 0000000..2e9a61f
+--- /dev/null
++++ b/src/components/search-by-drug-orders/search-by-drug-orders.utils.test.ts
+@@ -0,0 +1,27 @@
++import { describe, expect, it } from 'vitest';
++import { getQueryDetails } from './search-by-drug-orders.utils';
++
++describe('getQueryDetails', () => {
++  it('searches with the given definition library key', () => {
++    const { query } = getQueryDetails(
++      {
++        selectedDrugs: [{ id: 0, label: 'Triomune-30', value: '3cfcf118-931c-46f7-8ff6-7b876f0d4202' }],
++        selectedCareSetting: null,
++        activeOnOrAfter: '',
++        activeOnOrBefore: '',
++        activatedOnOrAfter: '',
++        activatedOnOrBefore: '',
++      },
++      'configuration.definitionlibrary.cohort.drugOrderSearch',
++    );
++
++    expect(query.rowFilters).toEqual([
++      {
++        key: 'configuration.definitionlibrary.cohort.drugOrderSearch',
++        parameterValues: { drugs: ['3cfcf118-931c-46f7-8ff6-7b876f0d4202'] },
++        type: 'org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition',
++      },
++    ]);
++    expect(query.customRowFilterCombination).toBe('1');
++  });
++});
+diff --git a/src/components/search-by-drug-orders/search-by-drug-orders.utils.ts b/src/components/search-by-drug-orders/search-by-drug-orders.utils.ts
+index a83cfc4..5022214 100644
+--- a/src/components/search-by-drug-orders/search-by-drug-orders.utils.ts
++++ b/src/components/search-by-drug-orders/search-by-drug-orders.utils.ts
+@@ -62,14 +62,17 @@ export const getDescription = ({
+   return description;
+ };
+ 
+-export const getQueryDetails = ({
+-  selectedDrugs,
+-  selectedCareSetting,
+-  activeOnOrBefore,
+-  activeOnOrAfter,
+-  activatedOnOrBefore,
+-  activatedOnOrAfter,
+-}: DrugOrderDetails) => {
++export const getQueryDetails = (
++  {
++    selectedDrugs,
++    selectedCareSetting,
++    activeOnOrBefore,
++    activeOnOrAfter,
++    activatedOnOrBefore,
++    activatedOnOrAfter,
++  }: DrugOrderDetails,
++  drugOrderSearchDefinitionKey: string,
++) => {
+   const searchParams = { drugOrderSearch: [] };
+   if (activeOnOrAfter) {
+     searchParams.drugOrderSearch.push({
+@@ -113,5 +116,8 @@ export const getQueryDetails = ({
+     });
+   }
+ 
+-  return composeJson(searchParams);
++  const queryDetails = composeJson(searchParams);
++  // Released reporting modules have no builtIn.drugOrderSearch, so sites can configure their own definition.
++  queryDetails.query.rowFilters[0].key = drugOrderSearchDefinitionKey;
++  return queryDetails;
+ };
+diff --git a/src/components/search-by-enrollments/search-by-enrollments.component.tsx b/src/components/search-by-enrollments/search-by-enrollments.component.tsx
+index 2624fcf..cdd8ded 100644
+--- a/src/components/search-by-enrollments/search-by-enrollments.component.tsx
++++ b/src/components/search-by-enrollments/search-by-enrollments.component.tsx
+@@ -1,4 +1,4 @@
+-import React, { useState } from 'react';
++import React, { useEffect, useState } from 'react';
+ import dayjs from 'dayjs';
+ import { Column, DatePicker, DatePickerInput, MultiSelect } from '@carbon/react';
+ import { showSnackbar } from '@openmrs/esm-framework';
+@@ -22,23 +22,27 @@ const SearchByEnrollments: React.FC<SearchByProps> = ({ onSubmit }) => {
+   const [selectedPrograms, setSelectedPrograms] = useState<DropdownValue[]>(null);
+   const [isLoading, setIsLoading] = useState(false);
+ 
+-  if (programsError) {
+-    showSnackbar({
+-      title: t('error', 'Error'),
+-      kind: 'error',
+-      isLowContrast: false,
+-      subtitle: programsError?.message,
+-    });
+-  }
++  useEffect(() => {
++    if (programsError) {
++      showSnackbar({
++        title: t('error', 'Error'),
++        kind: 'error',
++        isLowContrast: false,
++        subtitle: programsError?.message,
++      });
++    }
++  }, [programsError, t]);
+ 
+-  if (locationsError) {
+-    showSnackbar({
+-      title: t('error', 'Error'),
+-      kind: 'error',
+-      isLowContrast: false,
+-      subtitle: locationsError?.message,
+-    });
+-  }
++  useEffect(() => {
++    if (locationsError) {
++      showSnackbar({
++        title: t('error', 'Error'),
++        kind: 'error',
++        isLowContrast: false,
++        subtitle: locationsError?.message,
++      });
++    }
++  }, [locationsError, t]);
+ 
+   const handleResetInputs = () => {
+     setSelectedPrograms(null);
+diff --git a/src/components/search-by-enrollments/search-by-enrollments.test.tsx b/src/components/search-by-enrollments/search-by-enrollments.test.tsx
+index 05b648d..5ff7ee9 100644
+--- a/src/components/search-by-enrollments/search-by-enrollments.test.tsx
++++ b/src/components/search-by-enrollments/search-by-enrollments.test.tsx
+@@ -1,7 +1,7 @@
+ import React from 'react';
+ import { vi, describe, it, expect, type Mock } from 'vitest';
+ import userEvent from '@testing-library/user-event';
+-import { openmrsFetch } from '@openmrs/esm-framework';
++import { openmrsFetch, showSnackbar } from '@openmrs/esm-framework';
+ import { render, screen } from '@testing-library/react';
+ import { useLocations } from '../../cohort-builder.resources';
+ import type * as CohortBuilderResources from '../../cohort-builder.resources';
+@@ -142,4 +142,21 @@ describe('Test the search by enrollments component', () => {
+       `Patients enrolled in ${mockPrograms[0].label} at ${mockLocations[2].label}`,
+     );
+   });
++
++  it('shows a failed program list once, not on every render', () => {
++    // SWR keeps returning the same error object until the request is retried.
++    const listError = new Error('Forbidden');
++    mockUseLocations.mockImplementation(() => ({ locations: [], isLoading: false, locationsError: undefined }));
++    mockUsePrograms.mockImplementation(() => ({
++      programs: [],
++      isLoading: false,
++      programsError: listError,
++    }));
++
++    const { rerender } = render(<SearchByEnrollments onSubmit={vi.fn()} />);
++    rerender(<SearchByEnrollments onSubmit={vi.fn()} />);
++
++    expect(showSnackbar).toHaveBeenCalledTimes(1);
++    expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ kind: 'error', subtitle: 'Forbidden' }));
++  });
+ });
+diff --git a/src/config-schema.ts b/src/config-schema.ts
+new file mode 100644
+index 0000000..a44045d
+--- /dev/null
++++ b/src/config-schema.ts
+@@ -0,0 +1,17 @@
++import { Type } from '@openmrs/esm-framework';
++
++export const configSchema = {
++  drugOrderSearchDefinitionKey: {
++    _type: Type.String,
++    _default: 'reporting.library.cohortDefinition.builtIn.drugOrderSearch',
++    _description:
++      'Reporting definition library key used for drug order searches. Stock reporting modules do not ship ' +
++      '"builtIn.drugOrderSearch"; a site can add its own DrugOrderCohortDefinition to ' +
++      'configuration/reporting/definitionLibraries/cohort/drugOrderSearch.reportingserializerxml and set this to ' +
++      '"configuration.definitionlibrary.cohort.drugOrderSearch".',
++  },
++};
++
++export interface ConfigObject {
++  drugOrderSearchDefinitionKey: string;
++}
+diff --git a/src/index.ts b/src/index.ts
+index b5dcbe7..2d5c71c 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,4 +1,5 @@
+-import { getSyncLifecycle } from '@openmrs/esm-framework';
++import { defineConfigSchema, getSyncLifecycle } from '@openmrs/esm-framework';
++import { configSchema } from './config-schema';
+ import clearSearchHistoryModalComponent from './components/search-history/search-history-options/clear-search-history.modal';
+ import clearItemFromSearchHistoryModalComponent from './components/search-history/search-history-options/clear-item-from-search-history.modal';
+ import cohortBuilderAdminPageCardLinkComponent from './cohort-builder-admin-link.component';
+@@ -17,7 +18,9 @@ const options = {
+ 
+ export const importTranslation = require.context('../translations', false, /.json$/, 'lazy');
+ 
+-export function startupApp() {}
++export function startupApp() {
++  defineConfigSchema(moduleName, configSchema);
++}
+ 
+ export const cohortBuilder = getSyncLifecycle(cohortBuilderComponent, options);
+ 
+diff --git a/src/url-definition/__snapshots__/use-url-definition.test.tsx.snap b/src/url-definition/__snapshots__/use-url-definition.test.tsx.snap
+new file mode 100644
+index 0000000..4677108
+--- /dev/null
++++ b/src/url-definition/__snapshots__/use-url-definition.test.tsx.snap
+@@ -0,0 +1,147 @@
++// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
++
++exports[`useUrlDefinition > runs each criterion, then ANDs them, once > demographics 1`] = `
++{
++  "columns": [
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.preferredName.givenName",
++      "name": "firstname",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.preferredName.familyName",
++      "name": "lastname",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.gender",
++      "name": "gender",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.ageOnDate.fullYears",
++      "name": "age",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.patientId",
++      "name": "patientId",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++  ],
++  "customRowFilterCombination": "1 AND 2 AND NOT 3",
++  "rowFilters": [
++    {
++      "key": "reporting.library.cohortDefinition.builtIn.females",
++      "type": "org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition",
++    },
++    {
++      "key": "reporting.library.cohortDefinition.builtIn.ageRangeOnDate",
++      "parameterValues": {
++        "maxAge": 49,
++        "minAge": 15,
++      },
++      "type": "org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition",
++    },
++    {
++      "key": "reporting.library.cohortDefinition.builtIn.diedDuringPeriod",
++      "parameterValues": {
++        "endDate": "2026-10-17T15:30:00+00:00",
++      },
++      "type": "org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition",
++    },
++  ],
++  "type": "org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition",
++}
++`;
++
++exports[`useUrlDefinition > runs each criterion, then ANDs them, once > drugOrder 1`] = `
++{
++  "columns": [
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.preferredName.givenName",
++      "name": "firstname",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.preferredName.familyName",
++      "name": "lastname",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.gender",
++      "name": "gender",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.ageOnDate.fullYears",
++      "name": "age",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.patientId",
++      "name": "patientId",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++  ],
++  "customRowFilterCombination": "1",
++  "rowFilters": [
++    {
++      "key": "reporting.library.cohortDefinition.builtIn.drugOrderSearch",
++      "parameterValues": {
++        "activeOnOrAfter": "2026-10-17T00:00:00+00:00",
++        "drugs": [
++          "3cfcf118-931c-46f7-8ff6-7b876f0d4202",
++        ],
++      },
++      "type": "org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition",
++    },
++  ],
++  "type": "org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition",
++}
++`;
++
++exports[`useUrlDefinition > runs each criterion, then ANDs them, once > enrollment 1`] = `
++{
++  "columns": [
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.preferredName.givenName",
++      "name": "firstname",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.preferredName.familyName",
++      "name": "lastname",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.gender",
++      "name": "gender",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.ageOnDate.fullYears",
++      "name": "age",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++    {
++      "key": "reporting.library.patientDataDefinition.builtIn.patientId",
++      "name": "patientId",
++      "type": "org.openmrs.module.reporting.data.patient.definition.PatientDataDefinition",
++    },
++  ],
++  "customRowFilterCombination": "1",
++  "rowFilters": [
++    {
++      "key": "reporting.library.cohortDefinition.builtIn.patientsWithEnrollment",
++      "parameterValues": {
++        "programs": [
++          "64f950e6-1b07-4ac0-8e7e-f3e148f3463f",
++        ],
++      },
++      "type": "org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition",
++    },
++  ],
++  "type": "org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition",
++}
++`;
+diff --git a/src/url-definition/url-definition.resources.ts b/src/url-definition/url-definition.resources.ts
+new file mode 100644
+index 0000000..b3242f1
+--- /dev/null
++++ b/src/url-definition/url-definition.resources.ts
+@@ -0,0 +1,41 @@
++import { openmrsFetch, restBaseUrl } from '@openmrs/esm-framework';
++import { type CohortDefinition, isUuid } from './url-definition';
++
++/**
++ * Looks up display names for the programs, drugs and encounter types in a definition, for history descriptions only.
++ * Best effort: anything that fails to load is left out and counted in the description instead.
++ */
++export async function fetchDisplayNames(definition: CohortDefinition): Promise<Map<string, string>> {
++  const lookups: Array<[resource: string, uuid: string]> = definition.criteria.flatMap((criterion) => {
++    switch (criterion.type) {
++      case 'enrollment':
++        return criterion.programs.map((uuid) => ['program', uuid] as [string, string]);
++      case 'drugOrder':
++        return criterion.drugs.map((uuid) => ['drug', uuid] as [string, string]);
++      case 'encounter':
++        return criterion.encounterTypes.map((uuid) => ['encountertype', uuid] as [string, string]);
++      default:
++        return [];
++    }
++  });
++
++  const names = new Map<string, string>();
++  await Promise.all(
++    lookups
++      // Already validated, but checked again right where the uuid goes into a URL path.
++      .filter(([, uuid]) => isUuid(uuid))
++      .map(async ([resource, uuid]) => {
++        try {
++          const { data } = await openmrsFetch<{ display: string }>(
++            `${restBaseUrl}/${resource}/${uuid}?v=custom:(display)`,
++          );
++          if (typeof data?.display === 'string') {
++            names.set(uuid, data.display);
++          }
++        } catch {
++          // The description falls back to a count.
++        }
++      }),
++  );
++  return names;
++}
+diff --git a/src/url-definition/url-definition.test.ts b/src/url-definition/url-definition.test.ts
+new file mode 100644
+index 0000000..7cfc361
+--- /dev/null
++++ b/src/url-definition/url-definition.test.ts
+@@ -0,0 +1,699 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import {
++  buildSearch,
++  decodeDefinition,
++  encodeDefinition,
++  isUuid,
++  MAX_DEFINITION_BYTES,
++  readUrlRequest,
++  toQueryDate,
++  validateDefinition,
++  type CohortDefinition,
++} from './url-definition';
++
++const programUuid = '64f950e6-1b07-4ac0-8e7e-f3e148f3463f';
++const drugUuid = '3cfcf118-931c-46f7-8ff6-7b876f0d4202';
++const otherDrugUuid = '5cfcf118-931c-46f7-8ff6-7b876f0d4203';
++const cielStyleUuid = '1065AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
++const encounterTypeUuid = 'e22e39fd-7db2-45e7-80f1-60fa0d5a4378';
++
++const validDefinition = {
++  v: 1,
++  label: 'Female patients aged 15-49 on ARVs',
++  criteria: [
++    { type: 'demographics', gender: 'female', minAge: 15, maxAge: 49 },
++    { type: 'enrollment', programs: [programUuid] },
++    { type: 'drugOrder', drugs: [drugUuid, otherDrugUuid], activeOnOrAfter: 'today' },
++  ],
++};
++
++const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
++
++describe('readUrlRequest', () => {
++  it('returns null when the URL has none of the params', () => {
++    expect(readUrlRequest(new URLSearchParams('foo=bar'))).toBeNull();
++  });
++
++  it('reads a definition', () => {
++    expect(readUrlRequest(new URLSearchParams({ definition: encode(validDefinition) }))).toEqual({
++      type: 'definition',
++      definition: validDefinition,
++    });
++  });
++
++  it.each(['cohort', 'query'])('reads a %s uuid', (name) => {
++    expect(readUrlRequest(new URLSearchParams({ [name]: programUuid }))).toEqual({ type: name, uuid: programUuid });
++  });
++
++  it.each(['', 'not-a-uuid', '../../user/3cfcf118-931c-46f7-8ff6-7b876', `${programUuid}/x`, `${programUuid}?v=full`])(
++    'rejects the cohort uuid "%s"',
++    (cohort) => {
++      expect(() => readUrlRequest(new URLSearchParams({ cohort }))).toThrow('"cohort" must be a uuid');
++    },
++  );
++
++  it('prefers definition over cohort over query and warns about the ignored ones', () => {
++    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
++
++    const request = readUrlRequest(
++      new URLSearchParams({ query: programUuid, cohort: drugUuid, definition: encode(validDefinition) }),
++    );
++    expect(request.type).toBe('definition');
++    expect(warn).toHaveBeenCalledWith('Cohort builder: using "definition" and ignoring "cohort", "query"');
++
++    expect(readUrlRequest(new URLSearchParams({ query: programUuid, cohort: drugUuid }))).toEqual({
++      type: 'cohort',
++      uuid: drugUuid,
++    });
++    expect(warn).toHaveBeenLastCalledWith('Cohort builder: using "cohort" and ignoring "query"');
++  });
++
++  it('rejects an invalid definition even when a valid cohort is also given', () => {
++    vi.spyOn(console, 'warn').mockImplementation(() => {});
++    expect(() => readUrlRequest(new URLSearchParams({ definition: encode({ v: 2 }), cohort: programUuid }))).toThrow(
++      '"v" must be 1',
++    );
++  });
++});
++
++describe('isUuid', () => {
++  it.each([programUuid, programUuid.toUpperCase(), cielStyleUuid, '5089AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'])(
++    'accepts %s',
++    (value) => {
++      expect(isUuid(value)).toBe(true);
++    },
++  );
++
++  it.each([
++    undefined,
++    null,
++    42,
++    '',
++    programUuid.slice(1),
++    `${programUuid}a`,
++    '64f950e6/1b07-4ac0-8e7e-f3e148f3463f',
++    '64f950e6.1b07-4ac0-8e7e-f3e148f3463f',
++    '64f950e6 1b07-4ac0-8e7e-f3e148f3463f',
++  ])('rejects %s', (value) => {
++    expect(isUuid(value)).toBe(false);
++  });
++});
++
++describe('decodeDefinition', () => {
++  it('decodes unpadded base64url JSON', () => {
++    expect(decodeDefinition(encode(validDefinition))).toEqual(validDefinition);
++  });
++
++  it('accepts padding', () => {
++    const encoded = encode({ v: 1, criteria: [{ type: 'demographics', gender: 'female' }] });
++    expect(encoded.length % 4).toBe(3);
++    expect(decodeDefinition(`${encoded}=`).criteria).toEqual([{ type: 'demographics', gender: 'female' }]);
++  });
++
++  it('gives a translation key, default text and values for each rejection', () => {
++    expect(() => decodeDefinition('A'.repeat(1_000_000))).toThrow(
++      expect.objectContaining({
++        key: 'definitionTooLarge',
++        defaultMessage: 'Definition is larger than {{maxBytes}} bytes',
++        options: { maxBytes: MAX_DEFINITION_BYTES },
++      }),
++    );
++  });
++
++  it('decodes UTF-8 labels', () => {
++    const definition = { v: 1, label: 'Wagonjwa wa kike – ናሙና 🙂', criteria: [{ type: 'demographics', minAge: 1 }] };
++    expect(decodeDefinition(encode(definition)).label).toBe(definition.label);
++  });
++
++  it('keeps an HTML-looking label as plain data', () => {
++    const label = '<img src=x onerror=alert(1)>';
++    expect(decodeDefinition(encode({ ...validDefinition, label })).label).toBe(label);
++  });
++
++  it.each([
++    [
++      'standard base64 characters',
++      Buffer.from(JSON.stringify(validDefinition)).toString('base64').replace(/=+$/, '') + '+/',
++    ],
++    ['other characters', 'eyJ2Ijox!'],
++    ['whitespace', 'eyJ2 Ijox'],
++    ['an impossible length', 'eyJ2I'],
++    ['padding in the middle', 'ey=J2'],
++  ])('rejects %s', (_, encoded) => {
++    expect(() => decodeDefinition(encoded)).toThrow('Definition is not valid base64url');
++  });
++
++  it('rejects bytes that are not UTF-8', () => {
++    expect(() => decodeDefinition(Buffer.from([0x7b, 0xff, 0x7d]).toString('base64url'))).toThrow(
++      'Definition is not valid UTF-8',
++    );
++  });
++
++  it.each([
++    ['an empty value', ''],
++    ['text', Buffer.from('hello').toString('base64url')],
++    ['truncated JSON', Buffer.from('{"v":1,').toString('base64url')],
++  ])('rejects %s as invalid JSON', (_, encoded) => {
++    expect(() => decodeDefinition(encoded)).toThrow('Definition is not valid JSON');
++  });
++
++  describe('size cap', () => {
++    // Whitespace is valid JSON, so it pads a valid definition to an exact byte size.
++    const paddedTo = (bytes: number) => {
++      const json = JSON.stringify(validDefinition);
++      return Buffer.from(json.slice(0, -1) + ' '.repeat(bytes - json.length) + '}').toString('base64url');
++    };
++
++    it(`accepts exactly ${MAX_DEFINITION_BYTES} bytes`, () => {
++      expect(decodeDefinition(paddedTo(MAX_DEFINITION_BYTES))).toEqual(validDefinition);
++    });
++
++    it(`rejects ${MAX_DEFINITION_BYTES + 1} bytes`, () => {
++      expect(() => decodeDefinition(paddedTo(MAX_DEFINITION_BYTES + 1))).toThrow(
++        `Definition is larger than ${MAX_DEFINITION_BYTES} bytes`,
++      );
++    });
++
++    it('rejects a very long value before decoding it', () => {
++      expect(() => decodeDefinition('A'.repeat(1_000_000))).toThrow(
++        `Definition is larger than ${MAX_DEFINITION_BYTES} bytes`,
++      );
++    });
++
++    it('counts bytes, not characters', () => {
++      const definition = { ...validDefinition, label: '🙂'.repeat(100) };
++      const json = JSON.stringify(definition);
++      const bytes = Buffer.byteLength(json);
++      const padded = json.slice(0, -1) + ' '.repeat(MAX_DEFINITION_BYTES + 1 - bytes) + '}';
++      expect(padded.length).toBeLessThan(MAX_DEFINITION_BYTES);
++      expect(() => decodeDefinition(Buffer.from(padded).toString('base64url'))).toThrow('larger than');
++    });
++  });
++});
++
++describe('encodeDefinition', () => {
++  it('writes unpadded base64url of the UTF-8 JSON, which decodes back to the same definition', () => {
++    const encoded = encodeDefinition(validDefinition as CohortDefinition);
++    expect(encoded).toBe(encode(validDefinition));
++    expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
++    expect(decodeDefinition(encoded)).toEqual(validDefinition);
++  });
++
++  it('keeps text outside Latin-1 intact', () => {
++    const definition: CohortDefinition = {
++      v: 1,
++      label: 'Femmes âgées 15–49 · 女性 🩺',
++      criteria: [{ type: 'demographics', gender: 'female' }],
++    };
++    expect(decodeDefinition(encodeDefinition(definition)).label).toBe(definition.label);
++  });
++
++  it('uses the URL alphabet', () => {
++    // A label of "?>?" puts "Pz4/" in standard base64 and "Pz4_" in base64url.
++    const definition: CohortDefinition = { v: 1, label: '??>?', criteria: [{ type: 'demographics', minAge: 1 }] };
++    expect(Buffer.from(JSON.stringify(definition)).toString('base64')).toMatch(/[+/]/);
++    expect(encodeDefinition(definition)).toBe(encode(definition));
++  });
++
++  it.each<[string, CohortDefinition]>([
++    ['no criteria', { v: 1, criteria: [] }],
++    ['maxAge 0', { v: 1, criteria: [{ type: 'demographics', maxAge: 0 }] }],
++    ['an empty demographics criterion', { v: 1, criteria: [{ type: 'demographics', gender: 'any' }] }],
++    ['a program that is not a uuid', { v: 1, criteria: [{ type: 'enrollment', programs: ['../session'] }] }],
++    [
++      'a label over 200 characters',
++      { v: 1, label: 'x'.repeat(201), criteria: validDefinition.criteria as CohortDefinition['criteria'] },
++    ],
++    [
++      `more than ${MAX_DEFINITION_BYTES} bytes`,
++      {
++        v: 1,
++        criteria: Array.from({ length: 5 }, (_, i) => ({
++          type: 'drugOrder' as const,
++          drugs: Array.from(
++            { length: 50 },
++            (_, j) => `${String(i * 50 + j).padStart(8, '0')}-0000-4000-8000-000000000000`,
++          ),
++        })),
++      },
++    ],
++  ])('makes no link the builder would reject: %s', (_, definition) => {
++    expect(() => validateDefinition(definition) && decodeDefinition(encode(definition))).toThrow();
++    expect(encodeDefinition(definition)).toBeNull();
++  });
++});
++
++describe('validateDefinition', () => {
++  const withCriterion = (criterion: unknown) => ({ v: 1, criteria: [criterion] });
++
++  it('accepts the example definition', () => {
++    expect(validateDefinition(validDefinition)).toEqual(validDefinition);
++  });
++
++  it('accepts every optional field', () => {
++    const definition = {
++      v: 1,
++      criteria: [
++        { type: 'demographics', gender: 'male' },
++        { type: 'demographics', gender: 'any', minAge: 0, maxAge: 1 },
++        {
++          type: 'enrollment',
++          programs: [cielStyleUuid],
++          enrolledOnOrAfter: '2024-01-01',
++          enrolledOnOrBefore: '2024-12-31',
++        },
++        {
++          type: 'drugOrder',
++          drugs: Array(50).fill(drugUuid),
++          activeOnOrAfter: '2024-02-29',
++          activeOnOrBefore: 'today',
++        },
++        { type: 'encounter', encounterTypes: Array(10).fill(encounterTypeUuid) },
++      ],
++    };
++    expect(validateDefinition(definition)).toEqual(definition);
++  });
++
++  it('defaults gender to "any"', () => {
++    expect(validateDefinition(withCriterion({ type: 'demographics', minAge: 18 })).criteria[0]).toEqual({
++      type: 'demographics',
++      gender: 'any',
++      minAge: 18,
++    });
++  });
++
++  it.each([
++    ['an array', [validDefinition], 'Definition must be a JSON object'],
++    ['null', null, 'Definition must be a JSON object'],
++    ['a string', 'definition', 'Definition must be a JSON object'],
++    ['a number', 1, 'Definition must be a JSON object'],
++    ['a missing version', { criteria: validDefinition.criteria }, '"v" must be 1'],
++    ['version 2', { ...validDefinition, v: 2 }, '"v" must be 1'],
++    ['version "1"', { ...validDefinition, v: '1' }, '"v" must be 1'],
++    ['an unknown top-level key', { ...validDefinition, sql: 'select 1' }, 'Definition has an unknown key "sql"'],
++    ['a __proto__ key', JSON.parse('{"v":1,"criteria":[],"__proto__":{"x":1}}'), 'unknown key "__proto__"'],
++    ['a label that is not text', { ...validDefinition, label: 7 }, '"label" must be text'],
++    ['a label over 200 characters', { ...validDefinition, label: 'x'.repeat(201) }, '"label" must be text'],
++    ['missing criteria', { v: 1 }, '"criteria" must list 1 to 5 criteria'],
++    ['criteria that are not a list', { v: 1, criteria: {} }, '"criteria" must list 1 to 5 criteria'],
++    ['no criteria', { v: 1, criteria: [] }, '"criteria" must list 1 to 5 criteria'],
++    [
++      'six criteria',
++      { v: 1, criteria: Array(6).fill({ type: 'demographics', minAge: 1 }) },
++      '"criteria" must list 1 to 5',
++    ],
++  ])('rejects %s', (_, definition, message) => {
++    expect(() => validateDefinition(definition)).toThrow(message);
++  });
++
++  it('accepts a label of exactly 200 characters', () => {
++    expect(validateDefinition({ ...validDefinition, label: 'x'.repeat(200) }).label).toHaveLength(200);
++  });
++
++  it.each([
++    ['a criterion that is not an object', 'demographics', 'Criterion 1: "type" must be'],
++    ['a null criterion', null, 'Criterion 1: "type" must be'],
++    ['a missing type', { gender: 'male' }, 'Criterion 1: "type" must be'],
++    ['an unknown type', { type: 'concept', concept: cielStyleUuid }, 'Criterion 1: "type" must be'],
++    ['a type that is a prototype key', { type: 'constructor' }, 'Criterion 1: "type" must be'],
++    ['an array criterion', Object.assign(['x'], { type: 'demographics' }), 'Criterion 1 must be a JSON object'],
++
++    ['an unknown demographics key', { type: 'demographics', gender: 'male', alive: true }, 'unknown key "alive"'],
++    ['gender "males"', { type: 'demographics', gender: 'males' }, '"gender" must be "male", "female" or "any"'],
++    ['gender null', { type: 'demographics', gender: null, minAge: 1 }, '"gender" must be'],
++    ['a fractional age', { type: 'demographics', minAge: 1.5 }, '"minAge" must be a whole number from 0 to 150'],
++    ['a negative age', { type: 'demographics', minAge: -1 }, '"minAge" must be a whole number'],
++    ['an age over 150', { type: 'demographics', maxAge: 151 }, '"maxAge" must be a whole number'],
++    ['maxAge 0', { type: 'demographics', maxAge: 0 }, '"maxAge" must be a whole number from 1 to 150'],
++    ['minAge and maxAge 0', { type: 'demographics', minAge: 0, maxAge: 0 }, '"maxAge" must be a whole number from 1'],
++    ['an age as text', { type: 'demographics', minAge: '15' }, '"minAge" must be a whole number'],
++    ['a null age', { type: 'demographics', gender: 'male', maxAge: null }, '"maxAge" must be a whole number'],
++    [
++      'minAge over maxAge',
++      { type: 'demographics', minAge: 50, maxAge: 49 },
++      '"minAge" must not be greater than "maxAge"',
++    ],
++    ['no demographic filter', { type: 'demographics' }, 'give a gender, "minAge" or "maxAge"'],
++    ['only gender "any"', { type: 'demographics', gender: 'any' }, 'give a gender, "minAge" or "maxAge"'],
++
++    [
++      'an unknown enrollment key',
++      { type: 'enrollment', programs: [programUuid], location: 'x' },
++      'unknown key "location"',
++    ],
++    ['missing programs', { type: 'enrollment' }, '"programs" must list 1 to 10 uuids'],
++    ['no programs', { type: 'enrollment', programs: [] }, '"programs" must list 1 to 10 uuids'],
++    ['11 programs', { type: 'enrollment', programs: Array(11).fill(programUuid) }, '"programs" must list 1 to 10'],
++    ['a program that is not a uuid', { type: 'enrollment', programs: ['HIV'] }, '"programs" must list 1 to 10 uuids'],
++    ['programs as text', { type: 'enrollment', programs: programUuid }, '"programs" must list 1 to 10 uuids'],
++    [
++      'a date in another format',
++      { type: 'enrollment', programs: [programUuid], enrolledOnOrAfter: '01/02/2024' },
++      '"enrolledOnOrAfter" must be a date like 2024-01-31',
++    ],
++    [
++      'a date that does not exist',
++      { type: 'enrollment', programs: [programUuid], enrolledOnOrBefore: '2023-02-29' },
++      '"enrolledOnOrBefore" must be a date',
++    ],
++    [
++      'a date with a time',
++      { type: 'enrollment', programs: [programUuid], enrolledOnOrAfter: '2024-01-01T00:00:00Z' },
++      '"enrolledOnOrAfter" must be a date',
++    ],
++    [
++      '"today" for an enrollment date',
++      { type: 'enrollment', programs: [programUuid], enrolledOnOrAfter: 'today' },
++      '"enrolledOnOrAfter" must be a date',
++    ],
++
++    [
++      'an unknown drug order key',
++      { type: 'drugOrder', drugs: [drugUuid], careSetting: 'x' },
++      'unknown key "careSetting"',
++    ],
++    ['missing drugs', { type: 'drugOrder' }, '"drugs" must list 1 to 50 uuids'],
++    ['51 drugs', { type: 'drugOrder', drugs: Array(51).fill(drugUuid) }, '"drugs" must list 1 to 50 uuids'],
++    ['a drug that is not a uuid', { type: 'drugOrder', drugs: [drugUuid, 7] }, '"drugs" must list 1 to 50 uuids'],
++    [
++      'a relative date other than "today"',
++      { type: 'drugOrder', drugs: [drugUuid], activeOnOrAfter: 'yesterday' },
++      '"activeOnOrAfter" must be "today" or a date like 2024-01-31',
++    ],
++    [
++      'a month that does not exist',
++      { type: 'drugOrder', drugs: [drugUuid], activeOnOrBefore: '2024-13-01' },
++      '"activeOnOrBefore" must be "today" or a date',
++    ],
++
++    [
++      'an unknown encounter key',
++      { type: 'encounter', encounterTypes: [encounterTypeUuid], formList: [encounterTypeUuid] },
++      'unknown key "formList"',
++    ],
++    ['missing encounter types', { type: 'encounter' }, '"encounterTypes" must list 1 to 10 uuids'],
++    ['no encounter types', { type: 'encounter', encounterTypes: [] }, '"encounterTypes" must list 1 to 10 uuids'],
++    [
++      '11 encounter types',
++      { type: 'encounter', encounterTypes: Array(11).fill(encounterTypeUuid) },
++      '"encounterTypes" must list 1 to 10 uuids',
++    ],
++    [
++      'an encounter type that is not a uuid',
++      { type: 'encounter', encounterTypes: ['Adult Visit'] },
++      '"encounterTypes" must list 1 to 10 uuids',
++    ],
++    [
++      'a definition library key in place of an encounter type',
++      { type: 'encounter', encounterTypes: ['reporting.library.cohortDefinition.builtIn.males'] },
++      '"encounterTypes" must list 1 to 10 uuids',
++    ],
++  ])('rejects %s', (_, criterion, message) => {
++    expect(() => validateDefinition(withCriterion(criterion))).toThrow(message);
++  });
++
++  it('names the criterion that failed', () => {
++    const definition = {
++      v: 1,
++      criteria: [
++        { type: 'demographics', minAge: 1 },
++        { type: 'enrollment', programs: [] },
++      ],
++    };
++    expect(() => validateDefinition(definition)).toThrow('Criterion 2: "programs" must list 1 to 10 uuids');
++  });
++});
++
++describe('toQueryDate', () => {
++  beforeEach(() => {
++    vi.useFakeTimers({ toFake: ['Date'] });
++    vi.setSystemTime(new Date('2026-10-17T15:30:00Z'));
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it('resolves "today" to midnight of the current day, when called', () => {
++    expect(toQueryDate('today')).toBe('2026-10-17T00:00:00+00:00');
++
++    vi.setSystemTime(new Date('2027-01-02T08:00:00Z'));
++    expect(toQueryDate('today')).toBe('2027-01-02T00:00:00+00:00');
++  });
++
++  it('formats a date like the date pickers do', () => {
++    expect(toQueryDate('2024-02-29')).toBe('2024-02-29T00:00:00+00:00');
++  });
++
++  it('turns a missing date into an empty string', () => {
++    expect(toQueryDate(undefined)).toBe('');
++  });
++});
++
++describe('buildSearch', () => {
++  const drugOrderSearchKey = 'reporting.library.cohortDefinition.builtIn.drugOrderSearch';
++  const names = new Map([
++    [programUuid, 'HIV Program'],
++    [drugUuid, 'Triomune-30'],
++    [otherDrugUuid, 'Efavirenz'],
++    [encounterTypeUuid, 'Adult Visit'],
++  ]);
++
++  beforeEach(() => {
++    vi.useFakeTimers({ toFake: ['Date'] });
++    vi.setSystemTime(new Date('2026-10-17T15:30:00Z'));
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it('describes demographics like the demographics tab', () => {
++    expect(
++      buildSearch({ type: 'demographics', gender: 'female', minAge: 15, maxAge: 49 }, names, drugOrderSearchKey)
++        .description,
++    ).toBe('Female Patients with ages between 15 and 49 years that are alive');
++    expect(buildSearch({ type: 'demographics', gender: 'any', maxAge: 5 }, names, drugOrderSearchKey).description).toBe(
++      'All Patients with maximum age of 5 years that are alive',
++    );
++  });
++
++  it('maps gender onto the built-in cohort definitions', () => {
++    const keys = (gender: 'male' | 'female' | 'any') =>
++      buildSearch(
++        { type: 'demographics', gender, minAge: 1 },
++        names,
++        drugOrderSearchKey,
++      ).searchParams.query.rowFilters.map((f) => f.key);
++
++    expect(keys('male')).toContain('reporting.library.cohortDefinition.builtIn.males');
++    expect(keys('female')).toContain('reporting.library.cohortDefinition.builtIn.females');
++    expect(keys('any').some((key) => /\.(males|females)$/.test(key))).toBe(false);
++  });
++
++  it('describes enrollments with program names', () => {
++    expect(buildSearch({ type: 'enrollment', programs: [programUuid] }, names, drugOrderSearchKey).description).toBe(
++      'Patients enrolled in HIV Program',
++    );
++  });
++
++  it('counts the programs and drugs whose names are missing', () => {
++    const search = buildSearch(
++      { type: 'enrollment', programs: [programUuid, cielStyleUuid] },
++      names,
++      drugOrderSearchKey,
++    );
++    expect(search.description).toBe('Patients enrolled in HIV Program, 1 more program');
++    expect(search.searchParams.query.rowFilters[0].parameterValues).toEqual({
++      programs: [programUuid, cielStyleUuid],
++    });
++
++    expect(buildSearch({ type: 'drugOrder', drugs: [drugUuid] }, new Map(), drugOrderSearchKey).description).toBe(
++      'Patients who taking 1 drug',
++    );
++    expect(
++      buildSearch(
++        { type: 'drugOrder', drugs: [drugUuid, cielStyleUuid, '5089AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'] },
++        names,
++        drugOrderSearchKey,
++      ).description,
++    ).toBe('Patients who taking Triomune-30 and 2 more drugs');
++  });
++
++  it('searches encounters by type only, as the encounters tab does, and describes them with their names', () => {
++    const search = buildSearch(
++      { type: 'encounter', encounterTypes: [encounterTypeUuid, cielStyleUuid] },
++      names,
++      drugOrderSearchKey,
++    );
++    expect(search.searchParams.query.rowFilters).toEqual([
++      {
++        key: 'reporting.library.cohortDefinition.builtIn.encounterSearchAdvanced',
++        parameterValues: { encounterTypeList: [encounterTypeUuid, cielStyleUuid] },
++        type: 'org.openmrs.module.reporting.dataset.definition.PatientDataSetDefinition',
++      },
++    ]);
++    expect(search.searchParams.query.customRowFilterCombination).toBe('1');
++    // The encounters tab's own words, double space and all: it swaps the last comma for " and ".
++    expect(search.description).toBe('Patients with Encounter of Types Adult Visit and  1 more encounter type');
++  });
++
++  it('describes drug orders with drug names and dates', () => {
++    expect(
++      buildSearch(
++        { type: 'drugOrder', drugs: [drugUuid, otherDrugUuid], activeOnOrAfter: 'today' },
++        names,
++        drugOrderSearchKey,
++      ).description,
++    ).toMatch(/^Patients who taking Triomune-30 and Efavirenz on or after /);
++  });
++
++  it('uses the configured drug order search definition key', () => {
++    const search = buildSearch(
++      { type: 'drugOrder', drugs: [drugUuid] },
++      names,
++      'configuration.definitionlibrary.cohort.drugOrderSearch',
++    );
++    expect(search.searchParams.query.rowFilters.map((filter) => filter.key)).toEqual([
++      'configuration.definitionlibrary.cohort.drugOrderSearch',
++    ]);
++  });
++
++  it('resolves "today" when the search is built', () => {
++    const activeOnOrAfter = () =>
++      buildSearch({ type: 'drugOrder', drugs: [drugUuid], activeOnOrAfter: 'today' }, names, drugOrderSearchKey)
++        .searchParams.query.rowFilters[0].parameterValues;
++
++    expect(activeOnOrAfter()).toEqual({ activeOnOrAfter: '2026-10-17T00:00:00+00:00', drugs: [drugUuid] });
++    vi.setSystemTime(new Date('2026-10-18T00:00:01Z'));
++    expect(activeOnOrAfter()).toEqual({ activeOnOrAfter: '2026-10-18T00:00:00+00:00', drugs: [drugUuid] });
++  });
++});
++
++// Golden contract fixtures: links built by the omnibar (parseCohortCriteria + definitionUrl, shipped
++// config defaults). The omnibar test cohort-definition.test.ts holds the same strings, so a contract change
++// on either side fails a test on both.
++const goldenFixtures = [
++  {
++    text: 'women aged 15-49',
++    url: '${openmrsSpaBase}/cohort-builder?definition=eyJ2IjoxLCJsYWJlbCI6IkZlbWFsZSBwYXRpZW50cyBhZ2VkIDE14oCTNDkiLCJjcml0ZXJpYSI6W3sidHlwZSI6ImRlbW9ncmFwaGljcyIsImdlbmRlciI6ImZlbWFsZSIsIm1pbkFnZSI6MTUsIm1heEFnZSI6NDl9XX0',
++    definition: {
++      v: 1,
++      label: 'Female patients aged 15–49',
++      criteria: [
++        {
++          type: 'demographics',
++          gender: 'female',
++          minAge: 15,
++          maxAge: 49,
++        },
++      ],
++    },
++  },
++  {
++    text: 'men over 50 enrolled in HIV',
++    url: '${openmrsSpaBase}/cohort-builder?definition=eyJ2IjoxLCJsYWJlbCI6Ik1hbGUgcGF0aWVudHMgYWdlZCA1MSsgaW4gSElWIENhcmUgYW5kIFRyZWF0bWVudCIsImNyaXRlcmlhIjpbeyJ0eXBlIjoiZGVtb2dyYXBoaWNzIiwiZ2VuZGVyIjoibWFsZSIsIm1pbkFnZSI6NTF9LHsidHlwZSI6ImVucm9sbG1lbnQiLCJwcm9ncmFtcyI6WyI2NGY5NTBlNi0xYjA3LTRhYzAtOGU3ZS1mM2UxNDhmMzQ2M2YiXX1dfQ',
++    definition: {
++      v: 1,
++      label: 'Male patients aged 51+ in HIV Care and Treatment',
++      criteria: [
++        {
++          type: 'demographics',
++          gender: 'male',
++          minAge: 51,
++        },
++        {
++          type: 'enrollment',
++          programs: ['64f950e6-1b07-4ac0-8e7e-f3e148f3463f'],
++        },
++      ],
++    },
++  },
++  {
++    text: 'boys under 5 in the diabetes program',
++    url: '${openmrsSpaBase}/cohort-builder?definition=eyJ2IjoxLCJsYWJlbCI6Ik1hbGUgcGF0aWVudHMgYWdlZCA0IG9yIHlvdW5nZXIgaW4gT3V0cGF0aWVudCBEaWFiZXRlcyBFZHVjYXRpb24gUHJvZ3JhbSIsImNyaXRlcmlhIjpbeyJ0eXBlIjoiZGVtb2dyYXBoaWNzIiwiZ2VuZGVyIjoibWFsZSIsIm1heEFnZSI6NH0seyJ0eXBlIjoiZW5yb2xsbWVudCIsInByb2dyYW1zIjpbIjdhNzJhNzI0LTg5OTQtNGQzMy05NjJlLWY2NWQ4Y2E0YWU2NyJdfV19',
++    definition: {
++      v: 1,
++      label: 'Male patients aged 4 or younger in Outpatient Diabetes Education Program',
++      criteria: [
++        {
++          type: 'demographics',
++          gender: 'male',
++          maxAge: 4,
++        },
++        {
++          type: 'enrollment',
++          programs: ['7a72a724-8994-4d33-962e-f65d8ca4ae67'],
++        },
++      ],
++    },
++  },
++  {
++    text: 'enrolled in PMTCT and enrolled in PrEP',
++    url: '${openmrsSpaBase}/cohort-builder?definition=eyJ2IjoxLCJsYWJlbCI6IlBhdGllbnRzIGluIFBNVENUIGluIEhJViBQcmV2ZW50YXRpdmUgU2VydmljZXMgKFBFUC9QckVQKSIsImNyaXRlcmlhIjpbeyJ0eXBlIjoiZW5yb2xsbWVudCIsInByb2dyYW1zIjpbImQxYjZjZDQzLThhYzctNGNkZC04ZmI0LWZlNTE2MzVjODJiNCJdfSx7InR5cGUiOiJlbnJvbGxtZW50IiwicHJvZ3JhbXMiOlsiYWMxYmJjNDUtOGMzNS00OWZmLWE1NzQtOTU1M2ZmNzg5NTI3Il19XX0',
++    definition: {
++      v: 1,
++      label: 'Patients in PMTCT in HIV Preventative Services (PEP/PrEP)',
++      criteria: [
++        {
++          type: 'enrollment',
++          programs: ['d1b6cd43-8ac7-4cdd-8fb4-fe51635c82b4'],
++        },
++        {
++          type: 'enrollment',
++          programs: ['ac1bbc45-8c35-49ff-a574-9553ff789527'],
++        },
++      ],
++    },
++  },
++  {
++    text: 'female patients aged 15-49 on ARVs',
++    url: '${openmrsSpaBase}/cohort-builder?definition=eyJ2IjoxLCJsYWJlbCI6IkZlbWFsZSBwYXRpZW50cyBhZ2VkIDE14oCTNDkgb24gQVJWcyIsImNyaXRlcmlhIjpbeyJ0eXBlIjoiZGVtb2dyYXBoaWNzIiwiZ2VuZGVyIjoiZmVtYWxlIiwibWluQWdlIjoxNSwibWF4QWdlIjo0OX0seyJ0eXBlIjoiZHJ1Z09yZGVyIiwiZHJ1Z3MiOlsiODg5MWVmODQtMDhkMy01ZTIzLThkODEtZjdhNTI4YTI1OTFkIiwiMjRjN2I2YTctYzMxNy01ODhmLWE1MGMtOWNhMTI1MzUzODhiIiwiYmZjOTM1NjgtYzlkZS01YTdiLTk5OGEtYTU3ZWEzYWY3ZTAyIiwiMDIxNmZmNWYtN2U5OC01NDI1LTk0NGItZTQ3OTJjZmFlYThjIiwiNWUwZmI0ZDEtMGE3Ni01NzBjLWFhMjMtOWFiM2U2OGYyZDVlIiwiZmY3Y2JmNGEtY2ViMy01MDQ0LTljMDItMDI4MDhmMzEwZGVhIiwiOTI0N2E5Y2QtNjc5MC01MWI0LTg2OGYtYWE4M2E3NDBkNjE3IiwiMjc0YWFlNzctMzFkMi01M2EwLTlhMmQtZWM5NDFkNGU5NjI0IiwiMDgwMGZhZGEtOGE5Ni01MmFjLWFiOGEtNjhmNmY1Y2IxMTljIiwiYjNhM2RiMzYtYmE4OS01MmZjLWIzNWMtYjI2ZWI2Yjk5MzI0IiwiOGNlYTg2M2QtZThhNS01YjU2LTgyNjktMTYyYjQ0NGMzMDlhIiwiYmYxNzEyODUtMTY5MS0xMWRmLTk3YTUtNzAzOGM0MzJhYWJmIiwiNGQyNjE4ZmQtNWJlMy01YTRjLWFkNGItNThiOGIyZWQwYTEzIl0sImFjdGl2ZU9uT3JBZnRlciI6InRvZGF5In1dfQ',
++    definition: {
++      v: 1,
++      label: 'Female patients aged 15–49 on ARVs',
++      criteria: [
++        {
++          type: 'demographics',
++          gender: 'female',
++          minAge: 15,
++          maxAge: 49,
++        },
++        {
++          type: 'drugOrder',
++          drugs: [
++            '8891ef84-08d3-5e23-8d81-f7a528a2591d',
++            '24c7b6a7-c317-588f-a50c-9ca12535388b',
++            'bfc93568-c9de-5a7b-998a-a57ea3af7e02',
++            '0216ff5f-7e98-5425-944b-e4792cfaea8c',
++            '5e0fb4d1-0a76-570c-aa23-9ab3e68f2d5e',
++            'ff7cbf4a-ceb3-5044-9c02-02808f310dea',
++            '9247a9cd-6790-51b4-868f-aa83a740d617',
++            '274aae77-31d2-53a0-9a2d-ec941d4e9624',
++            '0800fada-8a96-52ac-ab8a-68f6f5cb119c',
++            'b3a3db36-ba89-52fc-b35c-b26eb6b99324',
++            '8cea863d-e8a5-5b56-8269-162b444c309a',
++            'bf171285-1691-11df-97a5-7038c432aabf',
++            '4d2618fd-5be3-5a4c-ad4b-58b8b2ed0a13',
++          ],
++          activeOnOrAfter: 'today',
++        },
++      ],
++    },
++  },
++];
++
++describe('golden contract fixtures', () => {
++  it.each(goldenFixtures)('accepts the omnibar link for "$text"', ({ url, definition }) => {
++    expect(url.startsWith('${openmrsSpaBase}/cohort-builder?definition=')).toBe(true);
++    const params = new URLSearchParams(url.split('?')[1]);
++    expect(readUrlRequest(params)).toEqual({ type: 'definition', definition });
++  });
++
++  // Criteria → encode → decode → the same criteria, and the very link the omnibar shipped.
++  it.each(goldenFixtures)('round-trips the definition for "$text"', ({ url, definition }) => {
++    const encoded = encodeDefinition(definition as CohortDefinition);
++    expect(encoded).toBe(new URLSearchParams(url.split('?')[1]).get('definition'));
++    expect(decodeDefinition(encoded).criteria).toEqual(definition.criteria);
++  });
++});
+diff --git a/src/url-definition/url-definition.ts b/src/url-definition/url-definition.ts
+new file mode 100644
+index 0000000..a06865e
+--- /dev/null
++++ b/src/url-definition/url-definition.ts
+@@ -0,0 +1,474 @@
++import dayjs from 'dayjs';
++import type { DropdownValue, SearchParams } from '../types';
++import * as demographics from '../components/search-by-demographics/search-by-demographics.utils';
++import * as drugOrders from '../components/search-by-drug-orders/search-by-drug-orders.utils';
++import * as encounters from '../components/search-by-encounters/search-by-encounters.utils';
++import * as enrollments from '../components/search-by-enrollments/search-by-enrollments.utils';
++
++// The URL contract is shared with the omnibar; see the README section
++// "Opening the builder with a pre-filled definition".
++
++export const URL_PARAMS = ['definition', 'cohort', 'query'] as const;
++
++export const MAX_DEFINITION_BYTES = 4096;
++const MAX_ENCODED_LENGTH = Math.ceil(MAX_DEFINITION_BYTES / 3) * 4;
++export const MAX_LABEL_LENGTH = 200;
++export const MAX_CRITERIA = 5;
++export const MAX_PROGRAMS = 10;
++export const MAX_DRUGS = 50;
++export const MAX_ENCOUNTER_TYPES = 10;
++export const MAX_AGE = 150;
++
++// Standard uuids, plus 36-character CIEL-style ids such as "1065AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".
++const UUID_PATTERN = /^[0-9A-Za-z-]{36}$/;
++const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
++const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/;
++
++export interface DemographicsCriterion {
++  type: 'demographics';
++  gender?: 'male' | 'female' | 'any';
++  minAge?: number;
++  maxAge?: number;
++}
++
++export interface EnrollmentCriterion {
++  type: 'enrollment';
++  programs: string[];
++  enrolledOnOrAfter?: string;
++  enrolledOnOrBefore?: string;
++}
++
++export interface DrugOrderCriterion {
++  type: 'drugOrder';
++  drugs: string[];
++  activeOnOrAfter?: string;
++  activeOnOrBefore?: string;
++}
++
++export interface EncounterCriterion {
++  type: 'encounter';
++  encounterTypes: string[];
++}
++
++export type Criterion = DemographicsCriterion | EnrollmentCriterion | DrugOrderCriterion | EncounterCriterion;
++
++export interface CohortDefinition {
++  v: 1;
++  label?: string;
++  criteria: Criterion[];
++}
++
++export type UrlRequest =
++  | { type: 'definition'; definition: CohortDefinition }
++  | { type: 'cohort'; uuid: string }
++  | { type: 'query'; uuid: string };
++
++export interface Search {
++  searchParams: SearchParams;
++  description: string;
++}
++
++/**
++ * Why a link could not be opened. `key`, `defaultMessage` and `options` are passed to t();
++ * `message` is the English text. The page shows the reasons a valid link failed to run; a link that
++ * isn't valid shows only "This link isn't a valid cohort query", since its reason can quote the link.
++ */
++export class LinkError extends Error {
++  constructor(
++    readonly key: string,
++    readonly defaultMessage: string,
++    readonly options: Record<string, string | number> = {},
++  ) {
++    super(defaultMessage.replace(/{{(\w+)}}/g, (_, name) => String(options[name])));
++  }
++}
++
++/**
++ * Reads the single request the URL asks for (definition > cohort > query).
++ * Returns null when none is present and throws a LinkError when it is invalid.
++ */
++export function readUrlRequest(params: URLSearchParams): UrlRequest | null {
++  const [chosen, ...ignored] = URL_PARAMS.filter((name) => params.has(name));
++  if (ignored.length) {
++    console.warn(`Cohort builder: using "${chosen}" and ignoring ${ignored.map((name) => `"${name}"`).join(', ')}`);
++  }
++
++  const value = params.get(chosen);
++  switch (chosen) {
++    case 'definition':
++      return { type: 'definition', definition: decodeDefinition(value) };
++    case 'cohort':
++    case 'query':
++      if (!isUuid(value)) {
++        throw new LinkError('linkParamNotUuid', '"{{param}}" must be a uuid', { param: chosen });
++      }
++      return { type: chosen, uuid: value };
++    default:
++      return null;
++  }
++}
++
++export function decodeDefinition(encoded: string): CohortDefinition {
++  if (encoded.length > MAX_ENCODED_LENGTH) {
++    throw definitionTooLarge();
++  }
++  const json = decodeBase64Url(encoded);
++
++  let definition: unknown;
++  try {
++    definition = JSON.parse(json);
++  } catch {
++    throw new LinkError('definitionNotJson', 'Definition is not valid JSON');
++  }
++  return validateDefinition(definition);
++}
++
++function decodeBase64Url(encoded: string): string {
++  const unpadded = encoded.replace(/={1,2}$/, '');
++  if (!BASE64URL_PATTERN.test(unpadded)) {
++    throw notBase64Url();
++  }
++  const base64 = unpadded.replace(/-/g, '+').replace(/_/g, '/');
++
++  let binary: string;
++  try {
++    binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
++  } catch {
++    throw notBase64Url();
++  }
++  if (binary.length > MAX_DEFINITION_BYTES) {
++    throw definitionTooLarge();
++  }
++
++  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
++  try {
++    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
++  } catch {
++    throw new LinkError('definitionNotUtf8', 'Definition is not valid UTF-8');
++  }
++}
++
++const definitionTooLarge = () =>
++  new LinkError('definitionTooLarge', 'Definition is larger than {{maxBytes}} bytes', {
++    maxBytes: MAX_DEFINITION_BYTES,
++  });
++
++const notBase64Url = () => new LinkError('definitionNotBase64Url', 'Definition is not valid base64url');
++
++/**
++ * The inverse of decodeDefinition: unpadded base64url of the UTF-8 JSON. Null when decodeDefinition
++ * would refuse the result, so a link the builder can't open is never made.
++ */
++export function encodeDefinition(definition: CohortDefinition): string | null {
++  let binary = '';
++  for (const byte of new TextEncoder().encode(JSON.stringify(definition))) {
++    binary += String.fromCharCode(byte);
++  }
++  const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
++  try {
++    decodeDefinition(encoded);
++  } catch {
++    return null;
++  }
++  return encoded;
++}
++
++export function validateDefinition(value: unknown): CohortDefinition {
++  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
++    throw new LinkError('definitionNotObject', 'Definition must be a JSON object');
++  }
++  const unknownKey = findUnknownKey(value, ['v', 'label', 'criteria']);
++  if (unknownKey !== undefined) {
++    throw new LinkError('definitionUnknownKey', 'Definition has an unknown key "{{key}}"', { key: unknownKey });
++  }
++  const definition = value as Record<string, unknown>;
++
++  if (definition.v !== 1) {
++    throw new LinkError('definitionVersion', 'Definition version "v" must be 1');
++  }
++  if (
++    definition.label !== undefined &&
++    (typeof definition.label !== 'string' || definition.label.length > MAX_LABEL_LENGTH)
++  ) {
++    throw new LinkError('definitionLabel', '"label" must be text of at most {{max}} characters', {
++      max: MAX_LABEL_LENGTH,
++    });
++  }
++  if (
++    !Array.isArray(definition.criteria) ||
++    definition.criteria.length < 1 ||
++    definition.criteria.length > MAX_CRITERIA
++  ) {
++    throw new LinkError('definitionCriteria', '"criteria" must list 1 to {{max}} criteria', { max: MAX_CRITERIA });
++  }
++
++  return {
++    v: 1,
++    label: definition.label as string | undefined,
++    criteria: definition.criteria.map(validateCriterion),
++  };
++}
++
++function validateCriterion(value: unknown, index: number): Criterion {
++  const number = index + 1;
++  const type = (value as { type?: unknown })?.type;
++
++  switch (type) {
++    case 'demographics': {
++      const criterion = expectCriterionObject(value, number, ['type', 'gender', 'minAge', 'maxAge']);
++      const { gender = 'any', minAge, maxAge } = criterion;
++      if (gender !== 'male' && gender !== 'female' && gender !== 'any') {
++        throw new LinkError('criterionGender', 'Criterion {{number}}: "gender" must be "male", "female" or "any"', {
++          number,
++        });
++      }
++      expectOptionalAge(minAge, number, 'minAge', 0);
++      // The demographics builder treats an age of 0 as "no bound", which would turn maxAge 0 into "any age".
++      expectOptionalAge(maxAge, number, 'maxAge', 1);
++      if (minAge !== undefined && maxAge !== undefined && minAge > maxAge) {
++        throw new LinkError('criterionAgeOrder', 'Criterion {{number}}: "minAge" must not be greater than "maxAge"', {
++          number,
++        });
++      }
++      if (gender === 'any' && minAge === undefined && maxAge === undefined) {
++        throw new LinkError('criterionDemographicsEmpty', 'Criterion {{number}}: give a gender, "minAge" or "maxAge"', {
++          number,
++        });
++      }
++      return { type, gender, minAge: minAge as number | undefined, maxAge: maxAge as number | undefined };
++    }
++    case 'enrollment': {
++      const criterion = expectCriterionObject(value, number, [
++        'type',
++        'programs',
++        'enrolledOnOrAfter',
++        'enrolledOnOrBefore',
++      ]);
++      const { programs, enrolledOnOrAfter, enrolledOnOrBefore } = criterion;
++      expectUuids(programs, number, 'programs', MAX_PROGRAMS);
++      expectOptionalDate(enrolledOnOrAfter, number, 'enrolledOnOrAfter', false);
++      expectOptionalDate(enrolledOnOrBefore, number, 'enrolledOnOrBefore', false);
++      return {
++        type,
++        programs: programs as string[],
++        enrolledOnOrAfter: enrolledOnOrAfter as string | undefined,
++        enrolledOnOrBefore: enrolledOnOrBefore as string | undefined,
++      };
++    }
++    case 'drugOrder': {
++      const criterion = expectCriterionObject(value, number, ['type', 'drugs', 'activeOnOrAfter', 'activeOnOrBefore']);
++      const { drugs, activeOnOrAfter, activeOnOrBefore } = criterion;
++      expectUuids(drugs, number, 'drugs', MAX_DRUGS);
++      expectOptionalDate(activeOnOrAfter, number, 'activeOnOrAfter', true);
++      expectOptionalDate(activeOnOrBefore, number, 'activeOnOrBefore', true);
++      return {
++        type,
++        drugs: drugs as string[],
++        activeOnOrAfter: activeOnOrAfter as string | undefined,
++        activeOnOrBefore: activeOnOrBefore as string | undefined,
++      };
++    }
++    case 'encounter': {
++      const { encounterTypes } = expectCriterionObject(value, number, ['type', 'encounterTypes']);
++      expectUuids(encounterTypes, number, 'encounterTypes', MAX_ENCOUNTER_TYPES);
++      return { type, encounterTypes: encounterTypes as string[] };
++    }
++    default:
++      throw new LinkError(
++        'criterionType',
++        'Criterion {{number}}: "type" must be "demographics", "enrollment", "drugOrder" or "encounter"',
++        { number },
++      );
++  }
++}
++
++function findUnknownKey(value: object, allowedKeys: string[]) {
++  return Object.keys(value).find((key) => !allowedKeys.includes(key));
++}
++
++function expectCriterionObject(value: unknown, number: number, allowedKeys: string[]): Record<string, unknown> {
++  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
++    throw new LinkError('criterionNotObject', 'Criterion {{number}} must be a JSON object', { number });
++  }
++  const unknownKey = findUnknownKey(value, allowedKeys);
++  if (unknownKey !== undefined) {
++    throw new LinkError('criterionUnknownKey', 'Criterion {{number}} has an unknown key "{{key}}"', {
++      number,
++      key: unknownKey,
++    });
++  }
++  return value as Record<string, unknown>;
++}
++
++function expectOptionalAge(value: unknown, number: number, field: string, min: number) {
++  if (value !== undefined && (!Number.isInteger(value) || (value as number) < min || (value as number) > MAX_AGE)) {
++    throw new LinkError(
++      'criterionAge',
++      'Criterion {{number}}: "{{field}}" must be a whole number from {{min}} to {{max}}',
++      { number, field, min, max: MAX_AGE },
++    );
++  }
++}
++
++function expectUuids(value: unknown, number: number, field: string, max: number) {
++  if (!Array.isArray(value) || value.length < 1 || value.length > max || !value.every(isUuid)) {
++    throw new LinkError('criterionUuids', 'Criterion {{number}}: "{{field}}" must list 1 to {{max}} uuids', {
++      number,
++      field,
++      max,
++    });
++  }
++}
++
++function expectOptionalDate(value: unknown, number: number, field: string, allowToday: boolean) {
++  if (value === undefined || (allowToday && value === 'today') || isIsoDate(value)) {
++    return;
++  }
++  if (allowToday) {
++    throw new LinkError(
++      'criterionDateOrToday',
++      'Criterion {{number}}: "{{field}}" must be "today" or a date like 2024-01-31',
++      { number, field },
++    );
++  }
++  throw new LinkError('criterionDate', 'Criterion {{number}}: "{{field}}" must be a date like 2024-01-31', {
++    number,
++    field,
++  });
++}
++
++export function isUuid(value: unknown): value is string {
++  return typeof value === 'string' && UUID_PATTERN.test(value);
++}
++
++function isIsoDate(value: unknown): boolean {
++  const match = typeof value === 'string' && ISO_DATE_PATTERN.exec(value);
++  if (!match) {
++    return false;
++  }
++  const [, year, month, day] = match.map(Number);
++  const date = new Date(Date.UTC(year, month - 1, day));
++  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
++}
++
++/**
++ * Turns "today" or YYYY-MM-DD into the same local-midnight string the builder's date pickers produce.
++ * "today" is resolved when this is called, so shared links stay relative.
++ */
++export function toQueryDate(value: string | undefined): string {
++  if (value === undefined) {
++    return '';
++  }
++  return (value === 'today' ? dayjs() : dayjs(value)).startOf('day').format();
++}
++
++/**
++ * Builds the reportingrest query and history description for one criterion using the
++ * same builders as the search tabs. `names` maps program/drug uuids to display names;
++ * missing ones are counted instead, as in "Lamivudine and 2 more drugs".
++ */
++export function buildSearch(
++  criterion: Criterion,
++  names: Map<string, string>,
++  drugOrderSearchDefinitionKey: string,
++): Search {
++  switch (criterion.type) {
++    case 'demographics': {
++      const params = {
++        gender: { male: 'males', female: 'females', any: 'all' }[criterion.gender],
++        minAge: criterion.minAge ?? 0,
++        maxAge: criterion.maxAge ?? 0,
++        birthDayStartDate: '',
++        birthDayEndDate: '',
++        livingStatus: 'alive',
++      };
++      return { searchParams: demographics.getQueryDetails(params), description: demographics.getDescription(params) };
++    }
++    case 'enrollment': {
++      const params = {
++        enrolledOnOrAfter: toQueryDate(criterion.enrolledOnOrAfter),
++        enrolledOnOrBefore: toQueryDate(criterion.enrolledOnOrBefore),
++        completedOnOrAfter: '',
++        completedOnOrBefore: '',
++        selectedPrograms: toDropdownValues(criterion.programs, names),
++        selectedLocations: null,
++      };
++      return {
++        searchParams: enrollments.getQueryDetails(params),
++        description: enrollments.getDescription({
++          ...params,
++          selectedPrograms: toDescribedValues(criterion.programs, names, 'program', 'programs'),
++        }),
++      };
++    }
++    case 'drugOrder': {
++      const params = {
++        selectedDrugs: toDropdownValues(criterion.drugs, names),
++        selectedCareSetting: null,
++        activeOnOrAfter: toQueryDate(criterion.activeOnOrAfter),
++        activeOnOrBefore: toQueryDate(criterion.activeOnOrBefore),
++        activatedOnOrAfter: '',
++        activatedOnOrBefore: '',
++      };
++      return {
++        searchParams: drugOrders.getQueryDetails(params, drugOrderSearchDefinitionKey),
++        description: drugOrders.getDescription({
++          ...params,
++          selectedDrugs: toDescribedValues(criterion.drugs, names, 'drug', 'drugs'),
++        }),
++      };
++    }
++    case 'encounter': {
++      // The encounters tab with only its types chosen: any number of encounters, at any time and place.
++      const params = {
++        selectedEncounterTypes: toDropdownValues(criterion.encounterTypes, names),
++        encounterForms: [],
++        encounterLocations: [],
++        atLeastCount: 0,
++        atMostCount: 0,
++        onOrAfter: '',
++        onOrBefore: '',
++      };
++      return {
++        searchParams: encounters.getQueryDetails(params),
++        description: encounters.getDescription({
++          ...params,
++          selectedEncounterTypes: toDescribedValues(
++            criterion.encounterTypes,
++            names,
++            'encounter type',
++            'encounter types',
++          ),
++        }),
++      };
++    }
++  }
++}
++
++/** A definition's description: each criterion's, as its search tab words it, ANDed. */
++export function describeSearches(searches: Search[]): string {
++  return searches.map(({ description }) => description).join(' AND ');
++}
++
++function toDropdownValues(uuids: string[], names: Map<string, string>): DropdownValue[] {
++  return uuids.map((uuid, index) => ({ id: index, label: names.get(uuid) ?? uuid, value: uuid }));
++}
++
++function toDescribedValues(
++  uuids: string[],
++  names: Map<string, string>,
++  singular: string,
++  plural: string,
++): DropdownValue[] {
++  const named = toDropdownValues(
++    uuids.filter((uuid) => names.has(uuid)),
++    names,
++  );
++  const missing = uuids.length - named.length;
++  if (missing === 0) {
++    return named;
++  }
++  const noun = missing === 1 ? singular : plural;
++  const label = named.length ? `${missing} more ${noun}` : `${missing} ${noun}`;
++  return [...named, { id: named.length, label, value: '' }];
++}
+diff --git a/src/url-definition/use-url-definition.i18n.test.tsx b/src/url-definition/use-url-definition.i18n.test.tsx
+new file mode 100644
+index 0000000..907c9d9
+--- /dev/null
++++ b/src/url-definition/use-url-definition.i18n.test.tsx
+@@ -0,0 +1,48 @@
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++import { render, screen, waitFor } from '@testing-library/react';
++import { useUrlDefinition } from './use-url-definition';
++
++// A real i18next instance with its default escapeValue: true, as in the app shell. The shared
++// react-i18next mock returns default texts without interpolating, so it cannot show escaping.
++vi.mock('react-i18next', async () => {
++  const { default: i18next } = await import('i18next');
++  const i18n = i18next.createInstance();
++  await i18n.init({ lng: 'en', resources: { en: { translation: {} } } });
++  return { useTranslation: () => ({ t: i18n.t.bind(i18n) }) };
++});
++
++vi.mock('@openmrs/esm-framework', async (importOriginal) => ({
++  ...(await importOriginal<object>()),
++  openmrsFetch: vi.fn(async () => ({ data: { display: "PEP/PrEP <b>Don't</b>" } })),
++}));
++
++const handlers = {
++  runSearch: vi.fn(async () => false),
++  showCohort: vi.fn(async () => true),
++  showQuery: vi.fn(async () => true),
++  onHistoryChange: vi.fn(),
++};
++
++function LinkError() {
++  return <p data-testid="link-error">{useUrlDefinition(handlers)}</p>;
++}
++
++describe('useUrlDefinition with real i18next interpolation', () => {
++  it('shows interpolated values as plain text, not escaped twice', async () => {
++    const programUuid = '64f950e6-1b07-4ac0-8e7e-f3e148f3463f';
++    const definition = { v: 1, criteria: [{ type: 'enrollment', programs: [programUuid] }] };
++    const encoded = Buffer.from(JSON.stringify(definition)).toString('base64url');
++    window.history.replaceState(null, '', `/openmrs/spa/cohort-builder?definition=${encoded}`);
++
++    render(<LinkError />);
++
++    await waitFor(() =>
++      expect(screen.getByTestId('link-error')).toHaveTextContent(
++        `The search "Patients enrolled in PEP/PrEP <b>Don't</b>" failed, so none of this link's searches were kept`,
++      ),
++    );
++    // Literal text, not an element: React serializes the text node with escaped brackets.
++    expect(screen.getByTestId('link-error')).toContainHTML("PEP/PrEP &lt;b&gt;Don't&lt;/b&gt;");
++  });
++});
+diff --git a/src/url-definition/use-url-definition.test.tsx b/src/url-definition/use-url-definition.test.tsx
+new file mode 100644
+index 0000000..e220354
+--- /dev/null
++++ b/src/url-definition/use-url-definition.test.tsx
+@@ -0,0 +1,406 @@
++import React, { StrictMode } from 'react';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { act, render, screen, waitFor } from '@testing-library/react';
++import { getDefaultsFromConfigSchema, openmrsFetch, showSnackbar, useConfig } from '@openmrs/esm-framework';
++import { type ConfigObject, configSchema } from '../config-schema';
++import type { Query } from '../types';
++import CohortBuilder from '../cohort-builder.component';
++import { addToHistory } from '../cohort-builder.utils';
++
++const programUuid = '64f950e6-1b07-4ac0-8e7e-f3e148f3463f';
++const drugUuid = '3cfcf118-931c-46f7-8ff6-7b876f0d4202';
++const cohortUuid = 'f4c0b5a2-3c84-4c76-bb7e-6c1b1b2e5a11';
++const queryUuid = '0d1b7a4e-6f3c-4b3a-9c3e-2a6f5a8b9c10';
++const patientUuid = '8673ee4f-e2ab-4077-ba55-4980f408773e';
++const missingUuid = '11111111-2222-4333-8444-555555555555';
++const encounterTypeUuid = 'e22e39fd-7db2-45e7-80f1-60fa0d5a4378';
++
++// The search tabs are not involved in opening a link and are slow to render.
++vi.mock('../components/search-by-concepts/search-by-concepts.component', () => ({ default: () => null }));
++vi.mock('../components/search-by-demographics/search-by-demographics.component', () => ({ default: () => null }));
++vi.mock('../components/search-by-person-attributes/search-by-person-attributes.component', () => ({
++  default: () => null,
++}));
++vi.mock('../components/search-by-encounters/search-by-encounters.component', () => ({ default: () => null }));
++vi.mock('../components/search-by-location/search-by-location.component', () => ({ default: () => null }));
++vi.mock('../components/search-by-enrollments/search-by-enrollments.component', () => ({ default: () => null }));
++vi.mock('../components/search-by-drug-orders/search-by-drug-orders.component', () => ({ default: () => null }));
++vi.mock('../components/composition/composition.component', () => ({ default: () => null }));
++vi.mock('../components/saved-cohorts/saved-cohorts.component', () => ({ default: () => null }));
++vi.mock('../components/saved-queries/saved-queries.component', () => ({ default: () => null }));
++
++// The react-i18next mock returns default texts without interpolating them.
++const mockOpenmrsFetch = vi.mocked(openmrsFetch);
++const mockUseConfig = vi.mocked(useConfig<ConfigObject>);
++
++const definition = {
++  v: 1,
++  label: 'Women 15-49 in HIV care on ARVs',
++  criteria: [
++    { type: 'demographics', gender: 'female', minAge: 15, maxAge: 49 },
++    { type: 'enrollment', programs: [programUuid] },
++    { type: 'drugOrder', drugs: [drugUuid], activeOnOrAfter: 'today' },
++  ],
++};
++
++const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
++
++const row = (patientId: number) => ({
++  patientId,
++  firstname: 'Jane',
++  lastname: `Doe ${patientId}`,
++  age: 30,
++  gender: 'F',
++});
++
++let adHocQueryResults: Array<ReturnType<typeof row>[] | Error>;
++// Runs before an ad hoc query answers, e.g. to add a search made meanwhile from a tab.
++let beforeAdHocQueryAnswers: (call: number) => void | Promise<void>;
++
++function mockServer() {
++  let adHocQueryCalls = 0;
++  mockOpenmrsFetch.mockImplementation(async (url: string) => {
++    if (url.includes(missingUuid)) {
++      throw new Error("Object with given uuid doesn't exist");
++    }
++    if (url.includes('/reportingrest/adhocquery')) {
++      await beforeAdHocQueryAnswers(adHocQueryCalls);
++      const result = adHocQueryResults[adHocQueryCalls++] ?? [];
++      if (result instanceof Error) {
++        throw result;
++      }
++      return { data: { rows: result } } as never;
++    }
++    if (url.includes(`/program/${programUuid}`)) {
++      return { data: { display: 'HIV Care and Treatment' } } as never;
++    }
++    if (url.includes(`/encountertype/${encounterTypeUuid}`)) {
++      return { data: { display: 'Adult Visit' } } as never;
++    }
++    if (url.includes(`/drug/${drugUuid}`)) {
++      throw new Error('Not found');
++    }
++    if (url.includes(`/cohort/${cohortUuid}/membership`)) {
++      return { data: { results: [{ patientUuid, endDate: null, voided: false }] } } as never;
++    }
++    if (url.includes(`/patient/${patientUuid}`)) {
++      const preferredName = { givenName: 'Amina', familyName: 'Otieno' };
++      return { data: { patientId: 7, person: { gender: 'F', age: 32, preferredName } } } as never;
++    }
++    if (url.includes(`/reportingrest/dataSet/${queryUuid}`)) {
++      return { data: { rows: [row(9)] } } as never;
++    }
++    return { data: { results: [] } } as never;
++  });
++}
++
++const adHocQueryBodies = () =>
++  mockOpenmrsFetch.mock.calls
++    .filter(([url]) => url.includes('/reportingrest/adhocquery'))
++    .map(([, init]) => JSON.parse(JSON.stringify(init.body)) as Query);
++
++const history = () => JSON.parse(window.sessionStorage.getItem('openmrsHistory')) ?? [];
++
++// What single-spa's navigateToUrl does when a link to the page that is already shown is opened.
++function openLinkWhileShown(search: string) {
++  act(() => {
++    window.history.pushState(null, '', `/openmrs/spa/cohort-builder${search}`);
++    window.dispatchEvent(new PopStateEvent('popstate'));
++  });
++}
++
++function openBuilderAt(search: string) {
++  window.history.replaceState(null, '', `/openmrs/spa/cohort-builder${search}`);
++  render(
++    <StrictMode>
++      <CohortBuilder />
++    </StrictMode>,
++  );
++}
++
++describe('useUrlDefinition', () => {
++  beforeEach(() => {
++    vi.useFakeTimers({ toFake: ['Date'] });
++    vi.setSystemTime(new Date('2026-10-17T15:30:00Z'));
++    window.sessionStorage.clear();
++    mockUseConfig.mockReturnValue(getDefaultsFromConfigSchema(configSchema));
++    adHocQueryResults = [[row(1), row(2), row(3)], [row(2), row(3)], [row(3), row(4)], [row(3)]];
++    beforeAdHocQueryAnswers = () => {};
++    mockServer();
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it('runs each criterion, then ANDs them, once', async () => {
++    openBuilderAt(`?definition=${encode(definition)}&tab=1`);
++
++    await waitFor(() => expect(history()).toHaveLength(4));
++    expect(history().map(({ description }) => description)).toEqual([
++      'Female Patients with ages between 15 and 49 years that are alive',
++      'Patients enrolled in HIV Care and Treatment',
++      // formatDate is the framework mock's.
++      'Patients who taking 1 drug on or after Today, 12:00 AM',
++      // The builder's own words for each criterion, never the link's label.
++      'Female Patients with ages between 15 and 49 years that are alive AND Patients enrolled in HIV Care and Treatment AND Patients who taking 1 drug on or after Today, 12:00 AM',
++    ]);
++    expect(history().map(({ patients }) => patients.length)).toEqual([3, 2, 2, 1]);
++
++    const [demographics, enrollment, drugOrder, composition] = adHocQueryBodies();
++    expect(adHocQueryBodies()).toHaveLength(4);
++    expect(demographics).toMatchSnapshot('demographics');
++    expect(enrollment).toMatchSnapshot('enrollment');
++    expect(drugOrder).toMatchSnapshot('drugOrder');
++    expect(composition.rowFilters).toEqual([
++      ...demographics.rowFilters,
++      ...enrollment.rowFilters,
++      ...drugOrder.rowFilters,
++    ]);
++    expect(composition.customRowFilterCombination).toBe('(1 AND 2 AND NOT 3) AND (4) AND (5)');
++
++    expect(window.location.search).toBe('?tab=1');
++    expect(await screen.findByText('Jane Doe 3')).toBeInTheDocument();
++  });
++
++  it('searches encounter types, named from the server', async () => {
++    openBuilderAt(`?definition=${encode({ v: 1, criteria: [{ type: 'encounter', encounterTypes: [encounterTypeUuid] }] })}`);
++
++    await waitFor(() => expect(history()).toHaveLength(1));
++    expect(history()[0].description).toBe('Patients with Encounter of Types Adult Visit');
++    expect(mockOpenmrsFetch).toHaveBeenCalledWith(
++      expect.stringMatching(new RegExp(`/encountertype/${encounterTypeUuid}\\?v=custom:\\(display\\)$`)),
++    );
++    expect(adHocQueryBodies()[0].rowFilters).toEqual([
++      expect.objectContaining({
++        key: 'reporting.library.cohortDefinition.builtIn.encounterSearchAdvanced',
++        parameterValues: { encounterTypeList: [encounterTypeUuid] },
++      }),
++    ]);
++  });
++
++  it('composes only its own entries when a search from a tab lands in between', async () => {
++    beforeAdHocQueryAnswers = (call) => {
++      if (call === 1) {
++        addToHistory('Manual search', [], { rowFilters: [], customRowFilterCombination: '' } as Query);
++      }
++    };
++    openBuilderAt(`?definition=${encode({ v: 1, criteria: definition.criteria.slice(0, 2) })}`);
++
++    await waitFor(() => expect(history()).toHaveLength(4));
++    expect(history().map(({ description }) => description)).toEqual([
++      'Female Patients with ages between 15 and 49 years that are alive',
++      'Manual search',
++      'Patients enrolled in HIV Care and Treatment',
++      'Female Patients with ages between 15 and 49 years that are alive AND Patients enrolled in HIV Care and Treatment',
++    ]);
++  });
++
++  it('removes only its own entries when a search fails', async () => {
++    beforeAdHocQueryAnswers = (call) => {
++      if (call === 1) {
++        addToHistory('Manual search', [], { rowFilters: [], customRowFilterCombination: '' } as Query);
++      }
++    };
++    adHocQueryResults = [[row(1)], [row(1)], new Error('Internal Server Error')];
++    openBuilderAt(`?definition=${encode(definition)}`);
++
++    expect(await screen.findByText('This cohort builder link could not be opened')).toBeInTheDocument();
++    expect(history().map(({ description }) => description)).toEqual(['Manual search']);
++  });
++
++  it('composes with the newest history entries when history already has searches', async () => {
++    window.sessionStorage.setItem(
++      'openmrsHistory',
++      JSON.stringify([
++        { description: 'Earlier search', patients: [], parameters: { rowFilters: [], customRowFilterCombination: '' } },
++      ]),
++    );
++    const twoCriteria = { v: 1, criteria: definition.criteria.slice(0, 2) };
++    openBuilderAt(`?definition=${encode(twoCriteria)}`);
++
++    await waitFor(() => expect(history()).toHaveLength(4));
++    expect(history()[3].description).toBe(
++      'Female Patients with ages between 15 and 49 years that are alive AND Patients enrolled in HIV Care and Treatment',
++    );
++    expect(adHocQueryBodies()[2].customRowFilterCombination).toBe('(1 AND 2 AND NOT 3) AND (4)');
++  });
++
++  it("describes a single criterion in the builder's words, whatever the label says, and does not compose", async () => {
++    openBuilderAt(
++      `?definition=${encode({ v: 1, label: 'HIV patients', criteria: [{ type: 'demographics', minAge: 18 }] })}`,
++    );
++
++    await waitFor(() => expect(history()).toHaveLength(1));
++    expect(history()[0].description).toBe('All Patients with minimum age of 18 years that are alive');
++    expect(adHocQueryBodies()).toHaveLength(1);
++    expect(await screen.findByText('All Patients with minimum age of 18 years that are alive')).toBeInTheDocument();
++    expect(screen.queryByText('HIV patients')).not.toBeInTheDocument();
++  });
++
++  it('keeps the history as it was and shows why when a search fails', async () => {
++    const earlierHistory = [{ description: 'Earlier search', patients: [row(8)], parameters: {} }];
++    window.sessionStorage.setItem('openmrsHistory', JSON.stringify(earlierHistory));
++    // Stock reporting has no builtIn.drugOrderSearch definition, so the drug order search fails.
++    adHocQueryResults = [[row(1)], [row(1)], new Error('Internal Server Error')];
++    openBuilderAt(`?definition=${encode(definition)}`);
++
++    expect(await screen.findByText('This cohort builder link could not be opened')).toBeInTheDocument();
++    expect(
++      screen.getByText('The search "{{description}}" failed, so none of this link\'s searches were kept'),
++    ).toBeInTheDocument();
++    expect(showSnackbar).toHaveBeenCalledWith(expect.objectContaining({ subtitle: 'Internal Server Error' }));
++    expect(adHocQueryBodies()).toHaveLength(3);
++    expect(history()).toEqual(earlierHistory);
++    await waitFor(() =>
++      expect(screen.queryByText('Patients enrolled in HIV Care and Treatment')).not.toBeInTheDocument(),
++    );
++    expect(screen.getByText('Earlier search')).toBeInTheDocument();
++    expect(screen.getByRole('tab', { name: 'Drug Order' })).toBeEnabled();
++  });
++
++  it('uses the configured drug order search definition key', async () => {
++    mockUseConfig.mockReturnValue({
++      drugOrderSearchDefinitionKey: 'configuration.definitionlibrary.cohort.drugOrderSearch',
++    });
++    openBuilderAt(`?definition=${encode({ v: 1, criteria: [definition.criteria[2]] })}`);
++
++    await waitFor(() => expect(history()).toHaveLength(1));
++    expect(adHocQueryBodies()[0].rowFilters.map(({ key }) => key)).toEqual([
++      'configuration.definitionlibrary.cohort.drugOrderSearch',
++    ]);
++  });
++
++  it.each([
++    ['not base64url', 'definition=%%%'],
++    ['an unknown key', `definition=${encode({ ...definition, sql: 'drop table' })}`],
++    ['an unknown key that reads as advice', `definition=${encode({ ...definition, 'Call 555-0100 to verify': 1 })}`],
++    ['an unknown criterion type', `definition=${encode({ v: 1, criteria: [{ type: 'concept', concept: 'x' }] })}`],
++    ['too large', `definition=${'A'.repeat(6000)}`],
++    ['a cohort that is not a uuid', 'cohort=..%2F..%2Fuser'],
++  ])('shows one plain message, runs nothing and clears the URL when it is %s', async (_, search) => {
++    openBuilderAt(`?${search}`);
++
++    expect(await screen.findByText('This cohort builder link could not be opened')).toBeInTheDocument();
++    expect(screen.getByText("This link isn't a valid cohort query")).toBeInTheDocument();
++    // The reason is never shown: it can quote the link, and anyone can write a link.
++    expect(screen.queryByText(/Definition|Criterion|uuid|555/)).not.toBeInTheDocument();
++    expect(window.location.search).toBe('');
++    expect(adHocQueryBodies()).toHaveLength(0);
++    expect(
++      mockOpenmrsFetch.mock.calls.some(([url]) => /\/(cohort|patient|program|drug)\/|adhocquery|dataSet\//.test(url)),
++    ).toBe(false);
++    expect(history()).toHaveLength(0);
++  });
++
++  it('shows the members of a saved cohort', async () => {
++    openBuilderAt(`?cohort=${cohortUuid}`);
++
++    expect(await screen.findByText('Amina Otieno')).toBeInTheDocument();
++    expect(mockOpenmrsFetch).toHaveBeenCalledWith(expect.stringContaining(`/cohort/${cohortUuid}/membership?`));
++    expect(mockOpenmrsFetch.mock.calls.filter(([url]) => url.includes('/membership'))).toHaveLength(1);
++    expect(window.location.search).toBe('');
++  });
++
++  it.each([
++    ['cohort', 'The saved cohort could not be loaded'],
++    ['query', 'The saved query could not be run'],
++  ])('shows an error when the saved %s cannot be loaded', async (name, message) => {
++    openBuilderAt(`?${name}=${missingUuid}`);
++
++    expect(await screen.findByText('This cohort builder link could not be opened')).toBeInTheDocument();
++    expect(screen.getByText(message)).toBeInTheDocument();
++    expect(window.location.search).toBe('');
++  });
++
++  it.each([
++    ['none of them', [missingUuid], 'The saved cohort could not be loaded'],
++    ['some of them', [patientUuid, missingUuid], '{{count}} members could not be shown'],
++  ])('says so when %s can be shown', async (_, memberUuids, message) => {
++    const memberships = memberUuids.map((uuid) => ({
++      uuid,
++      patientUuid: uuid,
++      startDate: null,
++      endDate: null,
++      voided: false,
++    }));
++    const answerAsServer = mockOpenmrsFetch.getMockImplementation();
++    mockOpenmrsFetch.mockImplementation(async (url: string, init) =>
++      url.includes('/membership') ? ({ data: { results: memberships } } as never) : answerAsServer(url, init),
++    );
++    openBuilderAt(`?cohort=${cohortUuid}`);
++
++    expect(await screen.findByText(message)).toBeInTheDocument();
++  });
++
++  it('says when a saved cohort has more members than are shown', async () => {
++    const memberships = Array.from({ length: 201 }, (_, i) => ({
++      uuid: `membership-${i}`,
++      patientUuid,
++      startDate: null,
++      endDate: null,
++      voided: false,
++    }));
++    const answerAsServer = mockOpenmrsFetch.getMockImplementation();
++    mockOpenmrsFetch.mockImplementation(async (url: string, init) =>
++      url.includes('/membership') ? ({ data: { results: memberships } } as never) : answerAsServer(url, init),
++    );
++    openBuilderAt(`?cohort=${cohortUuid}`);
++
++    expect(await screen.findByText('Showing the first {{shown}} of {{total}} members')).toBeInTheDocument();
++  });
++
++  it('runs a saved query', async () => {
++    openBuilderAt(`?query=${queryUuid}`);
++
++    expect(await screen.findByText('Jane Doe 9')).toBeInTheDocument();
++    expect(
++      mockOpenmrsFetch.mock.calls.filter(([url]) => url.includes(`/reportingrest/dataSet/${queryUuid}`)),
++    ).toHaveLength(1);
++    expect(window.location.search).toBe('');
++  });
++
++  it('runs a link opened while the page is shown', async () => {
++    openBuilderAt('?tab=1');
++    await screen.findByText('Search History');
++
++    openLinkWhileShown(
++      `?definition=${encode({ v: 1, label: 'Adults', criteria: [{ type: 'demographics', minAge: 18 }] })}`,
++    );
++
++    await waitFor(() => expect(history()).toHaveLength(1));
++    expect(history()[0].description).toBe('All Patients with minimum age of 18 years that are alive');
++    expect(window.location.search).toBe('');
++  });
++
++  it('runs only the latest link opened while another is running, after it', async () => {
++    let answerFirstSearch: () => void;
++    beforeAdHocQueryAnswers = (call) =>
++      call === 0 ? new Promise<void>((resolve) => (answerFirstSearch = resolve)) : undefined;
++    const link = (minAge: number) => `?definition=${encode({ v: 1, criteria: [{ type: 'demographics', minAge }] })}`;
++    openBuilderAt(link(18));
++    await waitFor(() => expect(adHocQueryBodies()).toHaveLength(1));
++
++    openLinkWhileShown(link(30));
++    openLinkWhileShown(link(40));
++    expect(window.location.search).toBe('');
++    expect(adHocQueryBodies()).toHaveLength(1);
++
++    answerFirstSearch();
++    await waitFor(() => expect(history()).toHaveLength(2));
++    expect(history().map(({ description }) => description)).toEqual([
++      'All Patients with minimum age of 18 years that are alive',
++      'All Patients with minimum age of 40 years that are alive',
++    ]);
++    expect(adHocQueryBodies()).toHaveLength(2);
++  });
++
++  it('does nothing without URL params', async () => {
++    openBuilderAt('?tab=1');
++
++    await screen.findByText('Search History');
++    expect(adHocQueryBodies()).toHaveLength(0);
++    expect(window.location.search).toBe('?tab=1');
++    expect(screen.queryByText('This cohort builder link could not be opened')).not.toBeInTheDocument();
++  });
++});
+diff --git a/src/url-definition/use-url-definition.ts b/src/url-definition/use-url-definition.ts
+new file mode 100644
+index 0000000..407819d
+--- /dev/null
++++ b/src/url-definition/use-url-definition.ts
+@@ -0,0 +1,185 @@
++import { useEffect, useRef, useState } from 'react';
++import { useTranslation } from 'react-i18next';
++import { useConfig } from '@openmrs/esm-framework';
++import type { SearchParams } from '../types';
++import { type ConfigObject } from '../config-schema';
++import { createCompositionQuery } from '../components/composition/composition.utils';
++import { getSearchHistory } from '../components/search-history/search-history.utils';
++import {
++  buildSearch,
++  describeSearches,
++  LinkError,
++  type CohortDefinition,
++  readUrlRequest,
++  type Search,
++  URL_PARAMS,
++  type UrlRequest,
++} from './url-definition';
++import { fetchDisplayNames } from './url-definition.resources';
++
++interface UrlDefinitionHandlers {
++  runSearch: (searchParams: SearchParams, description: string) => Promise<boolean>;
++  showCohort: (cohortUuid: string) => Promise<boolean>;
++  showQuery: (queryUuid: string) => Promise<boolean>;
++  onHistoryChange: () => void;
++}
++
++/**
++ * Runs the definition, saved cohort or saved query named in the page URL, and removes it from the URL
++ * first, so each link runs once. Also runs links opened while the page is shown, such as from the
++ * omnibar. Returns why the last link could not be opened, if it could not.
++ */
++export function useUrlDefinition({
++  runSearch,
++  showCohort,
++  showQuery,
++  onHistoryChange,
++}: UrlDefinitionHandlers): string | null {
++  const { t } = useTranslation();
++  const { drugOrderSearchDefinitionKey } = useConfig<ConfigObject>();
++  const [error, setError] = useState<Error | null>(null);
++  const isRunning = useRef(false);
++  // A link opened while another is still running waits here; only the latest one is kept.
++  const queuedParams = useRef<URLSearchParams | null>(null);
++
++  useEffect(() => {
++    const handlers = { runSearch, showCohort, showQuery, onHistoryChange };
++
++    const runLink = async (params: URLSearchParams) => {
++      isRunning.current = true;
++      setError(null);
++      try {
++        await runRequest(readLinkRequest(params), handlers, drugOrderSearchDefinitionKey);
++      } catch (linkError) {
++        setError(linkError);
++      }
++      isRunning.current = false;
++
++      const nextParams = queuedParams.current;
++      queuedParams.current = null;
++      if (nextParams) {
++        runLink(nextParams);
++      }
++    };
++
++    const openLinkInUrl = () => {
++      const params = new URLSearchParams(window.location.search);
++      if (!URL_PARAMS.some((name) => params.has(name))) {
++        return;
++      }
++      // Removing the params before running is what makes a link run once: a reload, StrictMode's
++      // second effect or a later popstate finds nothing to run.
++      removeUrlParams();
++      if (isRunning.current) {
++        queuedParams.current = params;
++      } else {
++        runLink(params);
++      }
++    };
++
++    openLinkInUrl();
++    // The page stays mounted when another link to it is opened; single-spa's navigateToUrl fires popstate.
++    window.addEventListener('popstate', openLinkInUrl);
++    return () => window.removeEventListener('popstate', openLinkInUrl);
++  }, [runSearch, showCohort, showQuery, onHistoryChange, drugOrderSearchDefinitionKey]);
++
++  if (!error) {
++    return null;
++  }
++  if (!(error instanceof LinkError)) {
++    return error.message;
++  }
++  // The message is rendered as React text, which escapes it already; i18next escaping would show "&#x2F;".
++  return t(error.key, error.defaultMessage, { ...error.options, interpolation: { escapeValue: false } });
++}
++
++/**
++ * The link's request, or one plain error for any link that isn't valid. The reason stays out of the
++ * page: it can quote the link, and anyone can write a link.
++ */
++function readLinkRequest(params: URLSearchParams): UrlRequest {
++  try {
++    return readUrlRequest(params);
++  } catch (error) {
++    if (!(error instanceof LinkError)) {
++      // A bug, not a bad link. Its name only: the message could quote the link.
++      console.error(`Cohort builder: reading a link failed with ${error?.name ?? 'an error'}`);
++    }
++    throw new LinkError('invalidCohortLink', "This link isn't a valid cohort query");
++  }
++}
++
++function removeUrlParams() {
++  const url = new URL(window.location.href);
++  URL_PARAMS.forEach((name) => url.searchParams.delete(name));
++  window.history.replaceState(window.history.state, '', url);
++}
++
++async function runRequest(request: UrlRequest, handlers: UrlDefinitionHandlers, drugOrderSearchDefinitionKey: string) {
++  switch (request.type) {
++    case 'cohort':
++      if (!(await handlers.showCohort(request.uuid))) {
++        throw new LinkError('linkCohortFailed', 'The saved cohort could not be loaded');
++      }
++      return;
++    case 'query':
++      if (!(await handlers.showQuery(request.uuid))) {
++        throw new LinkError('linkQueryFailed', 'The saved query could not be run');
++      }
++      return;
++    case 'definition':
++      return runDefinition(request.definition, handlers, drugOrderSearchDefinitionKey);
++  }
++}
++
++/**
++ * Runs each criterion as its own search, then a composition ANDing them. If anything fails, the
++ * history entries this link added are removed again, so a link never leaves half of its searches behind.
++ * Every entry is described in the builder's own words for its criteria; the link's label is never
++ * shown, so a link can't call one population another.
++ */
++async function runDefinition(
++  definition: CohortDefinition,
++  { runSearch, onHistoryChange }: UrlDefinitionHandlers,
++  drugOrderSearchDefinitionKey: string,
++) {
++  const { criteria } = definition;
++  const names = await fetchDisplayNames(definition);
++  // 1-based history positions of the entries this link added. Searches run meanwhile from the tabs are not included.
++  const addedEntries: number[] = [];
++
++  const runAndRecord = async ({ searchParams, description }: Search) => {
++    if (!(await runSearch(searchParams, description))) {
++      throw new LinkError(
++        'linkSearchFailed',
++        'The search "{{description}}" failed, so none of this link\'s searches were kept',
++        { description },
++      );
++    }
++    // runSearch appends to the history just before it resolves, so the newest entry is this one.
++    addedEntries.push(getSearchHistory().length);
++  };
++
++  try {
++    const searches = criteria.map((criterion) => buildSearch(criterion, names, drugOrderSearchDefinitionKey));
++    for (const search of searches) {
++      await runAndRecord(search);
++    }
++    if (searches.length >= 2) {
++      await runAndRecord({
++        searchParams: createCompositionQuery(addedEntries.join(' AND ')),
++        description: describeSearches(searches),
++      });
++    }
++  } catch (error) {
++    removeHistoryEntries(addedEntries);
++    onHistoryChange();
++    throw error;
++  }
++}
++
++function removeHistoryEntries(positions: number[]) {
++  const history: unknown[] = JSON.parse(window.sessionStorage.getItem('openmrsHistory')) ?? [];
++  const remaining = history.filter((_, index) => !positions.includes(index + 1));
++  window.sessionStorage.setItem('openmrsHistory', JSON.stringify(remaining));
++}
+diff --git a/tools/i18next-parser-config.js b/tools/i18next-parser-config.js
+index d062559..b2075a4 100644
+--- a/tools/i18next-parser-config.js
++++ b/tools/i18next-parser-config.js
+@@ -15,7 +15,7 @@ module.exports = {
+   indentation: 2,
+   // Indentation of the catalog files
+ 
+-  keepRemoved: false,
++  keepRemoved: [/^translations:(invalidCohortLink|link[A-Z])/],
+   // Keep keys from the catalog that are no longer in code
+ 
+   keySeparator: '.',
+diff --git a/translations/en.json b/translations/en.json
+index fd6fde4..5c6a4bc 100644
+--- a/translations/en.json
++++ b/translations/en.json
+@@ -16,8 +16,12 @@
+   "clearSearchHistory": "Clear search history",
+   "clearSearchHistoryModalText": "Are you sure you want to clear the search history?",
+   "cohortBuilder": "Cohort Builder",
++  "cohortBuilderLinkError": "This cohort builder link could not be opened",
+   "cohortDeleted": "Cohort deleted",
+   "cohortDescriptionRequired": "Description is required",
++  "cohortMembersLimited": "Showing the first {{shown}} of {{total}} members",
++  "cohortMembersUnavailable_one": "{{count}} member could not be shown",
++  "cohortMembersUnavailable_other": "{{count}} members could not be shown",
+   "cohortNameRequired": "Cohort name is required",
+   "cohorts": "cohorts",
+   "cohortSaved": "Cohort created successfully",
+@@ -60,9 +64,13 @@
+   "haveNoObservations": "Patients who do not have these observations",
+   "haveObservations": "Patients who have these observations",
+   "highest": "Highest",
++  "invalidCohortLink": "This link isn't a valid cohort query",
+   "invalidComposition": "Composition is not valid",
+   "itemsPerPage": "Items per page:",
+   "lastDays": "and / or days",
++  "linkCohortFailed": "The saved cohort could not be loaded",
++  "linkQueryFailed": "The saved query could not be run",
++  "linkSearchFailed": "The search \"{{description}}\" failed, so none of this link's searches were kept",
+   "location": "Location",
+   "lowest": "Lowest",
+   "males": "Male",

@@ -194,6 +194,119 @@ Choices made while building PR 2 (`feat/slash-commands-query-results`).
 **A count row says what it counted.** The row's subtitle is the interpreted criteria in the builder's own description words, and a phrase the parser can't fully read gives no row rather than a guess. "On ART" and other drug phrases give nothing until the drug-order criterion is live.
 *Why:* "HIV patients" by program enrollment, by a coded obs and by an active ARV order are three different populations with three different numbers. Choosing between them is a refinement, which is the builder's job; the bar's job is to be plain about which one it counted.
 
+### Building cohort counts, steps 2 and 3
+
+Choices made while building [the cohort counts brief](briefs/2026-10-18-cohort-counts.md), steps 2 and 3, in the Cohort Builder repo. Step 1, the benchmark, is being run separately, so the numbers below that depend on it are starting points.
+
+**The work builds on the fork's existing branches (Paul, 2026-10-18).** The brief assumed `pbiondich/openmrs-esm-cohortbuilder-app` and `b8b1440` weren't there; the fork existed, and its `feat/omnibar-providers` already had `b8b1440` (the URL door), the four archived providers ported onto contract 1, and form fixes from Paul's and Hermes's sessions. So `feat/url-definition` starts at `b8b1440` and is brought up to the brief, and `feat/omnibar-providers` is the fork's branch with `feat/url-definition` merged in and the count provider added.
+*Why:* rebuilding from `main` would have thrown away reviewed work and later fixes for the same result.
+
+**The count row is a navigate-lane row under the ordinary default rules (Paul, 2026-10-18).** Not the answer lane, and no host opt-out from the default highlight. This supersedes the brief's "meta.lane 'answer'" and "a count row never takes the default highlight".
+*Why:* the host draws only answer text in the answer lane: no row, nothing arrow keys or Enter reach, and no "Unavailable right now". The brief's "never the default" was a reflex from the in-chart fail-closed rule; the provider is global-scope only, where any navigate row may be the default, and if "how many patients under 30" puts the count row first, Enter opening the builder with that definition is the right outcome. So the omnibar needs no code change for it.
+
+**The count row keeps the default highlight now that it's live (Paul, 2026-10-19).** No opt-out flag in the contract. Outside a chart, Enter on a count question opens the builder with that definition.
+*Why:* tried on o3 with cohort-builder-0f2daad; Enter opening the count is what someone asking "how many" wants.
+
+**The count row replaces the "Build cohort" row (Paul, 2026-10-18).** `omnibar-cohort-criteria-provider` leaves the builder's `routes.json`; `omnibar-cohort-count-provider` takes its order, 20. The builder-by-name, saved cohorts and saved queries rows stay.
+*Why:* both rows parse the same text into the same link, so the bar would show two rows for one definition.
+
+**A link's descriptions are the builder's own words; its `label` is never shown.** The history entries a `?definition=` link adds are described by each search tab's `getDescription`, ANDed for the composition, and the count row's subtitle is the same text. `label` is still accepted, so older links open.
+*Why:* "A count row says what it counted": a label in a link is text anyone can write, so it could call one population another.
+
+**Any invalid link shows one plain message.** "This link isn't a valid cohort query", never which part was wrong. A valid link whose search fails still says which search failed, in the builder's words.
+*Why:* the reason can quote the link (an unknown key, for one), and anyone can write a link.
+
+**Counting waits 600 ms of a still definition.** `omnibar.countDebounceMs`, default 600, on top of the host's 200 ms. The wait is per parsed definition, not per keystroke, so rewording ("how many …") doesn't restart it. Counts are remembered for the session, keyed by the day and the link.
+*Why:* a guess until step 1 measures the count calls on o3; set it from the benchmark's warm p50.
+
+**What the GET can carry: only a program enrollment on its own.** `GET reportingrest/cohort/<key>?v=ref` makes every required parameter mandatory (`EvaluatedResource.getEvaluationContextWithParameters`), and the built-in age definitions require `effectiveDate` and `encounterSearchAdvanced` requires all eight of its parameters, which the builder never sends. Only `patientsWithEnrollment` has `programs` as its one required parameter, passed as repeated `programs=<uuid>` query parameters. Everything else, including every demographics criterion (gender, age and "alive" are separate filters), goes through `adhocquery?v=rowFilters` with no columns, which leaves missing parameters open as the builder's own search does.
+*Why:* read in reportingrest and reporting `master`, 2026-10-18. Assumed, not run: that the GET converts a program uuid to a `Program` (`ConversionUtil`), and that `v=rowFilters` answers `{ result: { memberIds } }` as `AdHocRowFilterResults` serializes. Step 1 checks both on o3. `rowFilters` also returns each filter's own id set, so a demographics count still moves an id per living patient until `v=count` (step 5).
+
+**A link still runs on load; no "land without running" option yet.** The brief left that option to step 1. Not built.
+
+**`drugCriteriaEnabled` stays at the top of the builder's config**, not under `omnibar` as the brief lists it. Set on the fork earlier, and o3's config already uses it there.
+
+**Encounter types are read as "<alias> encounter", and none ship.** `omnibar.encounterTypes` defaults to empty: encounter type uuids are site content, and guessing the demo's would be wrong elsewhere.
+
+**The count needs Run Reports as well as Get Patients.** Reporting's `CohortDefinitionService.evaluate` checks Get Patients; Run Reports is what the builder's own search needs (`DataSetDefinitionService.evaluate`), so a user who can't use the builder never sees a count, however small.
+
+## 2026-10-19
+
+### Making the omnibar thin
+
+Decisions from [the thin-pass brief](briefs/2026-10-19-thin-pass.md): the bar keeps the shell, the slots, ranking and the contract, and stops knowing other apps by name.
+
+**The wristband scan on Enter stays with the built-in patient search only, as a deliberate safety exception (Paul, 2026-10-19).** For an ID-shaped query inside a chart, the one patient row that may take the default highlight is the one from `omnibar-patient-search-provider` in `@openmrs/esm-omnibar-app` (`builtInPatientSearch` in `omnibar.resource.ts`), holding exactly that identifier with no one else on screen. No `meta` flag grants it, and the contract gains none. Every other provider stays under the fail-closed rule: inside a chart a result naming another patient never takes the default.
+*Why:* a scanner types the ID and its own Enter at once, so whichever row holds the default is opened with no human look at it. The host can vouch for its own patient search, which matches identifiers exactly against the server's patient index. It can't vouch for another app's provider, and a grantable flag would let any app, buggy or not, decide which patient a scan opens. The cost is that an app with a better patient search can't take over scans; revisit only with a way for the host to check the match itself.
+
+**A view's `commandAsksModel` flag, not the id `ask`, decides which commands ask a model.** A Query results view that sets `commandAsksModel: true`, declares a `command` and names its model in `asksModel`, for the `patient` scope on a contract the host speaks, makes Enter under that command mark the submission, provided every other view Query results would mount under the same command sets the flag too, count any text that isn't ID-shaped as a question, and say "Enter to ask <asksModel> '…'". Anything else is an ordinary command, `ask` included. ChartSearch's answer view adds the one line to its `routes.json`, so `/ask` behaves as before. It is optional and additive, so the contract stays at 1. This supersedes the reasoning in "`/ask` + Enter asks ChartSearch on Query results" (2026-10-17) about where the rule lives, not the behaviour.
+*Why:* the omnibar shouldn't know ChartSearch's command by name, and another app's model command should get the same treatment without a change here. Requiring `asksModel` alongside the flag keeps the rule that the hint names the model before anything asks. Requiring every view under the command to set it (a review finding on this branch) keeps one app's flag from handing `submitted: true` to another app's view that shares the id, or from turning `lab`, which the chart values view declares, into a model command. A mixed command fails closed to ordinary.
+
+**The bar's hints name the model from `asksModel`.** "Enter to ask ChartSearch '…'" and "Ask ChartSearch '…'" are now "Enter to ask {{model}} '…'" and "Ask {{model}} '…'", with the model taken from the declaring view, as the "and ask …" hint already was.
+*Why:* same reason; the text reads exactly as before for ChartSearch.
+
+**A command any provider declares is never a model ask, and the views that flag a command must name one model (Grok review round 1).** `modelCommandIds` now also takes the providers assigned to the user: if any declares the id, the command is ordinary, so `/patient`, `/go` and `/lab` can't be turned into a model ask by another app's view, even with the chart values view removed from the slot. If two flagged views under one command name different models (after cleaning), the command is ordinary too. This tightens the flag entry above.
+*Why:* views mount per command, but the text under `/patient` is a name or a partial ID and under `/lab` a lab name; a flagged view from another app being the only view under such a command would have been told the user asked its model. And with two models, the hint could name one while the other was asked.
+
+**ChartSearch's flag deploys before or with this omnibar.** An omnibar from this branch with a ChartSearch build that lacks `commandAsksModel` treats `/ask` as an ordinary command: the hint says "Enter to see Ask ChartSearch for '…'" and nothing asks. That fails closed, but it's a regression for clinicians, so the ChartSearch build with the flag (chartsearchai `a14e073`) goes first or in the same window. An older omnibar ignores the flag, so ChartSearch can go first safely.
+*Why:* found in review round 1 (FIXES.md); a runtime fallback to the id `ask` would bring back the special case the brief removes.
+
+**The deprecated ChartSearch settings are deleted now, not after a release.** `chartSearchSuggestion.*` and `queryResults.askChartSearch` leave the config schema. A config that still sets them logs the framework's "Unknown config key" error and works otherwise. This supersedes "stay in the config schema for one release as no-ops" (2026-10-18).
+*Why:* the brief asks for no settings tied to one app before the omnibar is shared, and the settings already did nothing. If o3's config still carries `chartSearchSuggestion.enabled`, remove that line in the next deploy window.
+
+**The query store provider is its own app, `@openmrs/esm-querystore-app`, in `packages/esm-querystore-app/` of this repo.** This retires the exception "The query store chart provider stays in this repo as a built-in default" (2026-10-17) and builds §4A.1 of [the provider registration plan](design/provider-registration.md) in the smallest shape that deploys as today. The package has its own `package.json`, `routes.json`, config, translations and copy of the contract folder, and builds to its own bundle; it is not a yarn workspace, so `yarn.lock` and the install are unchanged, and the root's lint, type check, tests, build and translation extraction cover it. It registers only through the contract: its provider in `omnibar-providers-slot` with the same name, privilege and `meta` as before, plus a page that renders nothing on chart routes, which loads the module so its `startupApp` can warm each chart opened. A boundary test fails if its source imports anything of the omnibar's but its contract copy, if that copy drifts, or if the omnibar imports it. The omnibar's own deploy changes only by a smaller `routes.json`; the query store's goes in as a new versioned directory, importmap entry and routes registry entry, like the Cohort Builder's.
+*Why:* the brief puts the query store in its own app before the omnibar is shared. The plan's preferred home, a `frontend/` folder in `openmrs-module-querystore`, belongs to other maintainers, so it stays here as a clearly separate package until Paul proposes it there; moving it then is a folder copy. A workspace would have been the textbook shape but changes `yarn.lock` and the install for no gain yet.
+
+**Installing the query store app is the switch; `chartLookup.source` is deleted.** The plan's table holds: `rest` is the app not installed, `querystore` is the app installed with `omnibar-chart-lookup-provider` removed from `omnibar-providers-slot` by slot config, and `both` is both mounted. The comparison mode, where `both` left query store rows out of dedupe so a value showed twice, is gone: the provider sets `dedupeId` (`obs:<uuid>`) on its obs rows in every setup, and chart lookup keeps the copy, as plan rule 2 says. Warm-up on chart open follows the app's own `warmOnChartOpen` (default `true`) instead of `chartLookup.source`. The provider's heading stays "In this chart (query store)", the old `both` heading, since it can't tell whether chart lookup is mounted beside it.
+*Why:* the comparison mode was there for the benchmark rounds, which are done, and the plan never meant `chartLookup.source` to deploy. o3 never set it, so on o3 nothing changes until the app is installed. That's a call made under the brief rather than by Paul: if he wants the side-by-side duplicates back for another benchmark, the app's config can grow a flag for it.
+
+**The query store app moves to its own repo, [`pbiondich/openmrs-esm-querystore-app`](https://github.com/pbiondich/openmrs-esm-querystore-app) (Paul, 2026-10-19).** This supersedes "The query store provider is its own app … in `packages/esm-querystore-app/` of this repo" above, the same day. The package left this repo with its history (filtered from this one), and the build, lint, CI, turbo and dev-server changes made only for it were reverted as new commits. The standalone repo has the template's layout, its own copy of the contract folder pinned by hash, and tests against a fake host built on that copy. The host behaviour those tests used to check with the real omnibar (the default highlight waiting for a slower chart-values provider, indexing, dedupe, and removing chart lookup by slot config) is tested here in `src/conformance/` against a fixture provider. It may later live in the patient chart rather than on its own.
+*Why:* an app in this repo, however walled off, still reads as part of the omnibar, and the point of the thin pass is that every capability comes from the app that owns it. A repo of its own is how Cohort Builder and ChartSearch already work, and it can move again without touching the omnibar.
+### Cohort phrases: a phrase table and the server's vocabulary (Paul, 2026-10-19)
+
+**The cohort parser reads from a phrase table, not from code (layer 1).** Every word the count row understands is data, in the Cohort Builder's `src/omnibar/phrases/en.json`: stopwords, gender words, comparators, ranges, number words, year and month units, named age groups, and the words for enrolment, programs, drugs and encounters. A site adds phrases with `omnibar.phrases`, list by list, and can't remove any. The parser takes the reading that covers the most words, so "women of reproductive age" is one age group and not "women" followed by noise. A paraphrase set (`src/omnibar/paraphrases.test.ts`) checks hundreds of phrasings and every phrase in the table.
+*Why:* the variation in how people ask is mostly in the words, and words are cheap to add and check one by one. Embeddings would blur exactly what a count must not get wrong: "under 30" and "over 30" sit almost on top of each other as vectors, and so do "on ART" and "not on ART".
+
+**No standard phrase lexicon exists, so the table borrows from the nearest ones.** Comparators are named after FHIR's search prefixes (`lt`, `le`, `gt`, `ge`, `eq`): `under` is lt, `atMost` le, `over` gt, `atLeast` ge, `aged` eq, and `orUnder` and `orOver` are the same comparisons written after the number. Named age groups give their source in the table: WHO's adolescents (10 to 19), young people (10 to 24) and women of reproductive age (15 to 49); the UN's youth (15 to 24); the UN Convention on the Rights of the Child for children (under 18) and adults (18 and over); WHO and PEPFAR HIV reporting for paediatric (under 15); WHO and UNICEF for under-fives; WHO and the UN for older people (60 and over). MeSH's age groups disagree with some of these; the table says which source it follows. CLDR's rule-based number formats and Facebook's Duckling are the references for number words and units in other languages, when a table is added for one.
+*Why:* a shared vocabulary for the operators makes the table easy to map onto FHIR queries later, and a cited band can be argued with; the row's subtitle shows the numbers either way.
+
+**Negations and alternatives always end the reading.** The table's `never` list (not, no, without, except, or, nor, but, other and the like) can't be stopwords, and a site's stopword holding one is ignored. So "women not on ARVs" and "under 30 or over 60" give no row, while a phrase that contains such a word and means one bound ("not older than 29", "not under 30") is read as that bound.
+*Why:* a negation skipped as noise turns a question into its opposite and gives a confident, wrong count.
+
+**Bounds written as numbers narrow a named group.** "children under 5" is under 5, "adolescents under 15" is 10 to 14, and a bound outside the group ("adults under 10") leaves no one, so no row.
+
+**Months count only in whole years, and other units not at all.** The builder searches ages in whole years and reads an age of 0 as unset, so "under 24 months" is under 2, while "under 18 months" and "2 weeks old" give no row.
+
+**The count row knows the server's programs and encounter types (layer 2).** Once per user and language, when the row may first answer, it asks for programs (`uuid`, `name`, `retired`, and the names of the program's concept) and encounter types (`uuid`, `name`, `retired`), the first 100 of each. A program is known by its name, its concept's names in the user's language and English (CIEL gives most programs several), and each without a trailing "program" or "clinic". Config keeps its label for a program both name; the server's names become aliases. `omnibar.serverVocabulary` turns it off. The parser itself still makes no request.
+*Why:* this was "CIEL synonyms before any model": the names are already on the server, maintained by the people who run it, often in several languages, and a site no longer has to copy program uuids into config. The brief's "no network in the parser" holds: the request is the provider's, once, never per keystroke.
+
+**A name with one slip still matches, if only one does.** In words of five letters or more that aren't words of the phrase table, one letter added, dropped, changed or two swapped ("tuberclosis") matches a program, drug group or encounter type name, unless two names match as well.
+*Why:* misspellings are common at a keyboard in a clinic, and the subtitle shows the name it matched, so a slip that lands somewhere unexpected is seen before the number is trusted.
+
+### Counting by test results (Paul, 2026-10-19)
+
+Paul's decisions for counting patients by numeric test results; the plan is [the test results brief](briefs/2026-10-19-cohort-test-results.md).
+
+**The most recent result, unless the question says otherwise.** "ever" or "any", "first" or "baseline", "lowest" or "nadir", "highest" or "peak" and "average" choose another, and the row says which.
+*Why:* in clinic speech "patients with a viral load over 1000" means the latest result.
+
+**No time window unless one is typed.**
+
+**Units are the concept's, always.** A number is read in the concept's units, and the row shows them; a typed unit that isn't the concept's gives no row, and nothing is converted.
+*Why:* g/dL against g/L, or mg/dL against mmol/L, would count the wrong people silently.
+
+**Comparators mean what they say, for test values as for ages.** "Under 1000" is < 1000.
+
+**No small-count suppression in the bar.**
+*Why:* the users are clinicians with access to the data, and the builder lists the same patients on Enter.
+
+**Tests are found by name as people type, and Tab takes a completion.** The count row looks up the test name among the server's concept names, and the bar offers completions a user takes with Tab, which needs `completions` in the contract (additive, contract 1).
+
+**Later:** named clinical states (suppressed, advanced HIV disease, anaemia), "no result in the last 12 months", and coded results ("HIV positive").
+
+**Tests are known only by the concept dictionary's own names and synonyms (Paul, 2026-10-19).** No list of tests or shorthand in code or config. Where people's words are missing, the fix is a synonym in the dictionary. The row also reads each name without a trailing unit in brackets ("Weight (kg)" as "Weight"), which needs no list.
+*Why:* a list in the app is one more thing to maintain at every site, and drifts from the dictionary. On o3, CIEL already carries most of the shorthand (CD4, Hb, Hgb, BMI, SBP, DBP, Cr, Glucose, Blood sugar). The gaps the benchmark found, such as "viral load" and "VL" for HIV viral load (CIEL 856), are better added as synonyms or index terms in CIEL, or locally, where every app that searches concepts gains them.
+
 ## Open
 
 These came up but aren't decided yet.
@@ -201,4 +314,9 @@ These came up but aren't decided yet.
 - **Two values on the same date.** When a patient has two results for the same concept on the same date, should the dropdown show the most recently entered one, or say "2 results on this date"?
 - **Query results layout.** One merged page with a section per provider, or tabs by kind (values, notes, orders, answer)?
 - **Privileges for the query store's patient endpoints.** Is Get Patients enough, or Get Observations too? The provider's `routes.json` must match what the server requires (plan question 10).
+- **"How many HIV patients?"** The parser still reads a program only after "enrolled in" or before "program", so "HIV patients", "in HIV" and "patients with HIV" give no count row. Reading a bare program alias as enrollment would answer the brief's own example, saying in the subtitle that it counted enrollment, but it's a wider grammar than the archived parser allowed. Paul to decide.
+- **Do "under" and "over" include the endpoint?** Today "under 30" is 29 and younger and "over 40" is 41 and older, which the builder's form then shows. The brief doesn't say. Paul to decide.
+- **"cohort" in Patient lists' keywords.** The brief drops it from the Patient lists destination so "cohort" gives one row. Not built. Paul to decide whether it's still wanted with `/cohort` in place.
+- **`/cohort` inside a chart.** It's listed greyed, "Not available inside a chart", as `/lab` is outside one, rather than hidden. It can't be chosen. Keep or hide? Paul to decide.
+- **The invalid-link error layout.** On o3 the notification for an invalid link stretches into a full-height left column and pushes the builder's panels right. Cosmetic, in the builder. Fix in the builder, or leave for upstream? Paul to decide.
 - **When to warm a chart.** On every chart open, as built, or on the first omnibar open, as the plan recommended? Round 1's slow cold starts argue for indexing ahead of time either way (plan question 12).

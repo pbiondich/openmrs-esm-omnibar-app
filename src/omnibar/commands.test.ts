@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildCommandTable, type CommandTranslate, getOmnibarCommandConflicts, parseCommandInput } from './commands';
+import {
+  buildCommandTable,
+  type CommandTranslate,
+  getOmnibarCommandConflicts,
+  type OmnibarCommandEntry,
+  orderForListing,
+  parseCommandInput,
+} from './commands';
 import { type OmnibarProviderMeta, type OmnibarViewMeta } from './types';
 import routes from '../routes.json';
 import en from '../../translations/en.json';
@@ -235,6 +242,58 @@ describe('the slash-command alias table', () => {
     expect(table.byId.get('go').scopes).toEqual(['global', 'patient']);
   });
 
+  it('orders commands by lane, records then pages then answers then view-only ones, slot order within a lane', () => {
+    const table = buildCommandTable(
+      [
+        provider('ask', { lane: 'answer', command: { id: 'why', aliases: ['why'] } }),
+        provider('count', { lane: 'navigate', command: { id: 'cohort', aliases: ['cohort'] } }),
+        provider('patients', { lane: 'record', command: { id: 'patient', aliases: ['patient'] } }),
+        provider('pages', { lane: 'navigate', command: { id: 'go', aliases: ['go'] } }),
+        provider('chart', { lane: 'record', command: { id: 'lab', aliases: ['lab'] } }),
+      ],
+      [],
+      'en',
+      noTranslations,
+      [
+        {
+          name: 'answer',
+          moduleName: 'chartsearch-app',
+          meta: { scopes: ['patient'], command: { id: 'ask', aliases: ['ask'] } },
+        },
+      ],
+    );
+    expect(table.commands.map(({ id }) => id)).toEqual(['patient', 'lab', 'cohort', 'go', 'why', 'ask']);
+    expect(table.matching('').map(({ id }) => id)).toEqual(['patient', 'lab', 'cohort', 'go', 'why', 'ask']);
+  });
+
+  it('places a command by the earliest lane among its providers', () => {
+    const table = buildCommandTable(
+      [
+        provider('pages', { lane: 'navigate', command: { id: 'go', aliases: ['go'] } }),
+        provider('suggest', { lane: 'navigate', command: { id: 'lab', aliases: ['lab'] } }),
+        provider('chart', { lane: 'record', command: { id: 'lab', aliases: ['labs'] } }),
+      ],
+      [],
+      'en',
+      noTranslations,
+    );
+    expect(table.commands.map(({ id }) => id)).toEqual(['lab', 'go']);
+  });
+
+  it('still gives a contested alias to the first in slot order, whatever the lanes', () => {
+    const table = buildCommandTable(
+      [
+        provider('pages', { lane: 'navigate', command: { id: 'go', aliases: ['go', 'find'] } }),
+        provider('patients', { lane: 'record', command: { id: 'patient', aliases: ['patient', 'find'] } }),
+      ],
+      [],
+      'en',
+      noTranslations,
+    );
+    expect(table.commands.map(({ id }) => id)).toEqual(['patient', 'go']);
+    expect(table.resolve('find')?.id).toBe('go');
+  });
+
   describe('declared by Query results views', () => {
     const chartSearchModule = '@openmrs/esm-chartsearchai-app';
     const view = (name: string, meta: Partial<OmnibarViewMeta>, moduleName = chartSearchModule) => ({
@@ -297,9 +356,7 @@ describe('the slash-command alias table', () => {
 
     it('applies the commands config to a view’s command', () => {
       const views = [view('answer', { command: { id: 'ask', aliases: ['ask', 'question'] } })];
-      expect(buildCommandTable([], [{ id: 'ask', enabled: false }], 'en', askTranslations, views).commands).toEqual(
-        [],
-      );
+      expect(buildCommandTable([], [{ id: 'ask', enabled: false }], 'en', askTranslations, views).commands).toEqual([]);
       expect(
         aliasesOf(
           buildCommandTable([], [{ id: 'ask', aliases: ['q'], replaceAliases: true }], 'en', askTranslations, views),
@@ -335,6 +392,52 @@ describe('the slash-command alias table', () => {
         'omnibar-chart-values-view': { id: 'lab' },
       });
     });
+  });
+});
+
+describe('orderForListing', () => {
+  // The commands as o3 has them: Cohort Builder's count provider loads before the omnibar's own.
+  const table = buildCommandTable(
+    [
+      provider(
+        'count',
+        { lane: 'navigate', scopes: ['global'], command: { id: 'cohort', aliases: ['cohort', 'count'] } },
+        'cohort-app',
+      ),
+      provider('patients', { scopes: ['global', 'patient'], command: { id: 'patient', aliases: ['patient'] } }),
+      provider('chart', { scopes: ['patient'], command: { id: 'lab', aliases: ['lab'] } }),
+      provider('pages', { lane: 'navigate', scopes: ['global', 'patient'], command: { id: 'go', aliases: ['go'] } }),
+    ],
+    [],
+    'en',
+    noTranslations,
+    [
+      {
+        name: 'answer',
+        moduleName: 'chartsearch-app',
+        meta: { scopes: ['patient'], command: { id: 'ask', aliases: ['ask'] } },
+      },
+    ],
+  );
+  const listed = (scope: 'global' | 'patient') =>
+    orderForListing(table.commands, (command: OmnibarCommandEntry) => command.scopes.includes(scope)).map(
+      ({ id }) => id,
+    );
+
+  it('lists the commands available outside a chart first, Patients above Cohorts, then the greyed ones', () => {
+    expect(listed('global')).toEqual(['patient', 'cohort', 'go', 'lab', 'ask']);
+  });
+
+  it('lists the commands available in a chart first and Cohorts, greyed, last', () => {
+    expect(listed('patient')).toEqual(['patient', 'lab', 'go', 'ask', 'cohort']);
+  });
+
+  it('keeps the given order within each group and leaves the list it was given alone', () => {
+    const commands = ['a', 'b', 'c', 'd'].map((id) => ({ id, label: id, aliases: [id], scopes: [] }));
+    const given = commands.map(({ id }) => id);
+    const ordered = orderForListing(commands, (command) => command.id === 'b' || command.id === 'd');
+    expect(ordered.map(({ id }) => id)).toEqual(['b', 'd', 'a', 'c']);
+    expect(commands.map(({ id }) => id)).toEqual(given);
   });
 });
 

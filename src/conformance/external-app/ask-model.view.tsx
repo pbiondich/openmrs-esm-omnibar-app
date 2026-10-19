@@ -1,21 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { looksLikeQuestion, type OmnibarViewProps, withViewBoundary } from '../../omnibar-contract';
+import {
+  looksLikeIdentifier,
+  looksLikeQuestion,
+  type OmnibarViewProps,
+  withViewBoundary,
+} from '../../omnibar-contract';
 
 /**
- * A Query results view that asks a model, as ChartSearch's app registers one, with the contract folder
+ * A Query results view that asks a model, as another app would register one, with the contract folder
  * copied in and nothing else from the omnibar. It asks only about a question the user just submitted,
  * and stops when the host's signal aborts or the view unmounts. `ask` stands in for that app's request.
+ * With `command`, the id of the slash command its routes.json declares with `commandAsksModel`, any text
+ * under that command that isn't ID-shaped is a question, since the user said it is one.
  */
 
 export const askModelViewName = 'ask-model-query-results-view';
 
-export function askModelView(ask: (query: string, signal: AbortSignal) => Promise<string>) {
-  const AskModelView: React.FC<OmnibarViewProps> = ({ query, reportState, hints, submitted, signal }) => {
+export function askModelView(ask: (query: string, signal: AbortSignal) => Promise<string>, command?: string) {
+  const AskModelView: React.FC<OmnibarViewProps> = ({ query, context, reportState, hints, submitted, signal }) => {
     const { t } = useTranslation();
     const [answer, setAnswer] = useState<string | null>(null);
     // A host from before the hint was added doesn't pass it.
-    const question = hints?.looksLikeQuestion ?? looksLikeQuestion(query);
+    const question =
+      command && context?.command?.id === command
+        ? !(hints?.looksLikeIdentifier ?? looksLikeIdentifier(query))
+        : (hints?.looksLikeQuestion ?? looksLikeQuestion(query));
 
     useEffect(() => {
       if (!question || !submitted) {

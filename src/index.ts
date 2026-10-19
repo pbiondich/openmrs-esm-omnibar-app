@@ -2,7 +2,6 @@ import { defineConfigSchema, getAsyncLifecycle, getSyncLifecycle } from '@openmr
 import { configSchema } from './config-schema';
 import { withProviderBoundary, withViewBoundary } from './omnibar-contract';
 import { setupQueryHistoryClearing } from './query-results/query-history';
-import { setupWarmOnChartOpen } from './querystore/warm-on-chart-open';
 
 const moduleName = '@openmrs/esm-omnibar-app';
 
@@ -15,10 +14,6 @@ export const importTranslation = require.context('../translations', false, /.jso
 
 export function startupApp() {
   defineConfigSchema(moduleName, configSchema);
-  // A module-level listener rather than an extension in a patient-chart slot: it reuses the
-  // shell's own chart detection, fires exactly once per chart change, and does not couple to
-  // patient-chart-app slot names that can remount on sub-navigation within the chart.
-  setupWarmOnChartOpen(moduleName);
   // Query results history belongs to one login: cleared at logout or when another user logs in.
   setupQueryHistoryClearing();
 }
@@ -46,11 +41,6 @@ export const chartLookupProvider = getAsyncLifecycle(
 
 export const destinationsProvider = getAsyncLifecycle(
   () => import('./providers/destinations.provider').then(bounded('omnibar-destinations-provider')),
-  options,
-);
-
-export const querystoreChartProvider = getAsyncLifecycle(
-  () => import('./providers/querystore-chart.provider').then(bounded('omnibar-querystore-chart-provider')),
   options,
 );
 

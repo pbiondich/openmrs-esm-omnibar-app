@@ -1236,3 +1236,334 @@ The reviewer checked the merge against 5de0d24 (`submission.ts`, `query-history.
 - `src/omnibar-contract/` unchanged in this round.
 - chartsearchai head after the fixes: 1982021, 526 tests (525 at review), as its builder reports; not rerun from this session.
 - Tests: 722 in 20 files, unchanged. `yarn verify`: `Tasks: 3 successful, 3 total`, lint with no warnings. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+
+## Feature: cohort counts, steps 2 and 3 (the URL door and the count row, in the Cohort Builder's app)
+
+Built from [the cohort counts brief](docs/briefs/2026-10-18-cohort-counts.md), steps 2 and 3, in the Cohort Builder repo (`~/Projects/openmrs-esm-cohortbuilder-app`), on local branches of Paul's fork, `pbiondich/openmrs-esm-cohortbuilder-app` (remote `fork`). Nothing is pushed. Step 1, the benchmark, is being run separately. The choices are in `docs/decisions.md`, under "Building cohort counts, steps 2 and 3". The omnibar's code doesn't change: this repo gets only docs.
+
+The fork already existed, and its `feat/omnibar-providers` already held `b8b1440` (the URL door) and the four archived providers ported onto contract 1, so, by Paul's choice, the work builds on them. By Paul's later message, the count row is a navigate-lane row under the ordinary default rules, not the answer lane, and the host gets no opt-out from the default highlight. The host already accepts a second report for an unchanged query (`useResultCollector` keeps the newer report unless it is the same), so "Counting…" then the number needed no host fix.
+
+`feat/url-definition`, from `b8b1440`:
+
+| Change | Commit |
+| --- | --- |
+| Any invalid link shows "This link isn't a valid cohort query" and never the reason, which can quote the link. The decoder's 20 reason keys leave `en.json` | 77ca89f, 1d34759 |
+| A link's history entries are described in the builder's own words (each tab's `getDescription`, ANDed for the composition); its `label` is accepted but never shown | ede8edd, f2053c9 |
+| An `encounter` criterion, `{ type: 'encounter', encounterTypes: [uuid…] }` (1 to 10), searched and described as the Encounters tab does with only types chosen, named from `encountertype/<uuid>` | d1812fa, 4d4f2ad |
+| `encodeDefinition` beside the decoder (the same code as the fork's `dc147c7`, so the later merge is clean), and criteria → encode → decode → the same criteria, and the same link, over the golden fixtures | bea9987, 853289e |
+| The builder README's link section | 0844798 |
+
+`feat/omnibar-providers`, the fork's branch with `feat/url-definition` merged in (59fe6ca):
+
+| Change | Commit |
+| --- | --- |
+| The contract folder copied again, unchanged, from omnibar 31f7148 (`main`), pinned by hash, with this repo's import rule checked there too | 6369418, cf5800b |
+| The parser reads "how many", "count", "number of", "total", "what", "there", "have/had/has/having" as stopwords, and encounter types from the new `omnibar.encounterTypes` (none ship) as "<alias> encounter" | 85ee672, 44ff36f |
+| `composeQueries`: the Composition tab's composition, with its #744 renumbering, over queries in hand; `createCompositionQuery` now shares it | 9a5160c, 05fd242 |
+| `omnibar-cohort-count-provider` (order 20, navigate lane, global scope, Get Patients and Run Reports, `/cohort` and `/count`) replaces `omnibar-cohort-criteria-provider`. "Counting…", then "N patients" in the host's locale, with the builder's description as subtitle; the target is the builder's `?definition=` link. `definitionSearch` builds the same query the link runs last. A program enrollment alone is counted with `GET reportingrest/cohort/<patientsWithEnrollment>?v=ref&programs=…`; anything else with `POST adhocquery?v=rowFilters` and no columns. Counting waits `omnibar.countDebounceMs` (600) of a still definition, aborts on a new one, and is remembered for the session by day and link | c6ba10b, 5ba46d4 |
+| The builder README's omnibar section | 52c2ed3 |
+
+### Review round 1 (independent code review and security review, Claude): no blockers from either
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should: the count cache is module-level, so after a logout without a page load the next user on the workstation could be shown the last user's count without the server being asked | Counts are remembered per logged-in user, read from the framework's session store (not `useSession`, which suspends); another user, or none, starts afresh, and an answer is kept only if the user who asked is still the one logged in | 4221726, 32e8dbc |
+| security, should: `adhocquery?v=rowFilters` sends the matching internal patient ids, for the composition and each of its filters, to the browser, though only their number is read | Not removable without a server change. The resource's comment says so; the GET path for a lone enrollment returns only the count; `v=count` on `adhocquery` is step 5 of the brief | 32e8dbc |
+| code, nit: `readLinkRequest` turns any error into the invalid-link message, which would hide a bug | A non-`LinkError` logs its name (not its message, which could quote the link) before the plain message | 6b31bfc, merged at f966e18 |
+
+Not fixed, and why:
+
+- code, should: a drug group's subtitle says "Patients who taking 13 drugs …", not "ARVs". The subtitle is the builder's own `getDescription` text, which has no drug-group idea; the group's label would describe the count in words the builder doesn't show after Enter. Drug criteria are off by default until the server can run them; revisit then.
+- code, nit: `enrollmentPrograms` relies on a JSON round trip to drop the parameters the tabs leave undefined. It carries a comment saying so.
+
+### Review round 2 (re-check of round 1's fixes, code and security, Claude): no blockers from either
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, should, and security, nit: `remember` refused to keep a count answered after the user changed, but the row still showed it, and with the key unchanged it stayed shown to the new user | An answer or error asked for by a user no longer logged in is dropped, and the count is asked again for the user logged in now. Tested with a switch while the request is in flight: the first user's number is never reported | 7a10da4, 3071a8f |
+| code, nit: `initial()` may clear the previous user's counts while rendering | A comment: repeating it changes nothing, so a replayed render can't lose or loop | 3071a8f |
+| security, should (server): `adhocquery?v=rowFilters` evaluates only cohort definitions, which reporting gates on Get Patients, so a user with Get Patients but not Run Reports can call it directly and get patient ids. Round 1's report had it as Run Reports; it corrected itself | Not this change's to fix: the gap is in reportingrest, and the count row asks for both privileges. Noted for the `v=count` proposal (step 5), which should add a Run Reports check on that path | — |
+
+### Review round 3 (re-check of round 2's fix, code and security, Claude): no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, should (borderline): a session that changed user on every answer would ask again without end, one request per round trip, though never showing a count to the wrong user | At most three re-asks, then a plain error. Tested with the user changing during every request: four requests, then the error | 181cc5e, fd8b2a4 |
+
+- Tests: `feat/url-definition` 173 at `b8b1440`, 198 after; `feat/omnibar-providers` 589. `yarn verify`: `Tasks: 3 successful, 3 total` on both branches. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit, on both.
+- reportingrest and reporting APIs read in source (`master`, 2026-10-18): `EvaluatedResource.getEvaluationContextWithParameters`, `EvaluatedCohortResource`, `AdHocQueryResource`, `BuiltInCohortDefinitionLibrary`, `MappedParametersQuery`, the services' `@Authorized`. Assumed, not run: the GET converts a program uuid to a `Program`, and `v=rowFilters` answers `{ result: { memberIds } }`. Step 1 checks both on o3.
+- No new origin: every request goes through `openmrsFetch` to the OpenMRS server.
+- `feat/url-definition` merges onto the builder's `main` without conflicts; it is in [`docs/upstream/`](docs/upstream/) as a proposal, not opened upstream.
+- Tried live on o3 on 2026-10-19 at 0f2daad, after the round below; see "Deploy" at the end of this section.
+
+### Review round 4 (Grok 4.7 Fast xhigh, code and security, on fd8b2a4): REQUEST CHANGES
+
+The branches came from Paul's machine as a git bundle, as `m5/feat/url-definition` (6b31bfc) and `m5/feat/omnibar-providers` (fd8b2a4) on hermes. The fixes are new commits on `m5/feat/omnibar-providers`, by Opus. Nothing was rewritten and nothing is pushed.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| blocking: a count already on screen stayed there when the logged-in user changed. Round 2 covered only an answer still in flight; the hook never followed the session, and the key didn't change | The hook follows the session user. On a change the row shows "Counting…", the user's counts are cleared, the request is aborted and the count is asked again for the new user, without waiting out the debounce again. Tested on one mounted row: user A's settled "7 patients" is never shown to user B | 0bb747d, bce4a53 |
+| should: `yarn extract-translations` deleted `omnibarCommand.cohort.aliases`, `.label` and `.description` from `en.json`, since nothing calls `t()` with them and `keepRemoved` didn't match, and added `viewFailed` from the vendored contract folder | `keepRemoved` also matches `/^translations:omnibarCommand(\.\|$)/` (the reviewer's regex without `$` never matched the bare parent key), and the extract no longer scans `src/omnibar/omnibar-contract/`. A test runs the real extract on a copy of `en.json` and expects it unchanged | 41e22f2, d553208 |
+| should: a 4xx or 5xx reply was a plain error, not "Unavailable right now" as the brief says | A failed `openmrsFetch` reports `status: 'error'` with `detail.state: 'unavailable'`, never the server's text. An answer that can't be read, and the give-up after three re-asks, stay plain errors | aef0d64, 0f2daad |
+
+Not fixed, and why (nits, left for later or for Paul):
+
+- nit: `countDebounceMs` accepts 0, which would count per keystroke.
+- nit: the day in the cache key doesn't change at midnight while the row stays mounted.
+- nit: `CohortCriteriaFallbackParser` is exported and unused. Kept as the slot the brief asks the design to leave for a model fallback.
+- open, for Paul: the default highlight, a bare program word, and the under/over endpoints. See Open in `docs/decisions.md`.
+
+Re-check of fd8b2a4..0f2daad (Grok): APPROVE WITH NITS. One nit: the new user-change test settles the timers after the switch, so it would still pass if the re-ask waited the full 600 ms.
+
+- Tests: 592 at 0f2daad (39 files). `yarn test`, `lint`, `typescript`, `build` and `extract-translations` pass, and the tree stays clean after the extract.
+- The contract folder is byte-identical to omnibar `main` at 014c01c.
+- The built bundle's absolute URLs are library doc strings only, the same set as 6168e3b. No new origin.
+
+### Deploy: cohort-builder-0f2daad live on o3
+
+Paul approved the deploy at 10:59 PM PT on 2026-10-18. Homelab switched o3 over at 8:36 AM ET on 2026-10-19, from cohort-builder-6168e3b, which is the rollback point. One versioned directory and the importmap and routes overrides changed. There was no restart and no config change, and the omnibar (014c01c) and chartsearchai (1982021) are unchanged. In the routes entry, only `omnibar-cohort-criteria-provider` became `omnibar-cohort-count-provider`, with `meta.command` `{ id: 'cohort', aliases: ['cohort', 'count'] }`.
+
+Smoke tests as admin, with Playwright:
+
+1. Pass. "how many women aged 15-49 enrolled in HIV?" shows one row: "Counting…", then "0 patients". The subtitle reads "Female Patients with ages between 15 and 49 years that are alive AND Patients enrolled in HIV Care and Treatment". There was one `adhocquery?v=rowFilters` 0.77 s after the last keystroke, and no request per keystroke. The demo data has no HIV enrollments. "how many women aged 15-49" gives 1,296, also through `rowFilters`, as decided for demographics.
+2. Pass. "/" lists Cohorts, `/cohort` `/count`, first. Either alias picks the chip, and under it "women aged 15-49" shows only the count row.
+3. Pass. Enter opens `cohort-builder?definition=…`, and the builder shows the same totals (1,296 and 0).
+4. Pass. `?definition=garbage` shows "This link isn't a valid cohort query" once, without quoting the link.
+5. Pass. In a chart there's no count row and no reportingrest call. `/cohort` is listed greyed, "Not available inside a chart", and can't be chosen. The step 3 checks (`hb`, a question to ChartSearch, `/ask`) still pass.
+6. Saved cohorts pass. Saved queries weren't tested: o3 has none, and saving one is a database write.
+7. Pass. No origin other than o3.pgb.md, no page errors, and only the known console lines.
+
+Not run: the second-user check on one tab, since no users may be created on o3.
+
+Seen, cosmetic: the invalid-link notification stretches into a full-height left column and pushes the builder's panels right.
+
+## Feature: make the omnibar truly thin (PR #31)
+
+Built from [the thin-pass brief](docs/briefs/2026-10-19-thin-pass.md) on `feat/thin-pass`, with one commit in ChartSearch's app (`openmrs-esm-chartsearchai`, local branch `feat/ask-flag`). Nothing is pushed. The choices are in `docs/decisions.md`, under "Making the omnibar thin".
+
+| Change | Commit |
+| --- | --- |
+| The bar's ask hints name the model from the view's `asksModel` ("Enter to ask {{model}} '…'") | 25c349f |
+| `commandAsksModel`, an optional view `meta` flag, decides which commands mark the submission and ask a model; the id `ask` means nothing to the omnibar | ffeb327, 8949eb1 |
+| ChartSearch's answer view sets `commandAsksModel: true`, so `/ask` works as before | csai a14e073 |
+| The deprecated ChartSearch settings are deleted, and contract and code comments use neutral examples | e86878d |
+| The wristband scan on Enter stays with the built-in patient search, recorded as a safety exception | 2f08c15 |
+| A view from another app, built only on the contract folder, declares `/consult` with the flag and gets `/ask`'s behaviour; without the flag the command stays ordinary | f4c3cca |
+| The query store provider and its warm-up on chart open move into their own app, `packages/esm-querystore-app/`, with a boundary test; `chartLookup.source` and its comparison mode go | d04e638, 3b14cf7 |
+| Docs: the contract, slash-command design, README, AGENTS.md and decisions.md | 69b5c57, e3cc811 |
+
+### Review round 1 (independent code review, Claude Opus, and security review, Claude Sonnet, on e3cc811): no blockers from either
+
+Grok wasn't available in this harness, so the two reviews ran on different Claude models.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should, and code, nit: the flag was decided per command id, while views mount per id. One app's flagged view under `lab` would make Enter under `/lab` hand `submitted: true` to every other view declaring `lab`, and the hint could name an unflagged view's model | A command asks a model only when every view Query results would mount under it is flagged with a usable `asksModel`; a mixed command fails closed to ordinary. Tested both ways round, and in the bar | b529b73 |
+| security, nit: `asksModel` was shown as written, so direction controls or a long name could spoof or stretch the hint | Cleaned as command labels are: one line, no direction controls, at most 40 characters | b0dbb80 |
+| code, should: the CI artifact got a second path, which moved its root to the repo, so the release job's `dist/` would have held `dist/dist/…` | The query store app's dist is its own artifact, `querystore-dist` | 3783e7b |
+| code, should: nothing in ChartSearch's repo pinned the flag, so deleting the line would quietly make `/ask` ordinary | A test pins `asksModel` and `commandAsksModel: true` on the view; it fails with the line removed | csai 09ba410 |
+| code, nit: the conformance fixtures' "Model", "Saved lists" and "Unavailable right now" shipped in `translations/en.json` | `extract-translations` skips `src/conformance/**` | 00df3ac |
+
+Not fixed, and why:
+
+- code, should: a new omnibar with an old ChartSearch build (no flag) makes `/ask` ordinary. It fails closed: the hint stops promising an answer and nothing asks. Deploy ChartSearch's flag first or in the same window; decisions.md says so.
+- code, nit: a view could set the flag on a command only providers declare, such as `go`. The hint says Enter will ask before it does, and a view that declares a command gets Enter sent to Query results anyway, so this is within the contract.
+- security, nit: `runAgain` on Query results marks without checking the command is still offered. Unchanged from before (`ask` did the same); the page fails closed and the mark expires.
+- code, nit: the first half of the page test for a made-up command calls `markSubmitted` directly, so it doesn't prove the flag. Its second half and f4c3cca's conformance test do.
+- code, nit: `modelCommandIds` wants `scopes` to be a list, while the page also mounts a view whose `scopes` is the string `"patient"`. Such a view's command is ordinary, which fails closed.
+- code, nit: with chart lookup removed by slot config, the query store's heading reads "In this chart (query store)" where the old `querystore` mode said "In this chart". The provider can't tell what else is mounted; decisions.md records it.
+- code, nit: `yarn start` serves the omnibar only. Serving the query store app in development isn't scripted yet; nothing was tried.
+- security, nit: installing the query store app turns warm-up on by default, where `chartLookup.source` used to default to off. Recorded in decisions.md; `warmOnChartOpen: false` turns it off.
+
+### Review round 2 (re-check of round 1's fixes, code and security, Claude Opus, on 00df3ac): no blockers
+
+All five fixes hold. `modelCommandIds` uses the same "would mount" test as the page and the bar, a malformed `meta` makes the command ordinary, and a model name that cleans to nothing does too, so the bar never marks without naming a model.
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| nit: the release job downloaded every artifact, so `querystore-dist/` would have been packed into the omnibar's npm package (`yarn pack --dry-run` packs gitignored folders, since `.npmignore` lists only `node_modules`) | The release job downloads only `dist`, into `dist/` | d390892 |
+
+Not fixed, and why:
+
+- nit: a zero-width character (U+200B) survives `cleanText`, so a view could name its model with nothing visible: "Enter to ask  '…'". The hint still says Enter asks, and command labels behave the same; strip zero-width characters in `cleanText` if it's ever seen.
+- nit: two flagged views under one command with different `asksModel` names get one name in the hint, the first in page order, though both are asked. Both apps opted in; the same holds for a plain question today.
+
+- Tests: 770 in 24 files (`yarn verify`: `Tasks: 3 successful, 3 total`). csai: 527 in 20 files, lint and type check clean.
+- No new dependency or origin: `package.json`'s dependencies and `yarn.lock` are unchanged, and the query store app has only peer dependencies and calls the OpenMRS server through `openmrsFetch`.
+- Not tried live on o3.
+
+### Follow-ups (Paul, 2026-10-19)
+
+| Change | Commit |
+| --- | --- |
+| The asksModel comment b0dbb80 left as one long line is rewrapped, and the query store app's copy matches | 7ba5078 |
+| ChartSearch's contract copy refreshed from 7ba5078: it gains `commandAsksModel` and the neutral comments. Its lint, type check and 527 tests pass | csai 9c389e1 |
+| `yarn start:querystore` runs `openmrs develop --sources . --sources packages/esm-querystore-app`. Tried with `--backend` pointed at a closed port: both dev servers came up (ports 8092 and 8093), each served its bundle, and the dev import map listed `@openmrs/esm-omnibar-app` and `@openmrs/esm-querystore-app` at those local URLs. The app shell's own import map fell back to dev3.openmrs.org, as `yarn start` does; nothing was tried in a browser | 39dc44c |
+| The "query store only" setup checked through the real framework: `@openmrs/esm-routes` registers both apps' `routes.json`, the omnibar registers the slot, and `@openmrs/esm-config` takes `{"@openmrs/esm-omnibar-app": {"extensionSlots": {"omnibar-providers-slot": {"remove": ["omnibar-chart-lookup-provider"]}}}}`. The slot then holds patient search, destinations and the query store provider, against all four without it; a user without Get Observations gets neither chart-values provider. With the config line taken out, the test fails. This framework version merges `extensionSlots` from any module's config by slot name (`getExtensionSlotConfigs` in esm-config), so the key could sit under either app. The bar's behaviour with chart lookup absent is covered by `omnibar-integration.test.tsx` | this commit |
+
+### The query store app moves to its own repo (Paul, 2026-10-19)
+
+The package in `packages/esm-querystore-app/` becomes the standalone repo `pbiondich/openmrs-esm-querystore-app`, built locally at `~/projects/omnibar/thin-pass/querystore` (branch `main`, no remote; Paul creates and pushes it). This supersedes `start:querystore` and the package's own `query-store-only.test.ts` in the follow-ups above.
+
+The standalone repo keeps the provider's history: `git filter-repo` on a clone of 4ab87d8, with the provider's earlier paths renamed to where the package had them, kept 60 commits from "Add a query store chart provider and warm charts on open" on, and its tree at the tip equals the package's at 4ab87d8. Nine commits on top give it the template's tooling (rspack and vitest, as the template uses today, not webpack and jest), CI with no publish job, a README, and tests that no longer reach into the omnibar: a fake host built on its contract copy, the copy pinned by SHA-256 to the omnibar's folder at 4ab87d8, the path parser against a fixed table of the omnibar's answers, and its `routes.json` through the framework's own stores. In that repo, `yarn install --immutable`, `verify` (7 files, 165 tests), `build` and `extract-translations` pass on a fresh clone.
+
+In this repo:
+
+| Change | Commit |
+| --- | --- |
+| The host behaviour the app's integration tests checked with the real omnibar is checked here against a fixture second chart-values provider, `external-app/chart-index.provider.tsx`, in `chart-values-source.test.tsx` (18 tests); the slot config that removes chart lookup in `slot-config.test.ts` (3 tests, through the framework's own stores). Each went red under at least one deliberate break of the host or the registrations | 565a7e2 |
+| The package is deleted, and the build, lint, prettier and extract-translations scripts and the eslint ignores go back to the omnibar alone, keeping 00df3ac's conformance exclusion | 6839e80 |
+| `start:querystore` removed (package.json part of 39dc44c) | 2c79f9c |
+| 3b14cf7, 3783e7b and d390892 reverted; `.github` and `.turbo.json` match 32ca7d6 again | 1f60e01, 0ec6e9b, fbfc3a2 |
+| README, AGENTS.md, decisions.md, the contract's registries and the briefs index point at the new repo | this commit |
+
+Not ported, because they test the provider rather than the host: no index request for a scanned ID, the group title, and the query store's response shapes. They stay in the new repo's own tests.
+
+The wristband case already had host coverage in `omnibar.test.tsx` (a second chart-values provider that skips identifier queries), so it wasn't ported again.
+
+### Review round 1 (Grok, code, on ff188bb and the query store repo): CHANGES REQUESTED
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| blocker: `modelCommandIds` looked only at views, so another app's flagged view could be the only view under `patient` or `go`, or under `lab` once the chart values view was removed from the slot, and Enter would tell it the user asked its model | A command any provider assigned here declares is ordinary, in the bar, on the page and in the hint. Tests first, red then green: `/patient`, `/go` and `/lab` (with only the flagged view in the slot) in the bar, the same three for an earlier query on the page, and the unit case. An ID-shaped query under `/patient` still opens the highlighted patient; that test passes before and after, as a guard | 93120a0 |
+| minor: two flagged views under one command could name different models; the hint named the first, and both were asked | The command is ordinary when the cleaned names differ; one shared name keeps the hint. Red then green in the bar and the unit test | 8382bda |
+| nit: the README said `/lab` can never bring up a view that asks a model | It now says a view declaring `lab` is never told it was asked, and that `/patient`, `/go` and `/lab` never ask. The contract comment, the contract doc and AGENTS.md say the provider rule too | b89ca30 |
+
+The contract comment changed, so the copies follow: the query store repo's copy and its pinned hash (querystore 3c4fdcf; its hash test went red on the old hash first), and ChartSearch's (csai 52cb38c; lint, type check and 527 tests pass).
+## Feature: cohort phrases, a phrase table and the server's vocabulary (in the Cohort Builder's app)
+
+Paul asked for layers 1 and 2 of the plan for the variety of ways people ask for a cohort: a large phrase table for the words, and the server's own names for programs and encounter types (CIEL synonyms before any model). Built on the Cohort Builder fork's local branch `feat/cohort-phrases`, from `feat/omnibar-providers` at `fd8b2a4`. Nothing is pushed. Round 4's fixes at `0f2daad` (hermes) came later by git bundle and are merged in; see the end of this section. The choices are in `docs/decisions.md`, under "Cohort phrases: a phrase table and the server's vocabulary".
+
+| Change | Commit |
+| --- | --- |
+| Layer 1. `src/omnibar/phrases/en.json` holds every word the parser knows: stopwords, `never` (negations and alternatives, which can't be stopwords), gender words, comparators named after FHIR's search prefixes (`under` lt, `atMost` le, `over` gt, `atLeast` ge, `aged` eq; `orUnder` and `orOver` after the number), range words, number words, year and month units, ten named age groups each with its source, and the enrolment, program, drug and encounter words. `phrase-table.ts` tokenizes (NFKC, symbols such as `≤` as their own tokens, digits apart from letters) and compiles the table with a site's `omnibar.phrases` additions. The parser takes the reading that covers the most words, reads months only in whole years, lets numbers narrow a named group, and matches a program, drug group or encounter type name with one slip in a long word when only one name matches. `src/omnibar/paraphrases.test.ts`: about 180 phrasings with the criteria each gives, 50 that must give nothing, a generated case for every phrase in the table and every number from 1 to 99 in words, and checks that the table holds together | 355d1d8, 74a9b9c |
+| Layer 2. `src/omnibar/vocabulary.resource.ts` asks once per user and language, when the row may first answer, for programs (with their concept's names) and encounter types, the first 100 of each, and merges them with config: config's label wins, the server's names become aliases, and a program is also known without a trailing "program" or "clinic". `omnibar.serverVocabulary` turns it off. A refused or failed request leaves config alone, quietly | 1769203, f16bd7c |
+| The builder README | 6b2a376 |
+
+### Review round 1 (independent code review and security review, Claude): one blocker, from security
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, blocker: only stopwords were checked against `never`, so a site adding "not" to `programLinkers` (or "except" to `enrolled`, "not" to `drugVerbs`, "or" to `encounterNouns`) would make "patients not HIV program" count HIV enrolment | An added phrase, or added age group phrase, holding any `never` word is dropped from every list. The shipped table keeps its reviewed phrases, such as "not older than". Tested list by list | 9ddb298, 45f7803 |
+| security, should: the vocabulary stayed in memory after a logout until another user's bar replaced it | A one-time subscription to the session store forgets it as soon as the user changes or logs out, bar open or not | 34a9a06, a7e3000 |
+| security, should: the program words were rebuilt for every program | Worked out once per answer | a7e3000 |
+| security, nit: `omnibar.phrases` was cast without a check | Read only when it is an object | a7e3000 |
+| code, should: two named groups intersected silently ("adolescent adults" was 18 to 19) | Two named groups give no row; one group with a gender or numbers still reads | 86c1aef, 69b8575 |
+| code, should: every name was tokenized at every position on every keystroke | Each item's names are tokenized once, cached per item | 69b8575 |
+| code, nits: why "under 1" gives nothing, and why "from age" is in two lists | Comments in the parser and the table | 69b8575 |
+
+Not fixed, and why:
+
+- security, nit: a concept's voided names become aliases, since REST doesn't say which names are voided. Documented; a voided name is still a name the concept once had.
+- code, nit: a site can add phrases in another script, which then match text in that script. That's how a table for another language would start.
+
+A reviewer's throwaway probe test was swept into 9ddb298 by `git add -A`; ad65803 removes it.
+
+### Review round 2 (re-check of round 1's fixes, code and security, Claude): no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should: the tokenizer drops apostrophes, so a site adding "isn't" or "don't" as a program linker got "isnt" past `never` | `never` lists contracted negations as the tokenizer writes them ("isnt", "dont", "cant", "wont" and the rest), plus "excl" and "neither". Tested for each in an added list | 11bc5e0, cce5fe1 |
+| code, nit: `following` is set for the page's life while `forgetServerVocabulary` resets only the vocabulary | A comment says so | 12c8355 |
+
+Not fixed, and why:
+
+- security, nit: a lookalike from another script (Cyrillic "о" in "nоt") in a site's added phrase isn't a `never` word after NFKC. It needs a site to add it on purpose and users to type the same characters.
+
+- Tests: 589 on `feat/omnibar-providers` at `fd8b2a4`; 1,171 at `12c8355`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- REST checked in source (`openmrs-module-webservices.rest` `master`): a concept name's representation has no voided flag, and pages default to 50, hence `limit=100`. Assumed, not run: that `concept:(names:(name,locale))` is accepted in a program's custom representation on o3.
+- No new origin: the two new requests go to the OpenMRS server through `openmrsFetch`.
+- Not tried on o3 or in a browser.
+
+### Round 4's fixes merged in
+
+Round 4's branch came from hermes as a git bundle (`m5/feat/omnibar-providers`, head `0f2daad`, verified with `git bundle verify`), fetched as the local branch `round4`, and merged into `feat/cohort-phrases` at `91e5e25`, with a merge, not a rebase. It builds on `fd8b2a4`, as this branch does, and merged without conflicts: its count-hook, extract and unavailable fixes don't touch the parser, the phrase table or the vocabulary.
+
+- Tests: 1,174 at `91e5e25`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
+- Still local: nothing is pushed.
+
+## Feature: counting by test results (in the Cohort Builder's app)
+
+Built from [the test results brief](docs/briefs/2026-10-19-cohort-test-results.md), steps 1 to 3 and 5, on the Cohort Builder fork's local branch `feat/cohort-tests`, from `feat/cohort-phrases` (which has round 4's `0f2daad`). Nothing is pushed. Step 4, completions in the host, is the omnibar's `feat/report-completions`, logged in its own branch's FIXES.md; this branch carries a copy of that contract folder and must be recopied from `main` once it merges. Step 6, the benchmark, is in [docs/results/](docs/results/2026-10-19-cohort-test-benchmark/README.md). Paul's decisions are in `docs/decisions.md`, "Counting by test results".
+
+| Change | Commit |
+| --- | --- |
+| The Concepts tab's search moves into `search-by-concepts.utils.ts`; its description now gives the comparison and units ("Patients with most recent HIV viral load > 1000 copies/mL"), and "within the last" searches from that day on, where it used to search until it | 586aa03, 21d7406 |
+| Links accept `numericObs`: concept, `lt`/`le`/`eq`/`ge`/`gt`, a value in the concept's units, which result (latest by default) and a window; the builder checks the concept is numeric on the server before running, and refuses the link otherwise | eeff685, b22e525 |
+| The parser reads "<which> <test> <comparison> <value> [units] [window]", with its words in the phrase table; a unit typed must be the concept's; thousands and decimals read; and it names the words a lookup should search for | 02d2750, cad0f81, 7749628, d4ae6cd |
+| The count row looks each test up by name among the server's numeric concepts, debounced, remembered per user, by every name and synonym the concept has in any language and each without a trailing bracketed unit, and counts it through `adhocquery?v=rowFilters`; `omnibar.testResults` turns it off | ca06224, 5848888, e0300ef, cf80f34, 3915e54, 2253242, 2a847f6, 4efbe86 |
+| The count row reports completions: the test name being typed, from the lookup, and a program after "enrolled in", from the known programs | be94064, cc6a967, e1e5e09, b85df2a, 9436a55, 86db44d |
+| The builder README | 040fc6d |
+
+### Review round 1 (independent code review and security review, Claude): no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| security, should: "patients with Mary Achieng" sent "mary achieng" to concept search, since stopwords counted as words before it | Words still being typed are looked up only after a real criterion or a result word, never after stopwords alone | c76eff2, ec910bc |
+| code, should: "in the last 1000 days" couldn't be read, since the window took at most three digits | Up to four digits, bounded by the link's 3,650 days | e3a0719, 2f03b1e |
+| code, should: the label said "latest" where the builder says "most recent" | The builder's words | e3a0719, 2f03b1e |
+| code, nit: `toTests` took a locale it no longer used | Dropped | 2f03b1e |
+
+Paul's decision during the round (2026-10-19): tests are known only by the dictionary's names and synonyms, every one in every language; no list in code or config (4efbe86, 2253242).
+
+### Review round 2 (re-check, and the count row's completions, code and security, Claude): no blockers
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, should, and security, nit: a 120-character name made a 121-character insert, which the host drops | Such names are skipped, never cut | 695fac0, 0290d48 |
+| code, nit: no comment on why `typedLength` gives up when NFKC changes the text's length | A comment | 0290d48 |
+
+Not fixed, and why:
+
+- security, accepted: after a real criterion, words still being typed are looked up, so "women with Mary…" sends "mary" to concept search on the OpenMRS server itself. The row can't tell a name from the start of a test's name there; text after stopwords alone never goes. For Paul to weigh.
+- On o3 HIV viral load (CIEL 856) has no results, and its only name is "HIV viral load", so "VL" and "viral load" need adding as synonyms before they read (decided: dictionary, not code).
+
+- Tests: 1,174 on `feat/cohort-phrases`; 1,326 at `0290d48`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
+- REST and reporting read in source: concept search passes no datatype filter (so the row filters to numeric itself); `numericObsSearchAdvanced` applies the window before choosing the latest, earliest, lowest, highest or average, as the descriptions say.
+- Not tried on o3 or in a browser.
+
+### Replayed onto the fork and pushed (Paul, 2026-10-19)
+
+The local `feat/url-definition`, `feat/omnibar-providers` and `feat/cohort-phrases` had diverged from the fork, which held the same work under other hashes plus a later phrase session's commits. The local branches now track the fork, and the 29 commits above were replayed onto the fork's `feat/cohort-phrases` (`eab23e5`), so the hashes in the tables above are the pre-replay ones. The pre-replay tip, `0290d48`, is on the fork as `wip/cohort-tests-local`.
+
+| Conflict | Resolution | Commit |
+| --- | --- | --- |
+| The tokenizer: the phrase session keeps commas as tokens, and this branch keeps "1,000" and "49.5" as numbers | Thousands and decimals first, then commas as before | 4bd309b |
+| The parse loop: the phrase session tracks "and", "with" and commas between populations, and this branch moved the loop into `readClauses` | `readClauses` marks each clause that a joiner or comma came before, and the parser joins on it as before, so "women, children" still gives no row | 4bd309b, 5a7c2b3 |
+| The program nouns' wording in `vocabulary.resource.ts` and the README | Both kept: every name in any language, and the table's `programNouns` | ca82184, 736320e |
+
+- Tests: 1,383 at `736320e`. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit. `yarn extract-translations` leaves the tree clean.
+- Pushed to the fork as `feat/cohort-tests`, PR [pbiondich/openmrs-esm-cohortbuilder-app#4](https://github.com/pbiondich/openmrs-esm-cohortbuilder-app/pull/4), stacked on #3.
+
+## Feature: completions taken with Tab (contract 1, additive)
+
+Step 4 of [the test results brief](docs/briefs/2026-10-19-cohort-test-results.md), on `feat/report-completions`. A provider's report may carry `completions: [{ insert, replace, label?, detail? }]`. The host checks each one, shows those of the first provider (by lane, then order) as a strip under the field, and as ghost text when one extends what was typed. Tab takes the first, a click or tap any; Escape dismisses them for the query; Enter keeps its meaning; Tab moves focus as usual when there's nothing to take, and the slash-command list keeps its own Tab. A completion only replaces text: it never navigates, writes or calls a model. `OMNIBAR_CONTRACT_VERSION` stays 1.
+
+| Change | Commit |
+| --- | --- |
+| Tests: validation, the strip and ghost text, Tab, Escape, click, Enter unchanged, focus, the command list, first provider wins, stale completions; and a conformance fixture built only on the contract folder | 776410b |
+| The contract type and its docs, the host's validation (`cleanCompletion`) and `firstCompletions`, the strip, ghost text and keys, the README's keyboard section | 10bde73 |
+
+### Review round 1 (independent code review and security review, Claude): one blocker, from code
+
+| Finding | Fix | Commit |
+| --- | --- | --- |
+| code, blocker, and security, should: Tab applied `replace` to the live field, which can be up to 200 ms ahead of the query the provider answered, so "virall" became "vviral load"; and a completion checked against the provider's query could, applied to shorter live text, begin with "/" and pick a command | Completions show and apply only while the field holds exactly the query they answer (`commandSettled && providerText === debouncedText`); Tab applies to that query; a result starting with "/" is refused again on apply. Tested with a debounce lag set by hand, since the framework's test mock doesn't debounce | afc1ff8, c6bd2a2 |
+| code, should: the ghost text could sit a pixel or two off the typed text, from the input's default padding | `.input` has no padding | c6bd2a2 |
+| code, should: the screen-reader line announced on every debounce | The live region stays mounted and changes only when the first completion's label does; Escape and closing clear it | c6bd2a2 |
+| security, nit: invisible format characters (zero-width spaces, joiners) passed in `insert`, `label` and `detail` | Stripped, with direction controls | afc1ff8, c6bd2a2 |
+| code, nits: the docs said C0 and DEL where C1 is refused too, and didn't say `replace` counts UTF-16 code units | Both said, in the type and the contract doc | c6bd2a2 |
+| security, nit: `escapeValue: false` in the announcement looked surprising | A comment says why: React escapes the text, and i18next's escaping would show "&amp;" | c6bd2a2 |
+
+### Review round 2 (re-check, code and security, Claude): no blockers, no should-fixes
+
+Both confirmed the gate and the apply use the same text, the "/" guard holds through whitespace, a command chip and Escape, and the announcement settles in one render.
+
+Not fixed, and why:
+
+- A field with leading or trailing spaces loses them when a completion is taken, since providers see the trimmed text. Harmless.
+- Ghost text isn't drawn once the typed text scrolls inside the field; the strip still shows the completion.
+
+- Tests: 667 at 10bde73, 669 at c6bd2a2. `yarn verify`: `Tasks: 3 successful, 3 total`. `yarn build`: `Rspack compiled with 1 warning`, the asset size limit.
+- No new origin; no new request.
+- Not tried in a browser or on o3.

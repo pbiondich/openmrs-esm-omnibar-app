@@ -19,19 +19,13 @@ import {
 } from '../omnibar-contract';
 import { speaksContractOf } from '../omnibar/omnibar.resource';
 import { isCommandId } from '../omnibar/command-id';
-import {
-  askCommandId,
-  type CommandTable,
-  commandIdOf,
-  omnibarProvidersSlot,
-  useCommandTable,
-} from '../omnibar/commands';
+import { type CommandTable, commandIdOf, omnibarProvidersSlot, useCommandTable } from '../omnibar/commands';
 import { type OmnibarConfig } from '../config-schema';
 import { useOpenedWorkspaceGroup } from '../omnibar/workspace-group';
 import { capQuery, queryResultsUrl } from './query-results-url';
 import { getQueryHistory, type QueryHistoryEntry, rememberQuery, sameQuery } from './query-history';
 import { clearSubmission, dropOtherSubmissions, markSubmitted, onSubmission, takeSubmission } from './submission';
-import { queryHints, useAsksModel } from './query-results-views';
+import { modelCommandIds, queryHints, useAsksModel } from './query-results-views';
 import styles from './query-results.scss';
 
 interface QueryResultsPageProps {
@@ -101,13 +95,11 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   const { commands: commandConfig, queryResults } = useConfig<OmnibarConfig>();
   const assigned = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
   // The bar's alias table, for whether a command is enabled here and for its label.
-  const commandTable = useCommandTable(
-    useAssignedExtensions(omnibarProvidersSlot),
-    assigned,
-    commandConfig,
-    i18n.language,
-    true,
-  );
+  const providers = useAssignedExtensions(omnibarProvidersSlot);
+  const commandTable = useCommandTable(providers, assigned, commandConfig, i18n.language, true);
+  const modelCommands = useMemo(() => modelCommandIds(assigned, providers), [assigned, providers]);
+  // As Enter in the bar: only a plain query or one under a command that asks a model is marked.
+  const marks = (cmd?: string) => !cmd || modelCommands.has(cmd);
 
   const patientName = useMemo(() => {
     const name = patient?.name?.[0];
@@ -118,8 +110,9 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
   const questionMinWords = queryResults?.questionMinWords;
   const hints = useMemo(() => queryHints(query, questionMinWords), [query, questionMinWords]);
 
-  // With a command, only the views that declare it mount, so `/lab` never brings up a view that asks a
-  // model; a view with no command mounts only for plain queries. A command must also be one the bar
+  // With a command, only the views that declare it mount. A view that declares `lab` and sets
+  // `commandAsksModel` does mount under `/lab`, but a provider declares `lab`, so it is never told it was
+  // asked. A view with no command mounts only for plain queries. A command must also be one the bar
   // offers here (declared by a provider or view this user has, enabled, for a chart) and declared by a view
   // this user can see. Otherwise the page fails closed: it shows nothing but the query, a line saying
   // so, and a link to search the text plainly. It never runs another set of views instead.
@@ -314,10 +307,9 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
     return null;
   }
 
-  // Choosing an earlier query is asking it again, under its command, as Enter is; and as for Enter,
-  // only a plain query or /ask is marked as asked for.
+  // Choosing an earlier query is asking it again, under its command, as Enter is.
   const runAgain = ({ cmd, q }: QueryHistoryEntry) => {
-    if (!cmd || cmd === askCommandId) {
+    if (marks(cmd)) {
       markSubmitted(patientUuid, q, cmd);
     }
     navigate({ to: queryResultsUrl(patientUuid, q, cmd) });
@@ -362,7 +354,7 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
                   <HistoryItem
                     entry={entry}
                     label={labelOf(commandTable, entry.cmd)}
-                    offered={!entry.cmd || isOffered(commandTable, entry.cmd)}
+                    marked={(!entry.cmd || isOffered(commandTable, entry.cmd)) && marks(entry.cmd)}
                     onRun={runAgain}
                   />
                 </li>
@@ -417,18 +409,18 @@ const QueryResultsPage: React.FC<QueryResultsPageProps> = ({ patientUuid, patien
 
 /**
  * An earlier query, with its command's chip when the bar knows the command. Choosing it runs it again,
- * and asks a model again where Enter would, so it says so: for a plain query or one under /ask, while
- * its command is still offered here, when a view that would mount for it asks a model.
+ * and asks a model again where Enter would, so it says so: when choosing it marks the query as asked
+ * for, its command still offered here, and a view that would mount for it asks a model.
  */
 const HistoryItem: React.FC<{
   entry: QueryHistoryEntry;
   label?: string;
-  offered: boolean;
+  marked: boolean;
   onRun: (entry: QueryHistoryEntry) => void;
-}> = ({ entry, label, offered, onRun }) => {
+}> = ({ entry, label, marked, onRun }) => {
   const { t } = useTranslation();
   const model = useAsksModel(entry.q, entry.cmd);
-  const asksModel = offered && (!entry.cmd || entry.cmd === askCommandId) ? model : null;
+  const asksModel = marked ? model : null;
   return (
     <button
       type="button"

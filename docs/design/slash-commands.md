@@ -27,7 +27,7 @@ Several providers declaring the same id is normal: chart lookup and the query st
 
 **Opening.** `/` anywhere outside a text field opens the bar in command mode: `/` already in the field, the command list showing. Ctrl/Cmd K opens it for plain text, as today. In the bar's own field, `/` as the first character enters command mode; `/` anywhere else is ordinary text.
 
-**The list.** A bare `/` lists every command available to this user: label, the aliases it answers to, and a one-line description from the declaring provider's translations. Typing filters the list by alias prefix. A command none of whose providers declare the current scope is listed greyed, with a short reason ("Open a patient's chart first", "Not available inside a chart"), and can't be chosen. Scope is never widened by a command in this version. Arrow keys move through the list; Enter, Tab or a space on an exact alias chooses it.
+**The list.** A bare `/` lists every command available to this user: label, the aliases it answers to, and a one-line description from the declaring provider's translations. Typing filters the list by alias prefix. A command none of whose providers declare the current scope is listed greyed, with a short reason ("Open a patient's chart first", "Not available inside a chart"), and can't be chosen. Scope is never widened by a command in this version. Available commands come first and greyed ones after. Within each group, commands follow the bar's lanes (record, then navigate, then answer, then commands only a Query results view declares), and slot order within a lane. A command takes the earliest lane among its providers. The order is for the list only; alias conflicts are still settled by slot order. Arrow keys move through the list; Enter, Tab or a space on an exact alias chooses it.
 
 **The chip.** A chosen command becomes a chip in the field, after the patient chip, showing the label. The text after it is the query. Backspace in an empty field removes the command chip first, then (inside a chart) the patient chip. Escape with a command chip removes the chip; a second Escape closes the bar.
 
@@ -101,7 +101,7 @@ The README promised that URLs carry the id, and Enter now submits to Query resul
 
 **Unknown or disabled `cmd`.** If the id matches no view this user can see (a bookmark from another site, a disabled command, garbage), the page fails closed: it shows the query, says "That command isn't available here", and offers one link that re-runs the text as a plain query. It never silently runs a different set of views.
 
-**`/ask`.** Enter on `/ask when did he start ART` opens Query results with `cmd=ask`, marks the submission as today, and ChartSearch's answer view asks, exactly as a plain question does now. `/ask` bypasses the heuristic, nothing more: the hint still says beforehand that Enter asks, a reloaded or reopened page still shows an Ask button, and `submitted` is unchanged. Design rule 6 holds as reworded in PR #12.
+**`/ask`.** Enter on `/ask when did he start ART` opens Query results with `cmd=ask`, marks the submission as today, and ChartSearch's answer view asks, exactly as a plain question does now. Since the thin pass this comes from the view's `commandAsksModel: true` in ChartSearch's `routes.json`, not from the id: any app's view can declare a command that asks its model the same way, and `ask` without the flag is an ordinary command. `/ask` bypasses the heuristic, nothing more: the hint still says beforehand that Enter asks, a reloaded or reopened page still shows an Ask button, and `submitted` is unchanged. Design rule 6 holds as reworded in PR #12.
 
 **History.** Entries become `{ cmd?: string, q: string }` under the same per-user, per-patient `sessionStorage` rules. Choosing one re-runs it with its command. The page and the history list render an entry as the command's chip (label, from the table) followed by the text; a stored id with no label falls back to the plain text alone. Entries stored before this change, plain strings, are read as plain queries.
 
@@ -109,7 +109,7 @@ The README promised that URLs carry the id, and Enter now submits to Query resul
 
 ## What doesn't change
 
-The six design rules. Scope is the host's and a command never widens it. Results describe destinations and don't act; a command never makes the bar act and never calls a model, except that `/ask` + Enter asks on Query results in the one way Enter on a question already does. Stale-report dropping, lanes, answers citing records: unchanged.
+The six design rules. Scope is the host's and a command never widens it. Results describe destinations and don't act; a command never makes the bar act and never calls a model, except that Enter under a command whose view sets `commandAsksModel`, such as `/ask`, asks on Query results in the one way Enter on a question already does. Stale-report dropping, lanes, answers citing records: unchanged.
 
 ## Not in this slice
 
