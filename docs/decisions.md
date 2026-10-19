@@ -283,6 +283,27 @@ Decisions from [the thin-pass brief](briefs/2026-10-19-thin-pass.md): the bar ke
 **A name with one slip still matches, if only one does.** In words of five letters or more that aren't words of the phrase table, one letter added, dropped, changed or two swapped ("tuberclosis") matches a program, drug group or encounter type name, unless two names match as well.
 *Why:* misspellings are common at a keyboard in a clinic, and the subtitle shows the name it matched, so a slip that lands somewhere unexpected is seen before the number is trusted.
 
+### Counting by test results (Paul, 2026-10-19)
+
+Paul's decisions for counting patients by numeric test results; the plan is [the test results brief](briefs/2026-10-19-cohort-test-results.md).
+
+**The most recent result, unless the question says otherwise.** "ever" or "any", "first" or "baseline", "lowest" or "nadir", "highest" or "peak" and "average" choose another, and the row says which.
+*Why:* in clinic speech "patients with a viral load over 1000" means the latest result.
+
+**No time window unless one is typed.**
+
+**Units are the concept's, always.** A number is read in the concept's units, and the row shows them; a typed unit that isn't the concept's gives no row, and nothing is converted.
+*Why:* g/dL against g/L, or mg/dL against mmol/L, would count the wrong people silently.
+
+**Comparators mean what they say, for test values as for ages.** "Under 1000" is < 1000.
+
+**No small-count suppression in the bar.**
+*Why:* the users are clinicians with access to the data, and the builder lists the same patients on Enter.
+
+**Tests are found by name as people type, and Tab takes a completion.** The count row looks up the test name among the server's concept names, and the bar offers completions a user takes with Tab, which needs `completions` in the contract (additive, contract 1).
+
+**Later:** named clinical states (suppressed, advanced HIV disease, anaemia), "no result in the last 12 months", and coded results ("HIV positive").
+
 ## Open
 
 These came up but aren't decided yet.
