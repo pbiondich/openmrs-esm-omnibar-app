@@ -913,7 +913,7 @@ describe('QuerystoreChartProvider registration', () => {
   const metaOf = (name: string) =>
     routes.extensions.find((extension) => extension.name === name).meta as OmnibarProviderMeta;
 
-  it('declares contract 1, ranks after chart lookup, skips identifiers and may take the default highlight', () => {
+  it('declares contract 1, ranks after chart lookup, skips identifiers, answers /lab and may take the default highlight', () => {
     // Exact. It may take the default only because it ranks after chart lookup in the same lane, so
     // chart lookup's copy of a shared obs still wins dedupe, and every target stays on the open chart.
     expect(metaOf('omnibar-querystore-chart-provider')).toEqual({
@@ -924,7 +924,14 @@ describe('QuerystoreChartProvider registration', () => {
       contract: 1,
       dedupeKey: 'chart-values',
       skipIdentifierQueries: true,
+      command: { id: 'lab', aliases: ['lab', 'labs', 'results', 'obs', 'value'] },
     });
+  });
+
+  it('answers /lab with chart lookup', () => {
+    expect(metaOf('omnibar-querystore-chart-provider').command).toEqual(
+      metaOf('omnibar-chart-lookup-provider').command,
+    );
   });
 
   it('ranks after chart lookup in the same lane', () => {

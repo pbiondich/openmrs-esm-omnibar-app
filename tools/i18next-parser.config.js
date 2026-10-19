@@ -15,7 +15,9 @@ module.exports = {
   indentation: 2,
   // Indentation of the catalog files
 
-  keepRemoved: false,
+  // The slash commands' labels, descriptions and aliases are read by id with translateFrom, so no t()
+  // call names them; they're kept rather than dropped.
+  keepRemoved: [/(^|:)omnibarCommand(\.|$)/],
   // Keep keys from the catalog that are no longer in code
 
   keySeparator: '.',

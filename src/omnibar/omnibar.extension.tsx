@@ -31,17 +31,21 @@ import {
   useOmnibarShortcut,
   useResultCollector,
 } from './omnibar.resource';
+import { askCommandId, commandIdOf, type OmnibarCommandEntry, parseCommandInput, useCommandTable } from './commands';
 import { PatientRow } from './patient-row';
 import { useOmnibarContext } from './use-omnibar-context';
 import { useOpenedWorkspaceGroup } from './workspace-group';
 import { type OmnibarConfig } from '../config-schema';
 import {
   OMNIBAR_CONTRACT_VERSION,
+  OMNIBAR_QUERY_RESULTS_SLOT,
+  type OmnibarContext,
   type OmnibarProviderMeta,
   type OmnibarProviderProps,
   type OmnibarQueryHints,
   type OmnibarReport,
   type OmnibarTarget,
+  type OmnibarViewMeta,
 } from './types';
 import { looksLikeIdentifier } from '../omnibar-contract';
 import { maxQueryLength, queryResultsUrl } from '../query-results/query-results-url';
@@ -93,20 +97,78 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 const Omnibar: React.FC = () => {
   const { t } = useTranslation();
   const desktop = isDesktop(useLayoutType());
-  const { appearance, queryResults } = useConfig<OmnibarConfig>();
+  const { appearance, queryResults, commands: commandConfig } = useConfig<OmnibarConfig>();
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const debouncedQuery = useDebounce(query.trim(), 200);
 
-  const { context, chartPatientUuid, widenToGlobal, narrowToPatient } = useOmnibarContext();
+  const { context: scopeContext, chartPatientUuid, widenToGlobal, narrowToPatient } = useOmnibarContext();
   const { patient } = usePatient(chartPatientUuid);
   const patientName = useMemo(() => {
     const name = patient?.name?.[0];
     return name ? [...(name.given ?? []), name.family].filter(Boolean).join(' ') : '';
   }, [patient]);
+
+  // Slash commands. The chosen command is a chip in the field, and the field then holds only the
+  // query. Without a chip, "/" as the first character with no space yet lists the commands, and
+  // "/alias " chooses one; anything else is plain text, "/word " included. A command is available only
+  // in a scope one of its providers declares: choosing it never widens the scope, and a command that
+  // stops being available (the patient chip removed, say) is dropped.
+  const assigned = useAssignedExtensions(providersSlot);
+  const [commandId, setCommandId] = useState<string | null>(null);
+  const listingCommands = !commandId && query.startsWith('/') && !/\s/u.test(query);
+  const commandTable = useCommandTable(assigned, commandConfig, scopeContext.locale, open && listingCommands);
+  const isAvailable = useCallback(
+    (command: OmnibarCommandEntry) => command.scopes.includes(scopeContext.scope),
+    [scopeContext.scope],
+  );
+  const chosenCommand = commandId ? commandTable.byId.get(commandId) : undefined;
+  const activeCommand = chosenCommand && isAvailable(chosenCommand) ? chosenCommand : undefined;
+  const activeCommandId = activeCommand?.id;
+  useEffect(() => {
+    if (commandId && !activeCommandId) {
+      setCommandId(null);
+    }
+  }, [commandId, activeCommandId]);
+  const parsedInput = useMemo(
+    () => (activeCommand ? undefined : parseCommandInput(query, commandTable, isAvailable)),
+    [activeCommand, query, commandTable, isAvailable],
+  );
+  const listing = parsedInput?.mode === 'listing';
+  const [commandHighlight, setCommandHighlight] = useState<string | null>(null);
+  const listedCommands = useMemo(
+    () => (parsedInput?.mode === 'listing' ? commandTable.matching(parsedInput.prefix) : []),
+    [parsedInput, commandTable],
+  );
+  const highlightedCommand = useMemo(() => {
+    const available = listedCommands.filter(isAvailable);
+    const exact = parsedInput?.mode === 'listing' ? commandTable.resolve(parsedInput.prefix) : undefined;
+    return (
+      available.find((command) => command.id === commandHighlight) ??
+      available.find((command) => command.id === exact?.id) ??
+      available[0]
+    );
+  }, [listedCommands, isAvailable, parsedInput, commandTable, commandHighlight]);
+
+  // The text the providers get: nothing while the commands are listed. A command chosen or removed
+  // changes the field's text at once, but not the debounced copy, so until that has caught up with the
+  // field the providers get an empty query rather than the text from before, such as "/lab".
+  const providerText = listing ? '' : query.trim();
+  const debouncedText = useDebounce(providerText, 200);
+  const [settledCommand, setSettledCommand] = useState(activeCommandId);
+  if (settledCommand !== activeCommandId && debouncedText === providerText) {
+    setSettledCommand(activeCommandId);
+  }
+  const commandSettled = settledCommand === activeCommandId;
+  const debouncedQuery = commandSettled ? debouncedText : '';
+
+  // The command is part of the context: choosing or removing one starts the providers again.
+  const context = useMemo<OmnibarContext>(
+    () => (activeCommandId ? { ...scopeContext, command: { id: activeCommandId } } : scopeContext),
+    [scopeContext, activeCommandId],
+  );
 
   // Worked out once for every provider, so "ID-shaped text gets only the patient" holds across apps.
   const hints = useMemo<OmnibarQueryHints>(
@@ -115,14 +177,16 @@ const Omnibar: React.FC = () => {
   );
 
   // Only providers that declare the current scope, on a contract this host speaks, are mounted at all.
-  // One that skips identifier queries isn't mounted for one, so it can't send it anywhere.
-  const assigned = useAssignedExtensions(providersSlot);
+  // One that skips identifier queries isn't mounted for one, so it can't send it anywhere. Under a
+  // command, only the providers declaring it are, and none while the commands are listed.
   const providerInfo = useMemo<Record<string, ProviderInfo>>(() => {
     const info: Record<string, ProviderInfo> = {};
     for (const extension of assigned) {
       const meta = extension.meta as OmnibarProviderMeta | undefined;
       if (
         meta?.lane &&
+        !listing &&
+        (!activeCommandId || commandIdOf(meta.command) === activeCommandId) &&
         meta.scopes?.includes(context.scope) &&
         !(meta.skipIdentifierQueries && hints.looksLikeIdentifier) &&
         speaksContractOf(extension.name, meta)
@@ -144,12 +208,12 @@ const Omnibar: React.FC = () => {
       }
     }
     return info;
-  }, [assigned, context.scope, hints]);
+  }, [assigned, context.scope, hints, listing, activeCommandId]);
 
   // Reports from a mount that belongs to another chart or scope are dropped, so this is worked out
   // before the providers are given their `report`. The providers are unmounted while the bar is
   // closed, so closing and opening it start new generations too.
-  const contextKey = `${context.scope}:${context.patientUuid ?? ''}`;
+  const contextKey = `${context.scope}:${context.patientUuid ?? ''}:${activeCommandId ?? ''}`;
   const scopePatientUuid = context.scope === 'patient' ? context.patientUuid : undefined;
   const { getReporter, clear, listGroups, answerGroups, selectable, unanswered } = useResultCollector(
     debouncedQuery,
@@ -272,7 +336,7 @@ const Omnibar: React.FC = () => {
 
   // Pin the default highlight to the result it first lands on, so a slower provider that sorts above
   // it can't move it to another row just before the user presses Enter.
-  const resultsAreCurrent = query.trim() === debouncedQuery;
+  const resultsAreCurrent = commandSettled && providerText === debouncedText;
   useEffect(() => {
     if (resultsAreCurrent && selected && selected.key !== selection?.key) {
       setSelection(selectionOf(selected, chosen));
@@ -284,16 +348,51 @@ const Omnibar: React.FC = () => {
   const changeQuery = (value: string) => {
     setQuery(value);
     setSelection(null);
+    setCommandHighlight(null);
   };
 
-  const openBar = useCallback(() => {
+  // Choosing a command leaves only the query in the field: the text after "/alias ", if any.
+  const chooseCommand = (command: OmnibarCommandEntry, rest = '') => {
+    setCommandId(command.id);
+    changeQuery(rest);
+    inputRef.current?.focus();
+  };
+  const removeCommand = () => {
+    setCommandId(null);
+    setSelection(null);
+  };
+
+  // What the field holds is read for a command as it changes, so typing "/lab " or pasting
+  // "/lab cd4" both choose the command.
+  const onFieldChange = (value: string) => {
+    const typed = activeCommand ? undefined : parseCommandInput(value, commandTable, isAvailable);
+    if (typed?.mode === 'chosen') {
+      chooseCommand(typed.command, typed.rest);
+    } else {
+      changeQuery(value);
+    }
+  };
+
+  const openRef = useRef(open);
+  openRef.current = open;
+  // "/" opens the bar with the command list showing; Ctrl/Cmd K opens it for plain text. Either one
+  // only focuses a bar that is already open, so nothing typed there is lost.
+  const openBar = useCallback((kind: 'text' | 'command' = 'text') => {
+    if (kind === 'command' && !openRef.current) {
+      setCommandId(null);
+      setQuery('/');
+      setSelection(null);
+      setCommandHighlight(null);
+    }
     setOpen(true);
     requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
+  const openForText = useCallback(() => openBar('text'), [openBar]);
 
   const closeBar = useCallback(() => {
     setOpen(false);
     setQuery('');
+    setCommandId(null);
     setSelection(null);
     clear();
   }, [clear]);
@@ -381,6 +480,24 @@ const Omnibar: React.FC = () => {
     }
   };
 
+  // Under a command, Enter sends it with the query only when a Query results view shows results for
+  // it. Otherwise there would be nothing to show, so Enter opens the highlight, as outside a chart.
+  const assignedViews = useAssignedExtensions(OMNIBAR_QUERY_RESULTS_SLOT);
+  const commandsWithViews = useMemo(
+    () =>
+      new Set(
+        assignedViews
+          .map((view) => {
+            const meta = view.meta as OmnibarViewMeta | undefined;
+            return meta?.scopes?.includes('patient') && speaksContractOf(view.name, meta)
+              ? commandIdOf(meta.command)
+              : undefined;
+          })
+          .filter(Boolean),
+      ),
+    [assignedViews],
+  );
+
   // Inside a chart, Enter on what was typed opens the chart's Query results section, unless the user
   // has arrowed or pointed to a row since their last keystroke: every keystroke clears the selection,
   // so `chosen` is only ever true for a row picked since. The default highlight stays as a cue. The
@@ -392,22 +509,72 @@ const Omnibar: React.FC = () => {
   const submitsOnEnter =
     queryResults?.enterBehavior !== 'open-highlight' &&
     Boolean(scopePatientUuid) &&
+    !listing &&
+    (!activeCommandId || commandsWithViews.has(activeCommandId)) &&
     Boolean(submittedQuery) &&
     !chosen &&
     !looksLikeIdentifier(submittedQuery);
+  // Only a plain query and /ask are marked as asked for just now, which is what lets a view call a
+  // model on its own, so no other command can cause one.
+  const marksSubmission = !activeCommandId || activeCommandId === askCommandId;
   // Said in the hint, so the user knows Enter will also ask ChartSearch, an AI, about the chart.
   const offersChartSearch = useChartSearchOffer(submittedQuery, scopePatientUuid);
   // A query longer than the page takes is cut, and the page never asks about a cut query on its own.
-  const asksChartSearch = offersChartSearch && Array.from(submittedQuery).length <= maxQueryLength;
+  const asksChartSearch = marksSubmission && offersChartSearch && Array.from(submittedQuery).length <= maxQueryLength;
   const submitQuery = () => {
     if (!scopePatientUuid || !submittedQuery) return;
-    const to = queryResultsUrl(scopePatientUuid, submittedQuery);
-    markSubmitted(scopePatientUuid, submittedQuery);
+    const to = queryResultsUrl(scopePatientUuid, submittedQuery, activeCommandId);
+    if (marksSubmission) {
+      markSubmitted(scopePatientUuid, submittedQuery);
+    }
     closeBar();
     navigate({ to });
   };
 
+  // While the commands are listed, the arrow keys move through the ones available here, and Enter or
+  // Tab chooses the highlighted one. Enter never does anything else there.
+  const onCommandListKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    const available = listedCommands.filter(isAvailable);
+    switch (event.key) {
+      case 'ArrowDown':
+      case 'ArrowUp': {
+        event.preventDefault();
+        if (!available.length) return;
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        const from = highlightedCommand ? available.indexOf(highlightedCommand) : step > 0 ? -1 : 0;
+        const next = available[(from + step + available.length) % available.length];
+        setCommandHighlight(next.id);
+        document
+          .getElementById(`${listboxId}-command-${listedCommands.indexOf(next)}`)
+          ?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      case 'Enter':
+      case 'Tab':
+        if (event.nativeEvent.isComposing) return;
+        if (highlightedCommand) {
+          event.preventDefault();
+          chooseCommand(highlightedCommand);
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+        }
+        return;
+    }
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (listing) {
+      onCommandListKeyDown(event);
+      return;
+    }
+    // Backspace in an empty field takes the command chip off, but not on key repeat, so holding it to
+    // clear the text stops at the chip. The patient chip is left alone: only its own button widens the
+    // search.
+    if (event.key === 'Backspace' && activeCommand && !query && !event.repeat) {
+      event.preventDefault();
+      removeCommand();
+      return;
+    }
     const count = selectable.length;
     switch (event.key) {
       case 'ArrowDown':
@@ -442,14 +609,21 @@ const Omnibar: React.FC = () => {
 
   // Escape closes from anywhere in the bar, not only the field: Tab reaches the close and source
   // buttons. The tablet and phone sheet covers the page, so Tab wraps around inside it.
+  // With a command chip, the first Escape takes it off and keeps the text.
   const onContainerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' && open && activeCommand) {
+      event.preventDefault();
+      removeCommand();
+      inputRef.current?.focus();
+      return;
+    }
     if (event.key === 'Escape' && open) {
       event.preventDefault();
       dismiss();
       inputRef.current?.blur();
       return;
     }
-    if (event.key !== 'Tab' || desktop) return;
+    if (event.key !== 'Tab' || desktop || event.defaultPrevented) return;
     const focusable = event.currentTarget.querySelectorAll<HTMLElement>('button, input');
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -489,6 +663,40 @@ const Omnibar: React.FC = () => {
       : t('searchEverything', 'Search patients and pages');
   const shortcutHint = isMac ? '⌘K' : t('ctrlK', 'Ctrl K');
   const chartOwner = patientName || t('thisPatient', 'this patient');
+  // Why a listed command can't be chosen here. Scope is the host's, so the reason says what to do.
+  const unavailableReason =
+    context.scope === 'patient'
+      ? t('commandNotInChart', 'Not available inside a chart')
+      : chartPatientUuid
+        ? t('commandNeedsChartScope', 'Search only {{name}}’s chart first', {
+            name: chartOwner,
+            interpolation: { escapeValue: false },
+          })
+        : t('commandNeedsChart', 'Open a patient’s chart first');
+  // What Enter will do, said beforehand. Under a command it names the command's label; under /ask, when
+  // Enter asks ChartSearch, it says that plainly instead.
+  const hintValues = {
+    query: submittedQuery,
+    command: activeCommand?.label,
+    interpolation: { escapeValue: false },
+  };
+  const submitHint =
+    asksChartSearch && activeCommandId === askCommandId
+      ? desktop
+        ? t('enterToAskChartSearch', 'Enter to ask ChartSearch “{{query}}”', hintValues)
+        : t('askChartSearchAbout', 'Ask ChartSearch “{{query}}”', hintValues)
+      : asksChartSearch
+        ? desktop
+          ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask ChartSearch', hintValues)
+          : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask ChartSearch', hintValues)
+        : activeCommand && activeCommandId !== askCommandId
+          ? desktop
+            ? t('enterToSeeCommand', 'Enter to see {{command}} for “{{query}}”', hintValues)
+            : t('seeCommandResults', 'See {{command}} for “{{query}}”', hintValues)
+          : desktop
+            ? t('enterToSeeAll', 'Enter to see all results for “{{query}}”', hintValues)
+            : t('seeAllResults', 'See all results for “{{query}}”', hintValues);
+
   // Never the provider's own error: a server's message can quote the query or the record.
   const providerError = t('providerError', 'Couldn’t load results');
 
@@ -527,7 +735,7 @@ const Omnibar: React.FC = () => {
         type="button"
         className={styles.iconTrigger}
         ref={triggerRef}
-        onClick={openBar}
+        onClick={openForText}
         aria-label={placeholder}
         data-testid="searchPatientIcon"
         data-tutorial-target="search-patient-icon"
@@ -543,7 +751,7 @@ const Omnibar: React.FC = () => {
         type="button"
         className={styles.fieldTrigger}
         ref={triggerRef}
-        onClick={openBar}
+        onClick={openForText}
         aria-label={placeholder}
         data-tutorial-target="search-patient-icon"
       >
@@ -598,13 +806,32 @@ const Omnibar: React.FC = () => {
             </button>
           </span>
         )}
+        {activeCommand && (
+          <span className={styles.commandChip}>
+            <span dir="auto">{activeCommand.label}</span>
+            <button
+              type="button"
+              className={styles.chipButton}
+              onClick={() => {
+                removeCommand();
+                inputRef.current?.focus();
+              }}
+              aria-label={t('removeCommand', 'Remove {{command}} command', {
+                command: activeCommand.label,
+                interpolation: { escapeValue: false },
+              })}
+            >
+              <Close size={12} />
+            </button>
+          </span>
+        )}
         <input
           ref={inputRef}
           className={styles.input}
           value={query}
-          placeholder={placeholder}
+          placeholder={activeCommand ? t('commandQueryPlaceholder', 'Type what to look for') : placeholder}
           onChange={(event) => {
-            changeQuery(event.target.value);
+            onFieldChange(event.target.value);
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
@@ -613,7 +840,15 @@ const Omnibar: React.FC = () => {
           aria-expanded={open}
           aria-controls={listboxId}
           aria-autocomplete="list"
-          aria-activedescendant={selected ? `${listboxId}-${selected.key}` : undefined}
+          aria-activedescendant={
+            listing
+              ? highlightedCommand
+                ? `${listboxId}-command-${listedCommands.indexOf(highlightedCommand)}`
+                : undefined
+              : selected
+                ? `${listboxId}-${selected.key}`
+                : undefined
+          }
           aria-label={placeholder}
           autoComplete="off"
           spellCheck={false}
@@ -657,7 +892,87 @@ const Omnibar: React.FC = () => {
             </button>
           )}
 
-          <ul id={listboxId} role="listbox" className={styles.listbox} aria-label={placeholder}>
+          {parsedInput?.mode === 'text' && parsedInput.notCommand && (
+            <p className={styles.commandNote} dir="auto">
+              {t('noCommand', 'No command /{{name}}', {
+                name: parsedInput.notCommand,
+                interpolation: { escapeValue: false },
+              })}
+            </p>
+          )}
+          {parsedInput?.mode === 'text' && parsedInput.unavailable && (
+            <p className={styles.commandNote} dir="auto">
+              {t('commandUnavailable', '{{command}}: {{reason}}', {
+                command: parsedInput.unavailable.label,
+                reason: unavailableReason,
+                interpolation: { escapeValue: false },
+              })}
+            </p>
+          )}
+
+          {listing && (
+            <ul id={listboxId} role="listbox" className={styles.listbox} aria-label={t('commands', 'Commands')}>
+              {listedCommands.map((command, index) => {
+                const available = isAvailable(command);
+                const isHighlighted = highlightedCommand?.id === command.id;
+                return (
+                  <li
+                    key={command.id}
+                    id={`${listboxId}-command-${index}`}
+                    role="option"
+                    aria-selected={isHighlighted}
+                    aria-disabled={!available}
+                    className={classNames(styles.option, {
+                      [styles.optionSelected]: isHighlighted,
+                      [styles.commandUnavailable]: !available,
+                    })}
+                    onMouseMove={(event) => {
+                      if (available && (event.movementX || event.movementY)) {
+                        setCommandHighlight(command.id);
+                      }
+                    }}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => available && chooseCommand(command)}
+                  >
+                    <span className={styles.optionText}>
+                      <span className={styles.optionTitle}>
+                        <span dir="auto">{command.label}</span>
+                        <span className={styles.commandAliases} dir="auto">
+                          {command.aliases
+                            .slice(0, 5)
+                            .map((alias) => `/${alias}`)
+                            .join(' ')}
+                        </span>
+                      </span>
+                      {(available ? command.description : unavailableReason) && (
+                        <span className={styles.optionSubtitle} dir="auto">
+                          {available ? command.description : unavailableReason}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {listing && !listedCommands.length && (
+            <p className={styles.commandNote} dir="auto">
+              {parsedInput?.mode === 'listing' && parsedInput.prefix
+                ? t('noCommand', 'No command /{{name}}', {
+                    name: parsedInput.prefix,
+                    interpolation: { escapeValue: false },
+                  })
+                : t('noCommands', 'No commands are available.')}
+            </p>
+          )}
+
+          <ul
+            id={listing ? undefined : listboxId}
+            role="listbox"
+            className={styles.listbox}
+            aria-label={placeholder}
+            hidden={listing}
+          >
             {listGroups.map((group) => {
               const headingId = `${listboxId}-${group.providerId}-heading`;
               const collapsed = isCollapsed(group);
@@ -797,25 +1112,7 @@ const Omnibar: React.FC = () => {
               onClick={submitQuery}
               dir="auto"
             >
-              {asksChartSearch
-                ? desktop
-                  ? t('enterToSeeAllAndAsk', 'Enter to see all results for “{{query}}” and ask ChartSearch', {
-                      query: submittedQuery,
-                      interpolation: { escapeValue: false },
-                    })
-                  : t('seeAllResultsAndAsk', 'See all results for “{{query}}” and ask ChartSearch', {
-                      query: submittedQuery,
-                      interpolation: { escapeValue: false },
-                    })
-                : desktop
-                  ? t('enterToSeeAll', 'Enter to see all results for “{{query}}”', {
-                      query: submittedQuery,
-                      interpolation: { escapeValue: false },
-                    })
-                  : t('seeAllResults', 'See all results for “{{query}}”', {
-                      query: submittedQuery,
-                      interpolation: { escapeValue: false },
-                    })}
+              {submitHint}
             </button>
           )}
 
@@ -828,7 +1125,9 @@ const Omnibar: React.FC = () => {
                       '↑ ↓ to choose a result, Enter to see all and ask ChartSearch, Esc to close',
                     )
                   : t('keyboardHintsSubmit', '↑ ↓ to choose a result, Enter to see all, Esc to close')
-                : t('keyboardHints', '↑ ↓ to move, Enter to open, Esc to close')}
+                : listing
+                  ? t('keyboardHintsCommands', '↑ ↓ to move, Enter or Tab to choose a command, Esc to close')
+                  : t('keyboardHints', '↑ ↓ to move, Enter to open, Esc to close')}
             </div>
           )}
         </div>

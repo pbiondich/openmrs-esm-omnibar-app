@@ -10,11 +10,15 @@ export function capQuery(query: string): string {
   return characters.length > maxQueryLength ? characters.slice(0, maxQueryLength).join('').trim() : query.trim();
 }
 
-/** Where Enter goes inside a chart. `navigate()` fills in `${openmrsSpaBase}`. */
-export function queryResultsUrl(patientUuid: string, query: string): string {
-  return `\${openmrsSpaBase}/patient/${encodeURIComponent(patientUuid)}/chart/${queryResultsPath}?${new URLSearchParams(
-    {
-      q: capQuery(query),
-    },
-  )}`;
+/**
+ * Where Enter goes inside a chart. `navigate()` fills in `${openmrsSpaBase}`. A slash command adds its
+ * id as `cmd`, before `q`; an id that isn't one, lower-case ASCII, is left out.
+ */
+export function queryResultsUrl(patientUuid: string, query: string, command?: string): string {
+  const params = new URLSearchParams();
+  if (command && /^[a-z][a-z0-9-]{0,31}$/.test(command)) {
+    params.set('cmd', command);
+  }
+  params.set('q', capQuery(query));
+  return `\${openmrsSpaBase}/patient/${encodeURIComponent(patientUuid)}/chart/${queryResultsPath}?${params}`;
 }

@@ -126,6 +126,14 @@ $omnibar-min-width: 18rem;
   text-overflow: ellipsis;
 }
 
+// The chosen slash command, after the patient chip. Blue rather than teal, so the two never read as one.
+.commandChip {
+  @extend .scopeChip;
+  max-width: 30%;
+  background-color: colors.$blue-10;
+  color: colors.$blue-80;
+}
+
 .chipButton,
 .iconButton {
   display: inline-flex;
@@ -233,6 +241,23 @@ $omnibar-min-width: 18rem;
 
 .emptyState {
   padding-block: layout.$spacing-06;
+}
+
+// "No command /word", or why a command typed in full isn't available here. Quiet, and never a live
+// region: the text the user typed still goes to the providers.
+.commandNote {
+  @extend .groupNote;
+}
+
+.commandAliases {
+  margin-inline-start: layout.$spacing-03;
+  font-weight: 400;
+  color: themes.$text-secondary;
+}
+
+// A command none of whose providers declare this scope: listed so people learn it exists, never chosen.
+.option.commandUnavailable[aria-disabled='true'] {
+  cursor: not-allowed;
 }
 
 .option {
