@@ -1,6 +1,6 @@
 # Brief: ChartSearch step 3, the answer section moves into ChartSearch's app
 
-Written 2026-10-18. Proposed, awaiting Paul. Not yet given to an agent. See [the briefs index](README.md) for status.
+Written 2026-10-18. Built on `feat/chartsearch-step3`, restacked onto main after slash commands (PR #21); PR pending, awaiting Paul. Open: who declares `/ask` now that the bar's ChartSearch row is gone, see [decisions.md](../decisions.md#open). See [the briefs index](README.md) for status.
 
 ## 1. Summary and why
 

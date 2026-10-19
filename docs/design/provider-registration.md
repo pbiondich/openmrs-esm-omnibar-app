@@ -369,7 +369,9 @@ Each step can be deployed on its own and rolled back through the importmap. **o3
    - providers off by default? (Q4)
    - deploy as the cohortbuilder dist + importmap override on o3, with the patched reporting omod for drugs
    - works on either the 51ce76c or the N host
-3. **chartsearchai** `feat/omnibar-provider` (7162b91 + 2dd487a + provider):
+3. **Done as revised** by [the step 3 brief](../briefs/2026-10-18-chartsearch-step3.md) (built on `feat/chartsearch-step3`): no row moves. ChartSearch's app registers its answer section as a Query results view, the omnibar deletes its own view and its Ask ChartSearch row, and 7162b91 is dropped. Step 4's code deletions happen in the same omnibar release; the `chartSearchSuggestion` config stays one more release as a deprecated no-op. The original plan, kept for the record:
+
+   **chartsearchai** `feat/omnibar-provider` (7162b91 + 2dd487a + provider):
    - deploy it **together with** o3 config `"@openmrs/esm-omnibar-app": {"chartSearchSuggestion": {"enabled": false}}`, in one change window, so exactly one row shows
    - rollback = old importmap entry + remove that config line
 4. **Omnibar host N+1:**

@@ -45,7 +45,7 @@ A chip with the patient's name sits in the field, so it's always clear whose rec
 
 | The user types | What they get | Status |
 | --- | --- | --- |
-| `when did she start ART?` | A non-default "Ask ChartSearch" row. Choosing it opens AI Chart Search with the question filled in. The clinician presses Send before any model request runs. | Prototype |
+| `when did she start ART?`, then Enter | Query results, where ChartSearch answers the question, when ChartSearch's app is installed and the user may use it. The bar's hint says so before Enter. Typing alone never asks. | Prototype |
 | `cd4`, `hb`, `latest weight`, `show vitals` | Latest values and dates for each matching concept, in the user's language. Choosing one from the list opens the results viewer. | Prototype |
 | `cd4`, then Enter | An expanded view of everything that matched, in the Query results section described below. | Prototype |
 | a name or ID | Other patients, listed below anything from this chart. | Prototype |
@@ -55,7 +55,7 @@ A chip with the patient's name sits in the field, so it's always clear whose rec
 Pressing Enter on a query, rather than choosing a suggestion, opens a new section of the patient chart called **Query results**. It sits in the left nav alongside the existing dashboards and shows an expanded view of the query in the main area of the page. *Status: Prototype, except where marked Planned below.*
 
 - **Enter submits; choosing opens.** Inside a chart, Enter sends what you typed to Query results, and a quiet line at the foot of the list says so ("Enter to see all results for 'cd4'"). Arrow to a row, or move the pointer onto one, and Enter opens that row instead, until you type again. A scanned ID is never sent to Query results: Enter opens the patient it finds, as before. The best match keeps its highlight as a cue. Outside a chart, Enter opens the highlighted row as before. *Provisional: a setting brings back "Enter opens the highlight" so both can be compared.*
-- **The view depends on the kind of question.** `cd4` shows every CD4 value with its date, newest first, with a small trend line. It shows only the concepts the query names, not a general results viewer. `when did he start ART?` also asks ChartSearch, and its answer streams into the page with its citations and any safety findings. The bar's hint says so before Enter ("…and ask ChartSearch"). Reloading the page, or coming back to it, doesn't ask again by itself; a button does. *Planned:* the medication timeline for that question, and for `blood pressure` the BP trend, the kind of query where the vitals header actually earns its space.
+- **The view depends on the kind of question.** `cd4` shows every CD4 value with its date, newest first, with a small trend line. It shows only the concepts the query names, not a general results viewer. `when did he start ART?` also asks ChartSearch, and its answer streams into the page with its citations and any safety findings. The answer section comes from ChartSearch's own app, and the bar's hint says so before Enter ("…and ask ChartSearch") whenever a view that declares `asksModel` is installed for the user. Reloading the page, or coming back to it, doesn't ask again by itself; a button does. *Planned:* the medication timeline for that question, and for `blood pressure` the BP trend, the kind of query where the vitals header actually earns its space.
 - **The patient stays unmistakable.** The patient banner stays at the top of the page. *Planned:* once it scrolls away, a condensed one-line version takes its place, and the omnibar's chip shows a second identifier next to the patient's name, so the record being queried is always on screen.
 - **The left nav stays visible.** Query results is one section among the dashboards, so the rest of the chart is always a click away. The URL (`/patient/<uuid>/chart/query-results?q=cd4`) means the back button and bookmarks work.
 - **This visit's questions are kept, per patient.** Query results lists the questions asked about this patient during the current session. Choosing one runs it again, so results are never stale. The list never appears in another patient's chart, and it clears at logout, which matters on the shared workstations common in OpenMRS settings.
@@ -64,11 +64,11 @@ Pressing Enter on a query, rather than choosing a suggestion, opens a new sectio
 
 ### Slash commands
 
-Typing `/` starts a command, which states the type of query up front instead of leaving the omnibar to infer it. Pressing `/` anywhere opens the omnibar already in command mode; Ctrl K opens it for plain text. Commands are optional, and plain text always works. *Status: built in the bar for `/patient`, `/lab`, `/go` and `/ask`. Query results doesn't read the command yet: until it does, Enter under `/lab` or `/ask` shows every section, as for plain text.*
+Typing `/` starts a command, which states the type of query up front instead of leaving the omnibar to infer it. Pressing `/` anywhere opens the omnibar already in command mode; Ctrl K opens it for plain text. Commands are optional, and plain text always works. *Status: built in the bar for `/patient`, `/lab` and `/go`. `/ask` was declared only by the bar's ChartSearch row, which ChartSearch step 3 removed, so it isn't a command until Paul decides who declares it (see [`docs/decisions.md`](docs/decisions.md), Open). Query results doesn't read the command yet: until it does, Enter under `/lab` shows every section, as for plain text.*
 
 | The user types | What it means |
 | --- | --- |
-| `/ask when did he start ART?` | A question for ChartSearch, rather than something to look up. Enter asks it on Query results; the row in the list opens ChartSearch's side panel with it filled in. |
+| `/ask when did he start ART?` | A question for ChartSearch, rather than something to look up. Enter asks it on Query results. *Not available for now: no installed provider declares `ask`.* |
 | `/lab cd4` | CD4 as a lab result, never a patient whose name matches. |
 | `/cohort over 40 on ART` | A population question, even when typed inside a chart. |
 | `/go ward` | Open a page. |
@@ -106,7 +106,7 @@ Rule 1 is a convention set by the contract's shape, not a sandbox: a provider is
 
 ### The provider contract
 
-This is contract version 1. Everything another app needs is in [`src/omnibar-contract/`](src/omnibar-contract/): the types, `withProviderBoundary`, `looksLikeIdentifier`, `isServerUnreachable` and `OMNIBAR_CONTRACT_VERSION`. Apps copy that folder as it is. The full contract, including versioning, dedupe, the order registry and what the host guards against, is in [`docs/design/omnibar-provider-contract.md`](docs/design/omnibar-provider-contract.md). The core of it:
+This is contract version 1. Everything another app needs is in [`src/omnibar-contract/`](src/omnibar-contract/): the types, `withProviderBoundary`, `withViewBoundary`, `looksLikeIdentifier`, `looksLikeQuestion`, `isServerUnreachable` and `OMNIBAR_CONTRACT_VERSION`. Apps copy that folder as it is. The full contract, including versioning, dedupe, the order registry and what the host guards against, is in [`docs/design/omnibar-provider-contract.md`](docs/design/omnibar-provider-contract.md). The core of it:
 
 ```ts
 type OmnibarScope = 'global' | 'patient';
@@ -166,8 +166,8 @@ After a selection the shell fires `openmrs:omnibar-selected` on `window` with th
 - Any alias resolves to the id. The chip shows the command's label in the user's language, whichever alias was typed.
 - URLs carry the id, not the alias (`?cmd=lab&q=cd4`), so a bookmarked query works in any language.
 - When a command is given, only the providers that declare it run, and they learn which from `context.command`. More than one provider can declare the same command: chart lookup and the query store provider both answer `/lab`. The default highlight, dedupe and the fail-closed rules are the same as for plain text.
-- Inside a chart, Enter under a command sends it to Query results when a view there declares it, as the chart values view declares `lab` and the Ask ChartSearch view `ask`; otherwise Enter opens the highlighted row. An ID-shaped query, or a row the user arrowed to, opens as for plain text.
-- *Next:* under a command only the Query results views that declare it mount, so `/lab` can never bring up the view that asks a model. Until then, only a plain query or `/ask` lets that view ask on its own.
+- Inside a chart, Enter under a command sends it to Query results when a view there declares it, as the chart values view declares `lab`; otherwise Enter opens the highlighted row. An ID-shaped query, or a row the user arrowed to, opens as for plain text.
+- *Next:* under a command only the Query results views that declare it mount, so `/lab` can never bring up the view that asks a model. Until then, only a plain query, or `ask` from a provider that declares it, lets a view ask on its own.
 - If the same alias is claimed for two different commands, one set in config wins, then the first provider in slot order, and the conflict is logged and returned by `getOmnibarCommandConflicts()` rather than silently shadowed.
 
 The `commands` config adds, replaces or disables aliases by id:
@@ -177,7 +177,7 @@ The `commands` config adds, replaces or disables aliases by id:
   "commands": [
     { "id": "lab", "aliases": ["vl", "viral"] },
     { "id": "go", "aliases": ["nav"], "replaceAliases": true },
-    { "id": "ask", "enabled": false }
+    { "id": "patient", "enabled": false }
   ]
 }
 ```
@@ -191,7 +191,6 @@ These live in this repo as defaults for now. See [`src/routes.json`](src/routes.
 | Patient search | record | global, patient | REST `/patient?q=`; recents from the `patientsVisited` user property; photos from REST `/obs`, once per patient |
 | Chart lookup | record | patient | REST `/concept?q=` (names and synonyms in the user's locale) on the query without filler words such as "latest" or "show", a concept set standing for its members, then FHIR `Observation/$lastn` (latest value per concept) |
 | Destinations | navigate | global, patient | Config: label, path, keywords, optional privilege |
-| ChartSearch suggestion | navigate | patient | Local question heuristic; opens a registered workspace |
 | Query store chart | record | patient | Query store REST: `/querystore/patient/{uuid}/search` (keyword mode, one row per concept) while typing, `/recent` for an empty field. Off unless `chartLookup.source` is `querystore` or `both` |
 
 The query store chart provider is built in on purpose, although the light-omnibar rule would normally put it in the query store's own app. The query store has no frontend app, and this provider serves the same chart values as chart lookup, beside it rather than replacing it. It should move if the query store gains other frontend consumers. See [`docs/decisions.md`](docs/decisions.md).
@@ -201,12 +200,13 @@ The built-in Query results views, in `omnibar-query-results-slot`:
 | View | Order | Data source |
 | --- | --- | --- |
 | Chart values | 10 | Chart lookup's concept search and `$lastn`, then FHIR `Observation?code=<concept>&_sort=-date` for each concept the query names |
-| Ask ChartSearch | 100 | ChartSearch's `POST /chartsearchai/search/stream`, for a question the user just submitted, or when they press Ask on a reopened page. Built here for now; it belongs in ChartSearch's app (see [`docs/decisions.md`](docs/decisions.md)) |
+
+ChartSearch's answer section is a view in the same slot at order 100, registered from ChartSearch's own app (`chartsearch-query-results-view`, with `asksModel: "ChartSearch"`). Without that app, or without its privilege, the page simply has no answer section. See [`docs/decisions.md`](docs/decisions.md).
 
 Inside a chart, chart lookup comes first and patient search drops to "Other patients". When a server can't be reached, a group shrinks to its heading and "Unavailable right now"; any other failure shows "Couldn't load results".
 
 - **Patient photos** load only from links on this server with the exact shape the server writes for a photo, so a stored link can't make every search contact another server. The detail, and why rows don't use the styleguide's `PatientPhoto` yet, is in [`docs/design/patient-row-photos.md`](docs/design/patient-row-photos.md).
-- **The Ask ChartSearch row** appears only for question-like input, only for users with `AI Query Patient Data`, and only while ChartSearch's side panel is already open for this patient. Choosing it opens ChartSearch with the question filled in; the bar never sends a ChartSearch request itself. The Query results page does, for a question the user submitted with Enter. When it appears, the upstream patches it relies on and how to configure it are in [`docs/design/chartsearch-row.md`](docs/design/chartsearch-row.md).
+- **The "and ask ChartSearch" hint** appears only for a question-like query, and only when a Query results view that declares `asksModel` is assigned to the user and not skipped for the query. Under a command chip such as `/lab` it never appears, because Enter there doesn't mark the query as asked. The bar never sends a model request itself; ChartSearch's view on the Query results page does, for a question the user submitted with Enter.
 
 The full design, including how O3's current search works and why each decision was made, is in [`docs/design/omnibar-concept.md`](docs/design/omnibar-concept.md).
 
@@ -251,16 +251,6 @@ To keep today's collapsed magnifier instead of a visible field:
 
 In either mode, the control that starts a search carries `data-tutorial-target="search-patient-icon"`, so existing onboarding tutorials still point at the right thing.
 
-The Ask ChartSearch row is on by default. To hide it:
-
-```json
-{
-  "@openmrs/esm-omnibar-app": { "chartSearchSuggestion": { "enabled": false } }
-}
-```
-
-Its other settings are described in [`docs/design/chartsearch-row.md`](docs/design/chartsearch-row.md).
-
 Inside a chart, Enter opens Query results for what was typed. To compare it with the earlier behaviour, where Enter opens the highlighted row:
 
 ```json
@@ -269,7 +259,9 @@ Inside a chart, Enter opens Query results for what was typed. To compare it with
 }
 ```
 
-`queryResults.askChartSearch: false` removes the Ask ChartSearch section from the page, and `queryResults.maxValuesPerConcept` (default 50) sets how many values each chart value shows.
+`queryResults.maxValuesPerConcept` (default 50) sets how many values each chart value shows. `queryResults.questionMinWords` (default 3, a whole number of at least 2) is how many words make a query a question when it has no question word or question mark; the page passes the result to its views as `hints.looksLikeQuestion`, and the bar uses it for the "and ask …" hint.
+
+ChartSearch's answer section is configured in ChartSearch's app (`queryResultsAnswer.enabled`), or removed from the page with slot config: `"omnibar-query-results-slot": { "remove": ["chartsearch-query-results-view"] }`. `chartSearchSuggestion.*` and `queryResults.askChartSearch` are deprecated and have no effect; they stay in the schema for one release so an existing config still validates, then go.
 
 ### Writing a provider
 
@@ -311,7 +303,7 @@ It registers in its own `routes.json`, where `meta` declares the lane, the scope
 
 Copy [`src/omnibar-contract/`](src/omnibar-contract/) into the app for the types and `withProviderBoundary`, and wrap the provider in it in `index.ts`. Copy it again only when the omnibar bumps the contract version. Pick an order from the [registry](docs/design/omnibar-provider-contract.md#order-registry).
 
-ChartSearch uses the same provider contract. Its provider reports a workspace target and never calls the model.
+ChartSearch uses the same contract from its own app, as a Query results view rather than a provider: it calls its model only for a question the user submitted, and declares `asksModel` so the bar's hint can say so first.
 
 ### Developing
 
@@ -333,8 +325,8 @@ The aim is to prove this outside core and then bring it to the OpenMRS community
 1. ~~Run the prototype in a dev distribution and fix what the live system shows.~~ Running at [o3.pgb.md](https://o3.pgb.md/openmrs/spa); first live fixes are in.
 2. Take it to the patient-management squad, with patient search as the first provider and the `appearance` option ready.
 3. Add a dedicated centre slot to the navbar in esm-primary-navigation-app, since `top-nav-actions-slot` is crowded.
-4. Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.
-5. ~~Add the Query results section.~~ A first prototype is built: Enter submits the query, and views in `omnibar-query-results-slot` fill the page, starting with chart values and Ask ChartSearch. Still to do, in the patient chart: a condensed sticky patient banner, and showing the vitals header only where it's relevant. The Ask ChartSearch view should move into ChartSearch's own app.
+4. ~~Apply the ChartSearch workspace patch in a distribution and verify the prefilled handoff live.~~ Retired: the bar's ChartSearch row is gone, and ChartSearch answers on Query results instead.
+5. ~~Add the Query results section.~~ A first prototype is built: Enter submits the query, and views in `omnibar-query-results-slot` fill the page, starting with chart values and ChartSearch's answer. Still to do, in the patient chart: a condensed sticky patient banner, and showing the vitals header only where it's relevant. The answer section has moved into ChartSearch's own app.
 6. Add slash commands, starting with English names and designed for localized and custom aliases. The bar side is built (see [`docs/design/slash-commands.md`](docs/design/slash-commands.md)); next is the thin Query results slice, where the page reads the command and mounts only the views that declare it.
 7. Use the query store for chart lookups. A query store chart provider, with warming on chart open, is built in and off by default: `chartLookup.source` set to `querystore` replaces chart lookup, and `both` shows the two side by side. Next is trying it live.
 8. Add cohort questions from the Cohort Builder's own app, which needs it to accept a query definition by URL. The first attempt, `feat/cohort-omnibar`, is retired and kept as history; see the [provider registration plan](docs/design/provider-registration.md).

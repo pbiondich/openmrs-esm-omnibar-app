@@ -85,7 +85,7 @@ Built-in declarations:
 | Chart lookup | `lab` | lab, labs, results, obs, value | As today |
 | Query store chart | `lab` | (shares chart lookup's) | As today; recents on an empty query |
 | Destinations | `go` | go, open, page | As today |
-| ChartSearch suggestion | `ask` | ask, question | Offers the side-panel row for any non-empty text, skipping the question heuristic (`chartSearchSuggestion.minWords`, question words, `?`) |
+| ~~ChartSearch suggestion~~ | `ask` | ask, question | *Removed in ChartSearch step 3 with the bar's ChartSearch row, so no built-in provider declares `ask` and `/ask` isn't a command for now. Who declares it is an open question in [`decisions.md`](../decisions.md).* It offered the side-panel row for any non-empty text, skipping the question heuristic |
 
 The README's `/cohort` and `/help` have no providers yet. They appear when the Cohort Builder and a knowledge-base app declare them from their own `routes.json`; nothing in this repo names them.
 
@@ -97,7 +97,7 @@ The README promised that URLs carry the id, and Enter now submits to Query resul
 
 **URL.** `/patient/<uuid>/chart/query-results?cmd=lab&q=cd4`. `cmd` is the id, so a bookmark works in any language. A plain query has no `cmd`.
 
-**Views declare commands too.** `OmnibarViewMeta.command?: { id: string }` (aliases on a view are ignored; the bar owns aliases). With `cmd` set, only views declaring that id mount. Views with no `command` mount only for plain queries. Built in: the chart values view declares `lab`; the Ask ChartSearch view declares `ask`. This is a safety property as much as a filter: under `/lab` the model-calling view is never mounted, so a command can't cause a model call the clinician didn't ask for.
+**Views declare commands too.** `OmnibarViewMeta.command?: { id: string }` (aliases on a view are ignored; the bar owns aliases). With `cmd` set, only views declaring that id mount. Views with no `command` mount only for plain queries. Built in: the chart values view declares `lab`. The Ask ChartSearch view, which declared `ask`, moved into ChartSearch's own app in step 3. This is a safety property as much as a filter: under `/lab` the model-calling view is never mounted, so a command can't cause a model call the clinician didn't ask for.
 
 **Unknown or disabled `cmd`.** If the id matches no view this user can see (a bookmark from another site, a disabled command, garbage), the page fails closed: it shows the query, says "That command isn't available here", and offers one link that re-runs the text as a plain query. It never silently runs a different set of views.
 
