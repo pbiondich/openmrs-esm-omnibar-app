@@ -288,7 +288,7 @@ The host ranks by lane, then by `order`. Now that several apps pick numbers, thi
 | Order | Use |
 | --- | --- |
 | 10 | Core record providers: patients, chart values in a chart. Destinations in the navigate lane |
-| 15 | Querystore chart search (record lane, after the REST chart values) |
+| 15 | Querystore chart search (record lane, after the REST chart values), from the query store app in `packages/esm-querystore-app/` |
 | 20-50 | Cohort Builder: count 20 (`omnibar-cohort-count-provider`, which replaced the "Build cohort" criteria row), builder 30, saved cohorts 40, saved queries 50. All navigate lane, global scope |
 | 100 | ChartSearch's answer section (Query results view, registered from ChartSearch's app) |
 
@@ -299,7 +299,7 @@ Command ids, like dedupe keys, are shared across apps. Register new ones here.
 | Id | Default aliases | Providers | Views |
 | --- | --- | --- | --- |
 | `patient` | patient, pt, find | Patient search | none |
-| `lab` | lab, labs, results, obs, value | Chart lookup, query store chart | Chart values |
+| `lab` | lab, labs, results, obs, value | Chart lookup, query store chart (from its own app) | Chart values |
 | `go` | go, open, page | Destinations | none |
 | `ask` | ask, question | None | ChartSearch's answer view (`chartsearch-query-results-view`, from its own app), which declares the command with its aliases and translations and sets `commandAsksModel`. Without it, `/ask` is absent |
 | `cohort` | cohort, count | The Cohort Builder's count row (`omnibar-cohort-count-provider`, from its own app), global scope only. Inside a chart, or without that app or its privileges, `/cohort` is absent | none |
