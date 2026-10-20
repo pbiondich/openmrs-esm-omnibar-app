@@ -6,7 +6,11 @@ A contextually-aware “omnibar” for OpenMRS 3: one always-visible field where
 
 To illustrate how other O3 ESM apps plug in, I've adapted three of them on my own forks and branches, as worked examples of the contract rather than finished features: the [Cohort Builder](https://github.com/pbiondich/openmrs-esm-cohortbuilder-app) answers population questions with a count row, [ChartSearch](https://github.com/pbiondich/openmrs-esm-chartsearchai) answers clinical questions on the Query results page, and a [super simple results viewer leveraging query store](https://github.com/pbiondich/openmrs-esm-querystore-app) looks up chart values from an index. Each registers a provider or a view from its own `routes.json`; none of it is upstream yet, and the omnibar itself is naive to all of them.
 
-<!-- Add a short screen recording here once you get around to it :) -->
+## Demo
+
+[Watch the walkthrough](docs/media/demo.mp4) (59 seconds). The same cut is a [GIF](docs/media/demo.gif), and the shot list is in [docs/media/demo-script.md](docs/media/demo-script.md).
+
+[![Omnibar walkthrough on o3.pgb.md](docs/media/demo.gif)](docs/media/demo.mp4)
 
 ## Why
 
