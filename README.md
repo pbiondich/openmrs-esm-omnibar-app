@@ -10,7 +10,7 @@ To illustrate how other O3 ESM apps plug in, I've adapted three of them on my ow
 
 [Watch the walkthrough](docs/media/demo.mp4) (59 seconds). The same cut is a [GIF](docs/media/demo.gif), and the shot list is in [docs/media/demo-script.md](docs/media/demo-script.md).
 
-![Temperature results for Cyncia Mansoor Amsei](docs/media/demo-poster.png)
+[![Omnibar walkthrough on o3.pgb.md](docs/media/demo.gif)](docs/media/demo.mp4)
 
 ## Why
 
