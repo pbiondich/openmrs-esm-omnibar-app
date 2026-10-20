@@ -1,6 +1,6 @@
 # Demo script
 
-Recorded on the live sandbox at [o3.pgb.md](https://o3.pgb.md/openmrs/spa), location Outpatient Clinic. Read only: no cohort was saved and no form was submitted. The cut is `docs/media/demo.mp4` (61 seconds). Login is not in the recording.
+Recorded on the live sandbox at [o3.pgb.md](https://o3.pgb.md/openmrs/spa), location Outpatient Clinic. Read only: no cohort was saved and no form was submitted. The cut is `docs/media/demo.mp4` (59 seconds). Login is not in the recording.
 
 Versions at record time, from `/openmrs/spa/importmap.json`:
 
